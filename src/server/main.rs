@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use bson::{doc, Document};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -12,22 +13,82 @@ pub struct MsgHeader {
   op_code: u32,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct OpMsgSection {
+  kind: u8,
+  // identifier: u32,
+  documents: Vec<Document>,
+}
+
+#[derive(Debug)]
+pub struct OpMsg {
+  header: MsgHeader,
+  flags: u32,
+  checksum: u32,
+  sections: Vec<OpMsgSection>,
+}
+
+fn parse_op_msg(data: &[u8]) -> OpMsg {
+  let mut rdr = Cursor::new(&data);
+  let header = MsgHeader {
+    message_length: rdr.read_u32::<LittleEndian>().unwrap(),
+    request_id: rdr.read_u32::<LittleEndian>().unwrap(),
+    respose_to: rdr.read_u32::<LittleEndian>().unwrap(),
+    op_code: rdr.read_u32::<LittleEndian>().unwrap(),
+  };
+  println!("{:?}", header);
+  let size = header.message_length as usize - 16;
+  let mut body = vec![0; size];
+  rdr.read_exact(&mut body).unwrap();
+  println!("{:?}", body);
+
+  match header.op_code {
+    2013 => {
+      let mut rdr = Cursor::new(&body);
+      let flags = rdr.read_u32::<LittleEndian>().unwrap();
+      println!("Flags: {:?}", flags);
+
+      println!("POS: {:?} LEN: {:?}", rdr.position(), rdr.get_ref().len());
+      let kind = rdr.read_u8().unwrap();
+      println!("Kind: {:?}", kind);
+
+      let mut sections = vec![];
+      // while rdr.position() < rdr.get_ref().len().try_into().unwrap() {
+      let doc_rdr = rdr.clone();
+      let doc = Document::from_reader(doc_rdr).unwrap();
+      println!("Doc: {:?}", doc);
+
+      let new_pos = usize::try_from(rdr.position()).unwrap() + doc.len();
+      rdr.set_position(new_pos.try_into().unwrap());
+
+      let documents = vec![doc];
+      sections.push(OpMsgSection { kind, documents });
+      // }
+      let checksum = rdr.read_u32::<LittleEndian>().unwrap();
+      println!("Checksum: {:?}", checksum);
+      OpMsg {
+        header,
+        flags,
+        checksum,
+        sections,
+      }
+    }
+    _ => OpMsg {
+      header,
+      flags: 0,
+      checksum: 0,
+      sections: vec![],
+    },
+  }
+}
+
 fn handle_client(mut stream: TcpStream) {
   let mut data = [0; 1024];
   while match stream.read(&mut data) {
     Ok(size) => {
-      let mut rdr = Cursor::new(&data[..size]);
-      let header = MsgHeader {
-        message_length: rdr.read_u32::<LittleEndian>().unwrap(),
-        request_id: rdr.read_u32::<LittleEndian>().unwrap(),
-        respose_to: rdr.read_u32::<LittleEndian>().unwrap(),
-        op_code: rdr.read_u32::<LittleEndian>().unwrap(),
-      };
-      println!("{:?}", header);
-      let size = header.message_length as usize - 16;
-      let mut body = vec![0; size];
-      rdr.read_exact(&mut body).unwrap();
-      println!("{:?}", body);
+      let op_msg = parse_op_msg(&data[..size]);
+
+      println!("{:?}", op_msg);
       panic!("Ended");
       // true
     }
