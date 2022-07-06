@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_DOCUMENT_LEN: u32 = 16777216;
 const MAX_MSG_LEN: u32 = 48000000;
 
-pub fn handle(msg: OpMsg) -> Result<Vec<u8>, UnknownCommandError> {
+pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandError> {
   match route(&msg) {
     Ok(doc) => {
       let bson_vec = ser::to_vec(&doc).unwrap();
@@ -17,15 +17,17 @@ pub fn handle(msg: OpMsg) -> Result<Vec<u8>, UnknownCommandError> {
       let header = &msg.header;
       let message_size = HEADER_SIZE + 5 + bson_data.len() as u32;
 
-      // println!("message_size: {}", message_size);
+      println!(
+        "*** Response: msgsize={} requestid={} responseto={} opcode={}",
+        message_size, request_id, header.request_id, header.op_code
+      );
+      println!("*** Response document: {:?}", doc);
 
       // header
       res_data.write_u32::<LittleEndian>(message_size).unwrap();
+      res_data.write_u32::<LittleEndian>(request_id).unwrap();
       res_data
         .write_u32::<LittleEndian>(header.request_id)
-        .unwrap();
-      res_data
-        .write_u32::<LittleEndian>(header.response_to)
         .unwrap();
       res_data.write_u32::<LittleEndian>(header.op_code).unwrap();
 

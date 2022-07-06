@@ -12,6 +12,7 @@ name = "server"
 path = "src/main.rs"
 
 [dependencies]
+autoincrement = {version = "1", features = ["derive", "async"]}
 bson = {version = "2.3.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
 chrono = "0.4"
