@@ -9,7 +9,7 @@ path = "src/client/main.rs"
 
 [[bin]]
 name = "server"
-path = "src/server/main.rs"
+path = "src/main.rs"
 
 [dependencies]
 bson = {version = "2.3.0", features = ["chrono-0_4"]}

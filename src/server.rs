@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-use pretty_hex::*;
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use pretty_hex::*;
 use std::io::{Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
@@ -9,13 +9,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const OP_MSG: u32 = 2013;
 const OP_QUERY: u32 = 2004;
-const MAX_DOCUMENT_LEN: u32 = 16777216;
-const MAX_MSG_LEN: u32 = 48000000;
 
 #[derive(Debug, Clone)]
 struct UnknownCommandError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MsgHeader {
   message_length: u32,
   request_id: u32,
@@ -119,6 +117,7 @@ fn handle(msg: OpMsg) -> Result<Document, UnknownCommandError> {
 
 fn handle_client(id: u32, mut stream: TcpStream) {
   let mut data = [0; 1024];
+
   while match stream.read(&mut data) {
     Ok(size) => {
       if size < 1 {
@@ -158,6 +157,11 @@ fn handle_client(id: u32, mut stream: TcpStream) {
         .write_u32::<LittleEndian>(res_header.op_code)
         .unwrap();
 
+      let size = bson_data.len() + 4;
+      res_data
+        .write_u32::<LittleEndian>(size.try_into().unwrap())
+        .unwrap();
+      res_data.write_all(&vec![0]).unwrap();
       res_data.write_all(bson_data).unwrap();
 
       println!("{}", pretty_hex(&res_data));
