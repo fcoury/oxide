@@ -3,7 +3,6 @@ edition = "2021"
 name = "oxide"
 version = "0.1.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [[bin]]
 name = "client"
 path = "src/client/main.rs"
@@ -18,5 +17,6 @@ byteorder = "1.4.3"
 chrono = "0.4"
 clap = {version = "3.0", features = ["derive"]}
 mongodb = "2.1"
+pretty-hex = "0.3.0"
 serde = "1"
 tokio = "1"

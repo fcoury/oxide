@@ -1,0 +1,66 @@
+Length: 181 (0xb5) bytes
+0000:   b5 00 00 00  02 00 00 00  00 00 00 00  dd 07 00 00   ................
+0010:   a5 00 00 00  08 69 73 6d  61 73 74 65  72 00 01 10   .....ismaster...
+0020:   6d 61 78 42  73 6f 6e 4f  62 6a 65 63  74 53 69 7a   maxBsonObjectSiz
+0030:   65 00 00 00  00 01 10 6d  61 78 4d 65  73 73 61 67   e......maxMessag
+0040:   65 53 69 7a  65 42 79 74  65 73 00 00  6c dc 02 10   eSizeBytes..l...
+0050:   6d 61 78 57  72 69 74 65  42 61 74 63  68 53 69 7a   maxWriteBatchSiz
+0060:   65 00 a0 86  01 00 12 6c  6f 63 61 6c  54 69 6d 65   e......localTime
+0070:   00 d6 4e 10  d4 81 01 00  00 10 6d 69  6e 57 69 72   ..N.......minWir
+0080:   65 56 65 72  73 69 6f 6e  00 00 00 00  00 10 6d 61   eVersion......ma
+0090:   78 57 69 72  65 56 65 72  73 69 6f 6e  00 0d 00 00   xWireVersion....
+00a0:   00 08 72 65  61 64 4f 6e  6c 79 00 00  10 6f 6b 00   ..readOnly...ok.
+00b0:   01 00 00 00  00                                      .....
+
+0000:   b5 00 00 00  02 00 00 00  00 00 00 00  dd 07 00 00   ................
+0010:   a5 00 00 00  08 69 73 6d  61 73 74 65  72 00 01 10   .....ismaster...
+0020:   6d 61 78 42  73 6f 6e 4f  62 6a 65 63  74 53 69 7a   maxBsonObjectSiz
+0030:   65 00 00 00  00 01 10 6d  61 78 4d 65  73 73 61 67   e......maxMessag
+0040:   65 53 69 7a  65 42 79 74  65 73 00 00  6c dc 02 10   eSizeBytes..l...
+0050:   6d 61 78 57  72 69 74 65  42 61 74 63  68 53 69 7a   maxWriteBatchSiz
+0060:   65 00 a0 86  01 00 12 6c  6f 63 61 6c  54 69 6d 65   e......localTime
+0070:   00 cd 50 10  d4 81 01 00  00 10 6d 69  6e 57 69 72   ..P.......minWir
+0080:   65 56 65 72  73 69 6f 6e  00 00 00 00  00 10 6d 61   eVersion......ma
+0090:   78 57 69 72  65 56 65 72  73 69 6f 6e  00 0d 00 00   xWireVersion....
+00a0:   00 08 72 65  61 64 4f 6e  6c 79 00 00  10 6f 6b 00   ..readOnly...ok.
+00b0:   01 00 00 00  00                                      .....
+
+
+
+Message Length = 181 bytes = 0xb5   (Little Endian b5 00 00 00)
+Request Id     = 2         = 0x02   (Little Endian 02 00 00 00)
+Response To    = 0         = 0x00   (Little Endian 00 00 00 00)
+OpCode         = 2013      = 0x07dd (Little Endian dd 07 00 00)
+
+BSON Doc Size  = 165 bytes = 0xa5   (Little Endian a5 00 00 00)
+Type Boolean   = 0x08 -
+  69 73 6d 61 73 74 65 72 00 = ismaster + 0x00
+  01                         = boolean true (0x01)
+Type int32     = 0x10 -
+  6d 61 78 42  73 6f 6e 4f  62 6a 65 63  74 53 69 7a 65 00 = maxBsonObjectSize + 0x00  
+  00 00 00 01                                              = 0x01 00 00 00 = 16777216
+Type int32     = 0x10 -
+  6d 61 78 4d  65 73 73 61 67  65 53 69 7a 65 42  79 74 65 73 00 = maxMessagesBytes + 0x00
+  00 6c dc 02                                                    = 0x00 6c dc 02 = 48000000
+Type int32     = 0x10 -
+  6d 61 78 57  72 69 74 65  42 61 74 63  68 53 69 7a 65 00 = maxWriteBatchSize + 0x00
+  a0 86 01 00                                                    = 0xa0 86 01 00 = 100000
+Type int64     = 0x12 -
+  6c 6f 63 61  6c 54 69 6d  65 00 = localTime + 0x00
+  cd 50 10 d4  81 01 00 00        = 1657120248013
+Type int32     = 0x10 -
+  6d 69 6e 57  69 72 65 56  65 72 73  69 6f 6e 00 = minWireVersion + 0x00
+  00 00 00 00                                     = 0x00 00 00 00 = 0
+Type int32    = 0x10 -
+  78 57 69 72  65 56 65 72  73 69 6f 6e  00 = maxWireVersion + 0x00
+  0d 00 00 00                                      = 0x0d 00 00 00 = 13
+Type Boolean  = 0x08 -
+  72 65 61 64  4f 6e 6c 79  00 = readOnly + 0x00
+  00                           = boolean false (0x00)
+Type int32     = 0x10 -
+  6f 6b 00 01 00 00 00 00                 = ok + 0x00
+  01 00 00 00                             = 0x01 00 00 00 = 1
+
+Document end   = 0x00
+
+

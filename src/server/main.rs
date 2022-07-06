@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use pretty_hex::*;
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read, Write};
@@ -101,15 +102,15 @@ fn handle(msg: OpMsg) -> Result<Document, UnknownCommandError> {
       .unwrap()
       .as_millis();
     Ok(doc! {
-      "ismaster": true,
+      "ismaster": Bson::Boolean(true),
       "maxBsonObjectSize": MAX_DOCUMENT_LEN,
       "maxMessageSizeBytes": MAX_MSG_LEN,
       "maxWriteBatchSize": 100000,
       "localTime": Bson::Int64(local_time.try_into().unwrap()),
       "minWireVersion": 0,
       "maxWireVersion": 13,
-      "readOnly": false,
-      "ok": 1
+      "readOnly": Bson::Boolean(false),
+      "ok": Bson::Double(1.0)
     })
   } else {
     Err(UnknownCommandError)
@@ -129,9 +130,8 @@ fn handle_client(id: u32, mut stream: TcpStream) {
       let response_to = op_msg.header.request_id;
       let op_code = op_msg.header.op_code;
       let reply_doc = handle(op_msg).unwrap();
-
-      let bson = bson::to_bson(&reply_doc).unwrap();
-      let bson_vec = ser::to_vec(&bson).unwrap();
+      let bson_vec = ser::to_vec(&reply_doc).unwrap();
+      println!(" *** RAW =\n {}", pretty_hex(&bson_vec));
       let bson_data: &[u8] = &bson_vec;
 
       println!("reply_doc size = {:?}", bson_data.len());
@@ -160,7 +160,7 @@ fn handle_client(id: u32, mut stream: TcpStream) {
 
       res_data.write_all(bson_data).unwrap();
 
-      println!("data = {:x?}", res_data);
+      println!("{}", pretty_hex(&res_data));
 
       stream.write_all(&res_data).unwrap();
       stream.flush().unwrap();
