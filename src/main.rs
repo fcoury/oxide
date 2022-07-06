@@ -7,6 +7,7 @@ use std::net::Shutdown;
 use std::net::TcpListener;
 use std::net::TcpStream;
 
+mod commands;
 mod handler;
 mod wire;
 
@@ -21,9 +22,6 @@ fn main() {
   for stream in listener.incoming() {
     let stream = stream.unwrap();
     let id = generator.pull();
-
-    // stream.set_nodelay(true).unwrap();
-    // stream.set_ttl(250).expect("set_ttl failed");
 
     pool.execute(|| {
       handle_connection(stream, id);

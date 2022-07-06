@@ -1,8 +1,9 @@
+use crate::commands::{Handler, IsMaster, ListDatabases};
 use crate::wire::{OpMsg, UnknownCommandError, HEADER_SIZE};
-use bson::{doc, ser, Bson, Document};
+use bson::{ser, Document};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
+// use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_DOCUMENT_LEN: u32 = 16777216;
 const MAX_MSG_LEN: u32 = 48000000;
@@ -52,34 +53,9 @@ fn route(msg: &OpMsg) -> Result<Document, UnknownCommandError> {
   let command = doc.keys().next().unwrap();
   println!("*** Command: {}", command);
   if command == "isMaster" {
-    let local_time = SystemTime::now()
-      .duration_since(UNIX_EPOCH)
-      .unwrap()
-      .as_millis();
-    Ok(doc! {
-      "ismaster": Bson::Boolean(true),
-      "maxBsonObjectSize": MAX_DOCUMENT_LEN,
-      "maxMessageSizeBytes": MAX_MSG_LEN,
-      "maxWriteBatchSize": 100000,
-      "localTime": Bson::Int64(local_time.try_into().unwrap()),
-      "minWireVersion": 0,
-      "maxWireVersion": 13,
-      "readOnly": Bson::Boolean(false),
-      "ok": Bson::Double(1.0)
-    })
+    IsMaster::new().handle(doc)
   } else if command == "listDatabases" {
-    let size = 1024 * 1024 * 1024;
-    let database = doc! {
-      "name": "mydb",
-      "sizeOnDisk": Bson::Int64(size),
-      "empty": false,
-    };
-    Ok(doc! {
-      "databases": Bson::Array(vec![database.into()]),
-      "totalSize": Bson::Int64(size),
-      "totalSizeMb": Bson::Int64(size/1024/1024),
-      "ok": Bson::Double(1.0),
-    })
+    ListDatabases::new().handle(doc)
   } else {
     println!("Got unknown command: {}", command);
     Err(UnknownCommandError)

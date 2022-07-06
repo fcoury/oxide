@@ -4,10 +4,10 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use pretty_hex::*;
 use std::io::{Cursor, Read, Write};
 
-const OP_MSG: u32 = 2013;
-const OP_QUERY: u32 = 2004;
-const MAX_DOCUMENT_LEN: u32 = 16777216;
-const MAX_MSG_LEN: u32 = 48000000;
+pub const OP_MSG: u32 = 2013;
+pub const OP_QUERY: u32 = 2004;
+pub const MAX_DOCUMENT_LEN: u32 = 16777216;
+pub const MAX_MSG_LEN: u32 = 48000000;
 pub const HEADER_SIZE: u32 = 16;
 
 #[derive(Debug, Clone)]
