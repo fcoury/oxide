@@ -67,6 +67,19 @@ fn route(msg: &OpMsg) -> Result<Document, UnknownCommandError> {
       "readOnly": Bson::Boolean(false),
       "ok": Bson::Double(1.0)
     })
+  } else if command == "listDatabases" {
+    let size = 1024 * 1024 * 1024;
+    let database = doc! {
+      "name": "mydb",
+      "sizeOnDisk": Bson::Int64(size),
+      "empty": false,
+    };
+    Ok(doc! {
+      "databases": Bson::Array(vec![database.into()]),
+      "totalSize": Bson::Int64(size),
+      "totalSizeMb": Bson::Int64(size/1024/1024),
+      "ok": Bson::Double(1.0),
+    })
   } else {
     println!("Got unknown command: {}", command);
     Err(UnknownCommandError)
