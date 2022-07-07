@@ -123,7 +123,7 @@ fn handle_client(id: u32, mut stream: TcpStream) {
       if size < 1 {
         return;
       }
-      let op_msg = parse_op_msg(&data[..size]);
+      let op_msg = OpMsg::parse(&data[..size]);
       println!("[request] {:?}", op_msg);
       let request_id = id;
       let response_to = op_msg.header.request_id;

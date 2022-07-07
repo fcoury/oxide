@@ -36,52 +36,76 @@ pub struct OpMsg {
   pub checksum: u32,
 }
 
-pub fn parse_op_msg(data: &[u8]) -> OpMsg {
-  let mut rdr = Cursor::new(&data);
-  let message_length = rdr.read_u32::<LittleEndian>().unwrap();
-  let request_id = rdr.read_u32::<LittleEndian>().unwrap();
-  let response_to = rdr.read_u32::<LittleEndian>().unwrap();
-  let op_code = rdr.read_u32::<LittleEndian>().unwrap();
-
-  let header = MsgHeader {
-    message_length,
-    request_id,
-    response_to,
-    op_code,
-  };
-
-  let size = header.message_length as usize - 16;
-  let mut body = vec![0; size];
-  rdr.read_exact(&mut body).unwrap();
-
-  match header.op_code {
-    OP_MSG => {
-      let mut rdr = Cursor::new(&body);
-
-      let flags = rdr.read_u32::<LittleEndian>().unwrap();
-      let kind = rdr.read_u8().unwrap();
-
-      // FIXME We're only handling kind 0 - and it only has one document
-      let mut sections = vec![];
-
-      let doc = Document::from_reader(rdr).unwrap();
-      let documents = vec![doc];
-      sections.push(OpMsgSection { kind, documents });
-
-      let checksum = 0;
-      OpMsg {
-        header,
-        flags,
-        checksum,
-        sections,
-      }
-    }
-    _ => OpMsg {
-      header,
+impl OpMsg {
+  pub fn new_body_kind(doc: Document) -> OpMsg {
+    let bson_vec = ser::to_vec(&doc).unwrap();
+    let bson_data: &[u8] = &bson_vec;
+    let message_length = 16 + bson_data.len() as u32;
+    OpMsg {
+      header: MsgHeader {
+        message_length,
+        request_id: 0,
+        response_to: 0,
+        op_code: OP_MSG,
+      },
       flags: 0,
+      sections: vec![
+        OpMsgSection {
+          kind: 0,
+          documents: vec![doc],
+        },
+      ],
       checksum: 0,
-      sections: vec![],
-    },
+    }
+  }
+
+  pub fn parse(data: &[u8]) -> OpMsg {
+    let mut rdr = Cursor::new(&data);
+    let message_length = rdr.read_u32::<LittleEndian>().unwrap();
+    let request_id = rdr.read_u32::<LittleEndian>().unwrap();
+    let response_to = rdr.read_u32::<LittleEndian>().unwrap();
+    let op_code = rdr.read_u32::<LittleEndian>().unwrap();
+
+    let header = MsgHeader {
+      message_length,
+      request_id,
+      response_to,
+      op_code,
+    };
+
+    let size = header.message_length as usize - 16;
+    let mut body = vec![0; size];
+    rdr.read_exact(&mut body).unwrap();
+
+    match header.op_code {
+      OP_MSG => {
+        let mut rdr = Cursor::new(&body);
+
+        let flags = rdr.read_u32::<LittleEndian>().unwrap();
+        let kind = rdr.read_u8().unwrap();
+
+        // FIXME We're only handling kind 0 - and it only has one document
+        let mut sections = vec![];
+
+        let doc = Document::from_reader(rdr).unwrap();
+        let documents = vec![doc];
+        sections.push(OpMsgSection { kind, documents });
+
+        let checksum = 0;
+        OpMsg {
+          header,
+          flags,
+          checksum,
+          sections,
+        }
+      }
+      _ => OpMsg {
+        header,
+        flags: 0,
+        checksum: 0,
+        sections: vec![],
+      },
+    }
   }
 }
 
@@ -113,7 +137,7 @@ mod tests {
       .collect::<Vec<u8>>();
     res[0] = res.len() as u8;
 
-    let op_msg = parse_op_msg(&res);
+    let op_msg = OpMsg::parse(&res);
     println!("{:?}", op_msg);
     assert_eq!(op_msg.header.message_length, 47);
     assert_eq!(op_msg.header.request_id, 0);

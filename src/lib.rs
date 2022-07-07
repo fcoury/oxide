@@ -3,6 +3,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+mod commands;
+pub mod handler;
+pub mod wire;
+
 pub struct ThreadPool {
   workers: Vec<Worker>,
   sender: mpsc::Sender<Message>,

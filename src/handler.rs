@@ -4,9 +4,6 @@ use bson::{ser, Document};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
-const MAX_DOCUMENT_LEN: u32 = 16777216;
-const MAX_MSG_LEN: u32 = 48000000;
-
 pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandError> {
   match route(&msg) {
     Ok(doc) => {

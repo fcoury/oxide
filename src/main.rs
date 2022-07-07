@@ -40,7 +40,7 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
           "*** Accepted connection from {}...",
           stream.peer_addr().unwrap(),
         );
-        let op_msg = wire::parse_op_msg(&buffer);
+        let op_msg = wire::OpMsg::parse(&buffer);
         println!("*** Got message: {:?}", op_msg);
         let response = handler::handle(id.0, op_msg).unwrap();
         println!("*** Hex Dump:\n {}", pretty_hex(&response));
