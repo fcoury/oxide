@@ -18,6 +18,7 @@ byteorder = "1.4.3"
 chrono = "0.4"
 clap = {version = "3.0", features = ["derive"]}
 mongodb = "2.1"
+postgres = "0.19"
 pretty-hex = "0.3.0"
 serde = "1"
 tokio = "1"

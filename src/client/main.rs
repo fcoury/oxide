@@ -25,5 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("- {}", name);
     }
 
+    println!("\nDatabase infos:");
+    for db in client.list_databases(None, None).await? {
+        println!("- {:?}", db);
+    }
+
     Ok(())
 }

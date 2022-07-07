@@ -3,7 +3,6 @@ use crate::wire::{OpMsg, UnknownCommandError, HEADER_SIZE};
 use bson::{ser, Document};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
-// use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_DOCUMENT_LEN: u32 = 16777216;
 const MAX_MSG_LEN: u32 = 48000000;
