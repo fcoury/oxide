@@ -7,7 +7,7 @@ fn test_list_database() {
   let list_doc = doc!{
     "listDatabases": true,
   };
-  let msg = OpMsg::new_body_kind(list_doc);
+  let msg = OpMsg::new_with_body_kind(list_doc);
   let res = handle(1, msg).unwrap();
   let res_msg = OpMsg::parse(&res);
   assert_eq!(res_msg.header.op_code, OP_MSG);

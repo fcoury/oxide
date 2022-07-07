@@ -37,7 +37,7 @@ pub struct OpMsg {
 }
 
 impl OpMsg {
-  pub fn new_body_kind(doc: Document) -> OpMsg {
+  pub fn new_with_body_kind(doc: Document) -> OpMsg {
     let bson_vec = ser::to_vec(&doc).unwrap();
     let bson_data: &[u8] = &bson_vec;
     let message_length = 16 + bson_data.len() as u32;
