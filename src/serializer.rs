@@ -1,11 +1,5 @@
-use bson::{bson, Bson, JavaScriptCodeWithScope};
-use chrono::Utc;
+use bson::{Bson, JavaScriptCodeWithScope};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::{
-    convert::{TryFrom, TryInto},
-    fmt::{self, Debug, Display, Formatter},
-};
 
 // Intermediate representation of a document as it is stored on the database.
 //
@@ -30,12 +24,10 @@ impl PostgresSerializer for Bson {
                 if f.fract() == 0.0 {
                     s.push_str(".0");
                 }
-
                 json!({ "$f": s })
             }
             Bson::Double(f) if f == 0.0 => {
                 let s = if f.is_sign_negative() { "-0.0" } else { "0.0" };
-
                 json!({ "$f": s })
             }
             Bson::DateTime(date) => {
@@ -55,9 +47,7 @@ impl PostgresSerializer for Bson {
             Bson::RegularExpression(bson::Regex { pattern, options }) => {
                 let mut chars: Vec<_> = options.chars().collect();
                 chars.sort_unstable();
-
                 let options: String = chars.into_iter().collect();
-
                 json!({
                     "$r": pattern,
                     "o": options,
@@ -78,53 +68,81 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_string() {
+        let json = Bson::String("hello".into()).into_psql_json().to_string();
+        assert_eq!(r#""hello""#, json);
+    }
+
+    #[test]
+    fn test_parse_int32() {
+        let json = Bson::Int32(1).into_psql_json().to_string();
+        assert_eq!(r#"1"#, json);
+    }
+
+    #[test]
+    fn test_parse_int64() {
+        let json = Bson::Int64(1).into_psql_json().to_string();
+        assert_eq!(r#"{"$f":"1"}"#, json);
+    }
+
+    #[test]
     fn test_parse_float() {
-        // let doc = doc! { "a": Bson::Double(1.0) };
-        // let bson: Bson = doc.into();
-        // let json: Value = bson.into_psql_json();
         let json = Bson::Double(1.0).into_psql_json().to_string();
         assert_eq!(r#"{"$f":"1.0"}"#, json);
     }
 
     #[test]
-    fn test_parse_bson() {
-        let local_time = SystemTime::now()
+    fn test_parse_datetime() {
+        let date = chrono::DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").unwrap();
+        let time: u128 = SystemTime::from(date)
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
+        let json = Bson::DateTime(bson::DateTime::from_millis(time.try_into().unwrap()))
+            .into_psql_json()
+            .to_string();
+        assert_eq!(r#"{"$d":"851042397000"}"#, json);
+    }
 
-        let doc = doc! {
-          "float": Bson::Double(1.0),
-          "int": Bson::Int32(1),
-          "long": Bson::Int64(1),
-          "string": "hello",
-          "datetime": bson::DateTime::from_millis(local_time.try_into().unwrap()),
-          "objectId": Bson::ObjectId(bson::oid::ObjectId::new()),
-          "javascript": Bson::JavaScriptCode("function a() { return 'hey'; }".to_string()),
-          "javascriptScope": Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope{
+    #[test]
+    fn test_parse_object_id() {
+        let json =
+            Bson::ObjectId(bson::oid::ObjectId::parse_str("62c75f564f084cd855b6ac3f").unwrap())
+                .into_psql_json()
+                .to_string();
+        assert_eq!(r#"{"$o":"62c75f564f084cd855b6ac3f"}"#, json);
+    }
+
+    #[test]
+    fn test_parse_javascript() {
+        let json = Bson::JavaScriptCode("function a() { return 'hey'; }".to_string())
+            .into_psql_json()
+            .to_string();
+        assert_eq!(r#"{"$j":"function a() { return 'hey'; }"}"#, json);
+    }
+
+    #[test]
+    fn test_parse_javascript_with_scope() {
+        let json = Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope {
             code: "function a() { return 'hey'; }".to_string(),
             scope: doc! { "a": 1, "b": 2 },
-          }),
-          "object": doc! {
-            "a": 1,
-            "b": 2,
-          },
-        };
+        })
+        .into_psql_json()
+        .to_string();
+        assert_eq!(
+            r#"{"$j":"function a() { return 'hey'; }","s":{"a":1,"b":2}}"#,
+            json
+        );
+    }
 
-        // let res = serde_json::to_string(&doc).unwrap();
-        // let obj: Bson = serde_json::from_str(&res).unwrap();
-        // println!("{}", res);
-        // println!("{:#?}", obj);
-
-        let bson: Bson = doc.into();
-
-        let json: serde_json::Value = bson.clone().into();
-        println!("{}", json); // { "x": 5, "_id": { "$oid": <hexstring> } }
-
-        let relaxed_extjson = bson.clone().into_relaxed_extjson();
-        println!("{}", relaxed_extjson); // { "x": 5, "_id": { "$oid": <hexstring> } }
-
-        let into_psql_json = bson.into_psql_json();
-        println!("{}", into_psql_json); // { "x": { "$numberInt": "5" }, "_id": { "$oid": <hexstring> } }
+    #[test]
+    fn test_parse_regex() {
+        let json = Bson::RegularExpression(bson::Regex {
+            pattern: "^[a-z]+$".to_string(),
+            options: "i".to_string(),
+        })
+        .into_psql_json()
+        .to_string();
+        assert_eq!(r#"{"$r":"^[a-z]+$","o":"i"}"#, json);
     }
 }

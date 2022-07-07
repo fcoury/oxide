@@ -4,8 +4,8 @@ use std::sync::Mutex;
 use std::thread;
 
 mod commands;
-mod document;
 mod handler;
+mod serializer;
 mod wire;
 
 pub struct ThreadPool {
