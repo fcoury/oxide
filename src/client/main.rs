@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .insert_many(docs, None)
         .await?;
 
-    find(&client).await?;
+    // find(&client).await?;
 
     Ok(())
 }

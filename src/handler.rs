@@ -1,4 +1,4 @@
-use crate::commands::{Find, Handler, IsMaster, ListDatabases};
+use crate::commands::{Find, Handler, Insert, IsMaster, ListDatabases};
 use crate::wire::{OpMsg, UnknownCommandError, HEADER_SIZE};
 use bson::{ser, Document};
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -54,6 +54,8 @@ fn route(msg: &OpMsg) -> Result<Document, UnknownCommandError> {
         ListDatabases::new().handle(doc)
     } else if command == "find" {
         Find::new().handle(doc)
+    } else if command == "insert" {
+        Insert::new().handle(doc)
     } else {
         println!("Got unknown command: {}", command);
         Err(UnknownCommandError)
