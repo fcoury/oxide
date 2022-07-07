@@ -9,7 +9,7 @@ impl Handler for Insert {
         Insert {}
     }
 
-    fn handle(&self, _msg: Document) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, msg: Document) -> Result<Document, UnknownCommandError> {
         Ok(doc! {
           "ok": Bson::Double(1.0),
           "n": Bson::Int64(1),
