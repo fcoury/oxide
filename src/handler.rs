@@ -1,17 +1,20 @@
 use crate::commands::{Find, Handler, Insert, IsMaster, ListDatabases};
-use crate::wire::{OpMsg, UnknownCommandError, HEADER_SIZE};
+use crate::wire::{OpCode, UnknownCommandError, HEADER_SIZE};
 use bson::{ser, Document};
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
-pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandError> {
-    match route(&msg) {
+pub fn handle(request_id: u32, op_code: OpCode) -> Result<Vec<u8>, UnknownCommandError> {
+    match route(&op_code) {
         Ok(doc) => {
             let bson_vec = ser::to_vec(&doc).unwrap();
             let bson_data: &[u8] = &bson_vec;
 
             let mut res_data = Vec::new();
-            let header = &msg.header;
+            let header = match op_code {
+                OpCode::OpMsg(op_msg) => op_msg.header,
+                OpCode::OpQuery(op_query) => op_query.header,
+            };
             let message_size = HEADER_SIZE + 5 + bson_data.len() as u32;
 
             // println!(
@@ -44,20 +47,28 @@ pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandErro
     }
 }
 
-fn route(msg: &OpMsg) -> Result<Document, UnknownCommandError> {
-    let doc = msg.sections[0].documents[0].clone();
-    let command = doc.keys().next().unwrap();
-    println!("******\n*** Command: {}\n******\n", command);
-    if command == "isMaster" {
-        IsMaster::new().handle(doc)
-    } else if command == "listDatabases" {
-        ListDatabases::new().handle(doc)
-    } else if command == "find" {
-        Find::new().handle(doc)
-    } else if command == "insert" {
-        Insert::new().handle(doc)
-    } else {
-        println!("Got unknown command: {}", command);
-        Err(UnknownCommandError)
+fn route(msg: &OpCode) -> Result<Document, UnknownCommandError> {
+    match msg {
+        OpCode::OpMsg(msg) => {
+            let doc = msg.sections[0].documents[0].clone();
+            let command = doc.keys().next().unwrap();
+            println!("******\n*** Command: {}\n******\n", command);
+            if command == "isMaster" {
+                IsMaster::new().handle(doc)
+            } else if command == "listDatabases" {
+                ListDatabases::new().handle(doc)
+            } else if command == "find" {
+                Find::new().handle(doc)
+            } else if command == "insert" {
+                Insert::new().handle(doc)
+            } else {
+                println!("Got unknown command: {}", command);
+                Err(UnknownCommandError)
+            }
+        }
+        OpCode::OpQuery(query) => {
+            println!("*** Query: {:?}", query);
+            Ok(Document::new())
+        }
     }
 }

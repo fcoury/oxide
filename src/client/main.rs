@@ -23,6 +23,19 @@ async fn _find(client: &Client) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+async fn list(client: &Client) -> Result<(), Box<dyn Error>> {
+    println!("Databases:");
+    for name in client.list_database_names(None, None).await? {
+        println!("- {}", name);
+    }
+
+    println!("\nDatabase infos:");
+    for db in client.list_databases(None, None).await? {
+        println!("- {:?}", db);
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Load the MongoDB connection string from an environment variable:
@@ -43,14 +56,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //     println!("- {:?}", db);
     // }
 
-    let docs = vec![doc! {"x": 1}, doc! {"x": 2}];
-    client
-        .database("test")
-        .collection::<Document>("col")
-        .insert_many(docs, None)
-        .await?;
+    // let docs = vec![doc! {"x": 1}, doc! {"x": 2}];
+    // client
+    //     .database("test")
+    //     .collection::<Document>("col")
+    //     .insert_many(docs, None)
+    //     .await?;
 
     // find(&client).await?;
+
+    list(&client).await?;
 
     Ok(())
 }
