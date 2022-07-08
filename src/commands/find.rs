@@ -10,9 +10,10 @@ impl Handler for Find {
         Find {}
     }
 
-    fn handle(&self, msg: Document) -> Result<Document, UnknownCommandError> {
-        let collection = msg.get_str("find").unwrap();
-        let db = msg.get_str("$db").unwrap();
+    fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+        let doc = &docs[0];
+        let collection = doc.get_str("find").unwrap();
+        let db = doc.get_str("$db").unwrap();
 
         let mut client =
             Client::connect("postgresql://postgres:postgres@localhost/ferretdb", NoTls).unwrap();

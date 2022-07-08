@@ -3,8 +3,11 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
+use crate::handler::Request;
+
 use super::{
-    MsgHeader, OpReply, Replyable, Serializable, UnknownMessageKindError, HEADER_SIZE, OP_REPLY,
+    MsgHeader, OpCode, OpReply, Replyable, Serializable, UnknownMessageKindError, HEADER_SIZE,
+    OP_REPLY,
 };
 
 #[derive(Debug, Clone)]
@@ -41,6 +44,9 @@ impl OpQuery {
             Ok(doc) => Some(doc),
             Err(_) => None,
         };
+
+        println!("*** Incoming Document = {:?}", query);
+
         OpQuery {
             header,
             flags,
@@ -54,19 +60,19 @@ impl OpQuery {
 }
 
 impl Replyable for OpQuery {
-    fn reply(&self, request_id: u32, doc: Document) -> Result<Vec<u8>, UnknownMessageKindError> {
+    fn reply(&self, req: Request) -> Result<Vec<u8>, UnknownMessageKindError> {
         // FIXME defer this logic to MsgHeader
-        let bson_vec = ser::to_vec(&doc).unwrap();
+        let bson_vec = ser::to_vec(&req.get_doc()).unwrap();
         let bson_data: &[u8] = &bson_vec;
-        let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
+        let message_length = HEADER_SIZE + 20 + bson_data.len() as u32;
 
-        let header = MsgHeader::new(message_length, request_id, 0, OP_REPLY);
-        let cursor_id = 0;
-        let starting_from = 0;
-        let number_returned = 1;
-        let docs = vec![doc];
+        if let OpCode::OpQuery(op_query) = req.get_op_code().to_owned() {
+            let header = op_query.header.get_response(req.get_id(), message_length);
+            let cursor_id = 0;
+            let starting_from = 0;
+            let number_returned = 1;
+            let docs = vec![req.get_doc().to_owned()];
 
-        if self.return_fields.is_some() {
             return Ok(OpReply::new(
                 header,
                 self.flags,
@@ -76,8 +82,7 @@ impl Replyable for OpQuery {
                 docs,
             )
             .to_vec());
-        } else {
-            return Err(UnknownMessageKindError);
         }
+        Err(UnknownMessageKindError)
     }
 }

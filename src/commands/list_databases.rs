@@ -10,7 +10,7 @@ impl Handler for ListDatabases {
         ListDatabases {}
     }
 
-    fn handle(&self, _doc: Document) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, _doc: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         let mut client = PgDb::new();
 
         let mut total_size: i64 = 0;

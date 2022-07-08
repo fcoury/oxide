@@ -10,7 +10,7 @@ impl Handler for IsMaster {
         IsMaster {}
     }
 
-    fn handle(&self, _msg: Document) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, _msg: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         let local_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -24,7 +24,7 @@ impl Handler for IsMaster {
           "minWireVersion": 0,
           "maxWireVersion": 13,
           "readOnly": Bson::Boolean(false),
-          "ok": Bson::Double(1.0)
+          "ok": Bson::Double(1.into())
         })
     }
 }

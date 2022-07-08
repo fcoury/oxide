@@ -9,6 +9,8 @@ mod op_msg;
 mod op_query;
 mod op_reply;
 
+use crate::handler::Request;
+
 pub use self::op_msg::OpMsg;
 pub use self::op_query::OpQuery;
 pub use self::op_reply::OpReply;
@@ -27,7 +29,20 @@ pub const MORE_TO_COME: u32 = 1 << 1;
 pub const EXHAUST_ALLOWED: u32 = 1 << 16;
 
 #[derive(Debug, Clone)]
-pub struct UnknownCommandError;
+pub struct UnknownCommandError {
+    command: String,
+}
+
+impl UnknownCommandError {
+    pub fn new(command: String) -> UnknownCommandError {
+        UnknownCommandError { command }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OpCodeNotImplementedError {
+    op_code: u32,
+}
 
 #[derive(Debug, Clone)]
 pub struct UnknownMessageKindError;
@@ -40,6 +55,17 @@ pub struct MsgHeader {
     pub op_code: u32,
 }
 
+impl MsgHeader {
+    pub fn get_response(&self, request_id: u32, message_length: u32) -> MsgHeader {
+        MsgHeader {
+            message_length,
+            request_id,
+            response_to: self.request_id,
+            op_code: self.op_code,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum OpCode {
     OpMsg(OpMsg),
@@ -48,21 +74,17 @@ pub enum OpCode {
 }
 
 impl OpCode {
-    pub fn reply(
-        &self,
-        request_id: u32,
-        doc: Document,
-    ) -> Result<Vec<u8>, UnknownMessageKindError> {
+    pub fn reply(&self, request: Request) -> Result<Vec<u8>, UnknownMessageKindError> {
         match self {
-            OpCode::OpMsg(op_msg) => Ok(op_msg.reply(request_id, doc).unwrap()),
-            OpCode::OpQuery(op_query) => Ok(op_query.reply(request_id, doc).unwrap()),
+            OpCode::OpMsg(op_msg) => Ok(op_msg.reply(request).unwrap()),
+            OpCode::OpQuery(op_query) => Ok(op_query.reply(request).unwrap()),
             _ => Err(UnknownMessageKindError),
         }
     }
 }
 
 pub trait Replyable {
-    fn reply(&self, request_id: u32, doc: Document) -> Result<Vec<u8>, UnknownMessageKindError>
+    fn reply(&self, request: Request) -> Result<Vec<u8>, UnknownMessageKindError>
     where
         Self: Sized;
 }
@@ -71,7 +93,7 @@ pub trait Serializable {
     fn to_vec(&self) -> Vec<u8>;
 }
 
-pub fn parse(buffer: &[u8]) -> Result<OpCode, UnknownCommandError> {
+pub fn parse(buffer: &[u8]) -> Result<OpCode, OpCodeNotImplementedError> {
     let mut cursor = Cursor::new(buffer);
     let header = MsgHeader::parse(&mut cursor);
     if header.op_code == OP_MSG {
@@ -79,7 +101,9 @@ pub fn parse(buffer: &[u8]) -> Result<OpCode, UnknownCommandError> {
     } else if header.op_code == OP_QUERY {
         Ok(OpCode::OpQuery(OpQuery::parse(header, &mut cursor)))
     } else {
-        Err(UnknownCommandError)
+        Err(OpCodeNotImplementedError {
+            op_code: header.op_code,
+        })
     }
 }
 

@@ -11,6 +11,7 @@
 00a0:   6e 00 0d 00  00 00 08 72  65 61 64 4f  6e 6c 79 00   n......readOnly.
 00b0:   00 01 6f 6b  00 00 00 00  00 00 00 f0  3f 00         ..ok........?.
 
+
 Message Length = 190 bytes = 0xbe   (Little Endian be 00 00 00)
 Request Id     = 1         = 0x01   (Little Endian 01 00 00 00)
 Response To    = 0         = 0x00   (Little Endian 00 00 00 00)
