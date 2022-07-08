@@ -4,6 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use pretty_hex::*;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
+use bitflags::bitflags;
 
 pub const OP_MSG: u32 = 2013;
 pub const OP_QUERY: u32 = 2004;
@@ -11,8 +12,15 @@ pub const MAX_DOCUMENT_LEN: u32 = 16777216;
 pub const MAX_MSG_LEN: u32 = 48000000;
 pub const HEADER_SIZE: u32 = 16;
 
+pub const CHECKSUM_PRESENT: u32 = 1 << 0;
+pub const MORE_TO_COME: u32 = 1 << 1;
+pub const EXHAUST_ALLOWED: u32 = 1 << 16;
+
 #[derive(Debug, Clone)]
 pub struct UnknownCommandError;
+
+#[derive(Debug, Clone)]
+pub struct UnknownMessageKindError;
 
 #[derive(Debug, Clone)]
 pub struct MsgHeader {
@@ -34,7 +42,7 @@ pub struct OpMsg {
     pub header: MsgHeader,
     pub flags: u32,
     pub sections: Vec<OpMsgSection>,
-    pub checksum: u32,
+    pub checksum: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +77,15 @@ pub fn parse(buffer: &[u8]) -> Result<OpCode, UnknownCommandError> {
 }
 
 impl MsgHeader {
+    fn new(message_length: u32, request_id: u32, response_to: u32, op_code: u32) -> MsgHeader {
+        MsgHeader {
+            message_length,
+            request_id,
+            response_to,
+            op_code,
+        }
+    }
+
     fn parse(cursor: &mut Cursor<&[u8]>) -> MsgHeader {
         let message_length = cursor.read_u32::<LittleEndian>().unwrap();
         let request_id = cursor.read_u32::<LittleEndian>().unwrap();
@@ -80,6 +97,13 @@ impl MsgHeader {
             response_to,
             op_code,
         }
+    }
+
+    fn write(&self, cursor: &mut Cursor<&mut [u8]>) {
+        cursor.write_u32::<LittleEndian>(header.message_length).unwrap();
+        cursor.write_u32::<LittleEndian>(header.request_id).unwrap();
+        cursor.write_u32::<LittleEndian>(header.response_to).unwrap();
+        cursor.write_u32::<LittleEndian>(header.op_code).unwrap();
     }
 }
 
@@ -117,23 +141,39 @@ impl OpQuery {
 }
 
 impl OpMsg {
-    pub fn new_with_body_kind(doc: Document) -> OpMsg {
+    // pub fn new(request_id: u32, response_to: u32, doc: Document) -> OpMsg {
+    //     let bson_vec = ser::to_vec(&doc).unwrap();
+    //     let bson_data: &[u8] = &bson_vec;
+    //     let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
+    //     OpMsg {
+    //         header: MsgHeader {
+    //             message_length,
+    //             request_id,
+    //             response_to,
+    //             op_code: OP_MSG,
+    //         },
+    //         flags: 0,
+    //         sections: vec![OpMsgSection {
+    //             kind: 0,
+    //             documents: vec![doc],
+    //         }],
+    //         checksum: 0,
+    //     }
+    // }
+
+    pub fn new_with_body_kind(header: MsgHeader, flags: u32, checksum: Option<u32>, doc: Document) -> OpMsg {
         let bson_vec = ser::to_vec(&doc).unwrap();
         let bson_data: &[u8] = &bson_vec;
-        let message_length = 16 + bson_data.len() as u32;
+        let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
+
         OpMsg {
-            header: MsgHeader {
-                message_length,
-                request_id: 0,
-                response_to: 0,
-                op_code: OP_MSG,
-            },
-            flags: 0,
+            header,
+            flags,
             sections: vec![OpMsgSection {
                 kind: 0,
                 documents: vec![doc],
             }],
-            checksum: 0,
+            checksum,
         }
     }
 
@@ -156,7 +196,12 @@ impl OpMsg {
                 let documents = vec![doc];
                 sections.push(OpMsgSection { kind, documents });
 
-                let checksum = 0;
+                let checksum = if flags & CHECKSUM_PRESENT != 0 {
+                    Some(rdr.read_u32::<LittleEndian>().unwrap())
+                } else {
+                    None
+                };
+
                 OpMsg {
                     header,
                     flags,
@@ -167,10 +212,40 @@ impl OpMsg {
             _ => OpMsg {
                 header,
                 flags: 0,
-                checksum: 0,
+                checksum: Some(0),
                 sections: vec![],
             },
         }
+    }
+
+    pub fn reply(&self, request_id: u32, msg: OpMsg, doc: Document) -> Result<OpMsg, UnknownMessageKindError> {
+        let bson_vec = ser::to_vec(&doc).unwrap();
+        let bson_data: &[u8] = &bson_vec;
+        let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
+
+        let header = MsgHeader::new(message_length, request_id, 0, OP_MSG);
+
+        if msg.sections.len() > 0 && msg.sections[0].kind == 0 {
+            return Ok(OpMsg::new_with_body_kind(header, msg.flags, msg.checksum, doc));
+        } else if msg.sections.len() > 0 && msg.sections[0].kind == 1 {
+            return Err(UnknownMessageKindError);
+        }
+
+        Err(UnknownMessageKindError)
+    }
+
+    pub fn write(&self, cursor: &mut Cursor<&mut [u8]>) {
+        // self.header.write(cursor);
+        // cursor.write_u32::<LittleEndian>(self.flags).unwrap();
+        // cursor.write_u8(self.sections.len() as u8).unwrap();
+        // for section in &self.sections {
+        //     cursor.write_u8(section.kind).unwrap();
+        //     cursor.write_u32::<LittleEndian>(section.documents.len() as u32).unwrap();
+        //     for doc in &section.documents {
+        //         ser::to_writer(cursor, doc).unwrap();
+        //     }
+        // }
+        // cursor.write_u32::<LittleEndian>(self.checksum).unwrap();
     }
 }
 
