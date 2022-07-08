@@ -44,7 +44,7 @@ pub fn handle(id: u32, op_code: OpCode) -> Result<Vec<u8>, UnknownCommandError> 
 fn run(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
     let command = docs[0].keys().next().unwrap();
 
-    println!("******\n*** OP_MSG Command: {}\n******\n", command);
+    println!("OP_MSG Command: {}", command);
 
     if command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(docs)
@@ -68,14 +68,13 @@ fn run(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
             "code": Bson::Int32(59),
             "codeName": "CommandNotFound",
         })
-        // Err(UnknownCommandError::new(command.to_string()))
     }
 }
 
 fn run_op_query(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
     let command = docs[0].keys().next().unwrap();
 
-    println!("******\n*** OP_QUERY Command: {}\n******\n", command);
+    println!("OP_QUERY Command: {}", command);
 
     if command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(docs)

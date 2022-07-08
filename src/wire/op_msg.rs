@@ -86,8 +86,6 @@ impl Replyable for OpMsg {
         let bson_data: &[u8] = &bson_vec;
         let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
 
-        println!("!MSG_LENGTH = {}", message_length);
-
         if let OpCode::OpMsg(op_msg) = req.get_op_code().to_owned() {
             let header = op_msg.header.get_response(req.get_id(), message_length);
 
