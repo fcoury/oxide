@@ -44,8 +44,8 @@ pub struct OpQuery {
     pub collection: String,
     pub number_to_skip: u32,
     pub number_to_return: u32,
-    // pub query: Document,
-    // pub return_fields: Option<Document>,
+    pub query: Document,
+    pub return_fields: Option<Document>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,20 +94,24 @@ impl OpQuery {
             .to_string();
         let number_to_skip = cursor.read_u32::<LittleEndian>().unwrap();
         let number_to_return = cursor.read_u32::<LittleEndian>().unwrap();
-        // let query = doconvert_bson(cursor).unwrap();
-        // let return_fields = if cursor.position() < cursor.get_ref().len() {
-        //     Some(doconvert_bson(cursor).unwrap())
-        // } else {
-        //     None
-        // };
+        let mut new_cursor = cursor.clone();
+        new_cursor.set_position(cursor.position());
+        let query = Document::from_reader(cursor).unwrap();
+        let bson_vec = ser::to_vec(&query).unwrap();
+        let query_size: u64 = bson_vec.len().try_into().unwrap();
+        new_cursor.set_position(new_cursor.position() + query_size);
+        let return_fields = match Document::from_reader(new_cursor) {
+            Ok(doc) => Some(doc),
+            Err(_) => None,
+        };
         OpQuery {
             header,
             flags,
             collection,
             number_to_skip,
             number_to_return,
-            // query,
-            // return_fields,
+            query,
+            return_fields,
         }
     }
 }
