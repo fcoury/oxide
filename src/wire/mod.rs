@@ -57,11 +57,20 @@ pub struct MsgHeader {
 
 impl MsgHeader {
     pub fn get_response(&self, request_id: u32, message_length: u32) -> MsgHeader {
+        self.get_response_with_op_code(request_id, message_length, self.op_code)
+    }
+
+    pub fn get_response_with_op_code(
+        &self,
+        request_id: u32,
+        message_length: u32,
+        op_code: u32,
+    ) -> MsgHeader {
         MsgHeader {
             message_length,
             request_id,
             response_to: self.request_id,
-            op_code: self.op_code,
+            op_code,
         }
     }
 }

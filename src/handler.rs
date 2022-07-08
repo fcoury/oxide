@@ -75,7 +75,12 @@ fn run_op_query(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         IsMaster::new().handle(docs)
     } else {
         println!("Got unknown OP_QUERY command: {}", command);
-        Err(UnknownCommandError::new(command.to_string()))
+        Ok(doc! {
+            "ok": Bson::Double(0.0),
+            "errmsg": Bson::String("Unknown OP_QUERY command".to_string()),
+            "code": Bson::Int32(59),
+            "codeName": "CommandNotFound",
+        })
     }
 }
 

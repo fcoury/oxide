@@ -67,7 +67,10 @@ impl Replyable for OpQuery {
         let message_length = HEADER_SIZE + 20 + bson_data.len() as u32;
 
         if let OpCode::OpQuery(op_query) = req.get_op_code().to_owned() {
-            let header = op_query.header.get_response(req.get_id(), message_length);
+            let header =
+                op_query
+                    .header
+                    .get_response_with_op_code(req.get_id(), message_length, OP_REPLY);
             let cursor_id = 0;
             let starting_from = 0;
             let number_returned = 1;
