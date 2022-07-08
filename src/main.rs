@@ -21,6 +21,8 @@ fn main() {
     let pool = ThreadPool::new(10);
     let generator = RequestId::init();
 
+    println!("Server listening on port 37017...");
+
     for stream in listener.incoming() {
         let stream = stream.unwrap();
         let id = generator.pull();
