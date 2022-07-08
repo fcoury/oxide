@@ -1,53 +1,10 @@
 use crate::commands::{Find, Handler, Insert, IsMaster, ListDatabases};
-use crate::wire::{OpCode, Replyable, UnknownCommandError};
+use crate::wire::{OpCode, UnknownCommandError};
 use bson::Document;
 
 pub fn handle(request_id: u32, op_code: OpCode) -> Result<Vec<u8>, UnknownCommandError> {
     match route(&op_code) {
-        Ok(doc) => {
-            let response = op_code.reply(request_id, doc).unwrap();
-            println!("RESPONSE: {:?}", response);
-            match response {
-                OpCode::OpMsg(op_msg) => Ok(op_msg.to_vec()),
-                _ => Err(UnknownCommandError),
-            }
-
-            // let bson_vec = ser::to_vec(&doc).unwrap();
-            // let bson_data: &[u8] = &bson_vec;
-
-            // let mut res_data = Vec::new();
-            // let header = match op_code {
-            //     OpCode::OpMsg(op_msg) => op_msg.header,
-            //     OpCode::OpQuery(op_query) => op_query.header,
-            // };
-            // let message_size = HEADER_SIZE + 5 + bson_data.len() as u32;
-
-            // // println!(
-            // //     "*** Response: msgsize={} requestid={} responseto={} opcode={}",
-            // //     message_size, request_id, header.request_id, header.op_code
-            // // );
-            // println!("*** Response document: {:?}", doc);
-
-            // // header
-            // res_data.write_u32::<LittleEndian>(message_size).unwrap();
-            // res_data.write_u32::<LittleEndian>(request_id).unwrap();
-            // res_data
-            //     .write_u32::<LittleEndian>(header.request_id)
-            //     .unwrap();
-            // res_data.write_u32::<LittleEndian>(header.op_code).unwrap();
-
-            // // FIXME flagbits
-            // res_data.write_u32::<LittleEndian>(0).unwrap();
-
-            // // sections
-            // // FIXME section kind
-            // res_data.write_all(&[0]).unwrap();
-
-            // // section contents
-            // res_data.write_all(bson_data).unwrap();
-
-            // Ok(res_data)
-        }
+        Ok(doc) => Ok(op_code.reply(request_id, doc).unwrap()),
         Err(e) => Err(e),
     }
 }
@@ -80,6 +37,10 @@ fn route(msg: &OpCode) -> Result<Document, UnknownCommandError> {
         OpCode::OpQuery(query) => {
             println!("*** Query: {:?}", query);
             run(query.query.clone())
+        }
+        _ => {
+            println!("*** Got unknown opcode: {:?}", msg);
+            Err(UnknownCommandError)
         }
     }
 }
