@@ -14,11 +14,11 @@ pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandErro
             let header = &msg.header;
             let message_size = HEADER_SIZE + 5 + bson_data.len() as u32;
 
-            println!(
-                "*** Response: msgsize={} requestid={} responseto={} opcode={}",
-                message_size, request_id, header.request_id, header.op_code
-            );
-            println!("*** Response document: {:#?}", doc);
+            // println!(
+            //     "*** Response: msgsize={} requestid={} responseto={} opcode={}",
+            //     message_size, request_id, header.request_id, header.op_code
+            // );
+            println!("*** Response document: {:?}", doc);
 
             // header
             res_data.write_u32::<LittleEndian>(message_size).unwrap();
@@ -47,7 +47,7 @@ pub fn handle(request_id: u32, msg: OpMsg) -> Result<Vec<u8>, UnknownCommandErro
 fn route(msg: &OpMsg) -> Result<Document, UnknownCommandError> {
     let doc = msg.sections[0].documents[0].clone();
     let command = doc.keys().next().unwrap();
-    println!("\n******\n*** Command: {}\n******\n", command);
+    println!("******\n*** Command: {}\n******\n", command);
     if command == "isMaster" {
         IsMaster::new().handle(doc)
     } else if command == "listDatabases" {

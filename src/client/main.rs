@@ -5,7 +5,7 @@ use std::env;
 use std::error::Error;
 use tokio;
 
-async fn find(client: &Client) -> Result<(), Box<dyn Error>> {
+async fn _find(client: &Client) -> Result<(), Box<dyn Error>> {
     let filter = doc! { "x": 1 };
     let find_options = mongodb::options::FindOptions::builder()
         .sort(doc! { "x": -1 })

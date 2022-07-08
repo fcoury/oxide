@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 // $o - for Object ID
 // $d - for dates, stored as millis since epoch
 
-trait PostgresSerializer {
+pub trait PostgresSerializer {
     fn into_psql_json(self) -> Value;
 }
 

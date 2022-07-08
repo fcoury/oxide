@@ -4,9 +4,10 @@ use std::sync::Mutex;
 use std::thread;
 
 mod commands;
-mod handler;
+pub mod handler;
+mod pg;
 mod serializer;
-mod wire;
+pub mod wire;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,

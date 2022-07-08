@@ -7,13 +7,16 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 
 mod commands;
-mod handler;
-mod wire;
+pub mod handler;
+mod pg;
+mod serializer;
+pub mod wire;
 
 #[derive(AsyncIncremental, PartialEq, Eq, Debug)]
 struct RequestId(u32);
 
 fn main() {
+    dotenv::dotenv().ok();
     let listener = TcpListener::bind("127.0.0.1:37017").unwrap();
     let pool = ThreadPool::new(10);
     let generator = RequestId::init();
@@ -36,11 +39,11 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
         match stream.read(&mut buffer) {
             Ok(_read) => {
                 println!(
-                    "*** Accepted connection from {}...",
+                    "\n*** Accepted connection from {}...",
                     stream.peer_addr().unwrap(),
                 );
                 let op_msg = wire::OpMsg::parse(&buffer);
-                println!("*** Got message: {:#?}", op_msg);
+                println!("*** Got message: {:?}", op_msg);
                 let response = handler::handle(id.0, op_msg).unwrap();
                 // println!("*** Hex Dump:\n {}", pretty_hex(&response));
 
