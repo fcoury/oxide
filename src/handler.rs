@@ -1,5 +1,7 @@
 #![allow(dead_code)]
-use crate::commands::{BuildInfo, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases};
+use crate::commands::{
+    BuildInfo, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
+};
 use crate::wire::{OpCode, UnknownCommandError};
 use bson::{doc, Bson, Document};
 
@@ -54,6 +56,8 @@ fn run(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         ListCollections::new().handle(docs)
     } else if command == "find" {
         Find::new().handle(docs)
+    } else if command == "ping" {
+        Ping::new().handle(docs)
     } else if command == "insert" {
         Insert::new().handle(docs)
     } else {
