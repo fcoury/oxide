@@ -43,7 +43,7 @@ impl PgDb {
         query: &str,
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>, Error> {
-        println!("*** SQL: {}", query);
+        println!("*** SQL: {} - {:#?}", query, params);
         self.client.query(query, params)
     }
 
@@ -79,7 +79,7 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<String>, Error> {
         let mut strings = Vec::new();
-        let rows = self.client.query(&sql, params)?;
+        let rows = self.raw_query(&sql, params)?;
         for row in rows.iter() {
             strings.push(row.get(0));
         }
@@ -148,8 +148,8 @@ impl PgDb {
     }
 
     pub fn schema_stats(&mut self, schema: &str, collection: Option<&str>) -> Result<Row, Error> {
-        let mut params: Vec<&dyn ToSql> = vec![&schema];
-        let mut sql = r#"
+        let mut sql = format!(
+            r#"
             SELECT COUNT(distinct t.table_name)::integer                                                          AS TableCount,
                 COALESCE(SUM(s.n_live_tup), 0)::integer                                                           AS RowCount,
                 COALESCE(SUM(pg_total_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)::integer  AS TotalSize,
@@ -163,15 +163,20 @@ impl PgDb {
             LEFT OUTER
             JOIN pg_indexes                AS i ON i.schemaname = t.table_schema
                                                 AND i.tablename = t.table_name
-            WHERE t.table_schema = $1
-        "#.to_string();
+            WHERE t.table_schema = '{}'
+        "#,
+            sanitize_string(schema.to_string())
+        );
 
         if let Some(collection) = collection {
-            sql = format!("{} AND t.table_name = $2", sql);
-            params.push(&collection);
+            sql = format!(
+                "{} AND t.table_name = '{}'",
+                sql,
+                sanitize_string(collection.to_string())
+            );
         }
 
-        self.client.query_one(&sql, &[&schema])
+        self.client.query_one(&sql, &[])
     }
 }
 

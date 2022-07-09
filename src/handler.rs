@@ -104,6 +104,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         WhatsMyUri::new().handle(request, docs)
     } else if command == "dbStats" {
         DbStats::new().handle(request, docs)
+    } else if command == "collStats" {
+        CollStats::new().handle(request, docs)
     } else if command == "listDatabases" {
         ListDatabases::new().handle(request, docs)
     } else if command == "listCollections" {
