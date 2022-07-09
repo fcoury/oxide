@@ -21,11 +21,11 @@ impl Handler for ListCollections {
 
         Ok(doc! {
             "cursor": doc! {
-                "id": Bson::Int32(0),
+                "id": Bson::Int64(0),
                 "ns": Bson::String(format!("{}.$cmd.listCollections", db)),
                 "firstBatch": Bson::Array(collections),
             },
-          "ok": Bson::Double(1.0),
+            "ok": Bson::Double(1.0),
         })
     }
 }
