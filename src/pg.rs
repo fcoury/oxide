@@ -35,7 +35,16 @@ impl PgDb {
         let sql = self.get_query(query, sp);
 
         println!("*** SQL: {} - {:#?}", sql, params);
-        self.client.query(&sql, params)
+        self.raw_query(&sql, params)
+    }
+
+    pub fn raw_query(
+        &mut self,
+        query: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, Error> {
+        println!("*** SQL: {}", query);
+        self.client.query(query, params)
     }
 
     fn get_query(&self, s: &str, sp: SqlParam) -> String {
@@ -136,6 +145,37 @@ impl PgDb {
         let name = sp.sanitize();
         let sql = format!("DROP TABLE IF EXISTS {}", name);
         self.exec(&sql, &[])
+    }
+
+    pub fn schema_stats(
+        &mut self,
+        schema: &str,
+        collection: Option<&str>,
+    ) -> Result<Vec<Row>, Error> {
+        let mut params = vec![&schema];
+        let mut sql = r#"
+            SELECT COUNT(distinct t.table_name)                                                          AS CountTables,
+                COALESCE(SUM(s.n_live_tup), 0)                                                           AS CountRows,
+                COALESCE(SUM(pg_total_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)  AS SizeTotal,
+                COALESCE(SUM(pg_indexes_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)         AS SizeIndexes,
+                COALESCE(SUM(pg_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)        AS SizeRelation,
+                COUNT(distinct i.indexname)                                                              AS CountIndexes
+            FROM information_schema.tables AS t
+            LEFT OUTER
+            JOIN pg_stat_user_tables       AS s ON s.schemaname = t.table_schema
+                                                AND s.relname = t.table_name
+            LEFT OUTER
+            JOIN pg_indexes                AS i ON i.schemaname = t.table_schema
+                                                AND i.tablename = t.table_name
+            WHERE t.table_schema = $1
+        "#.to_string();
+
+        if let Some(collection) = collection {
+            sql = format!("{} AND t.table_name = $2", sql);
+            params.push(&collection);
+        }
+
+        self.raw_query(&sql, &[])
     }
 }
 
