@@ -19,6 +19,18 @@ impl Handler for Find {
 
         let mut client = PgDb::new();
 
+        // returns empty if db or collection doesn't exist
+        if !client.table_exists(db, collection).unwrap() {
+            return Ok(doc! {
+                "ok": Bson::Double(1.0),
+                "cursor": doc! {
+                    "id": Bson::Int64(0),
+                    "ns": format!("{}.{}", db, collection),
+                    "firstBatch": Bson::Array(vec![]),
+                },
+            });
+        }
+
         let r = client.query("SELECT * FROM %table%", sp, &[]);
         match r {
             Ok(rows) => {

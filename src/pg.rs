@@ -55,6 +55,14 @@ impl PgDb {
         Ok(affected)
     }
 
+    pub fn table_exists(&mut self, db: &str, collection: &str) -> Result<bool, Error> {
+        let query = format!("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = '{}' AND tablename = '{}')", db, collection);
+        let rows = self.client.query(&query, &[]).unwrap();
+        let row = rows.get(0).unwrap();
+        let exists: bool = row.get(0);
+        Ok(exists)
+    }
+
     pub fn get_strings(
         &mut self,
         sql: String,
