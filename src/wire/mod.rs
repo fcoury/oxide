@@ -9,7 +9,7 @@ mod op_msg;
 mod op_query;
 mod op_reply;
 
-use crate::handler::Request;
+use crate::handler::{Request, Response};
 
 pub use self::op_msg::OpMsg;
 pub use self::op_query::OpQuery;
@@ -72,17 +72,17 @@ pub enum OpCode {
 }
 
 impl OpCode {
-    pub fn reply(&self, request: Request) -> Result<Vec<u8>, UnknownMessageKindError> {
+    pub fn reply(&self, response: Response) -> Result<Vec<u8>, UnknownMessageKindError> {
         match self {
-            OpCode::OpMsg(op_msg) => Ok(op_msg.reply(request).unwrap()),
-            OpCode::OpQuery(op_query) => Ok(op_query.reply(request).unwrap()),
+            OpCode::OpMsg(op_msg) => Ok(op_msg.reply(response).unwrap()),
+            OpCode::OpQuery(op_query) => Ok(op_query.reply(response).unwrap()),
             _ => Err(UnknownMessageKindError),
         }
     }
 }
 
 pub trait Replyable {
-    fn reply(&self, request: Request) -> Result<Vec<u8>, UnknownMessageKindError>
+    fn reply(&self, response: Response) -> Result<Vec<u8>, UnknownMessageKindError>
     where
         Self: Sized;
 }

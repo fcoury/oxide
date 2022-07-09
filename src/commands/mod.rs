@@ -1,4 +1,4 @@
-use crate::handler::CommandExecutionError;
+use crate::handler::{CommandExecutionError, Request};
 use bson::Document;
 
 mod build_info;
@@ -23,5 +23,9 @@ pub use self::ping::Ping;
 
 pub trait Handler {
     fn new() -> Self;
-    fn handle(&self, msg: &Vec<Document>) -> Result<Document, CommandExecutionError>;
+    fn handle(
+        &self,
+        request: &Request,
+        msg: &Vec<Document>,
+    ) -> Result<Document, CommandExecutionError>;
 }

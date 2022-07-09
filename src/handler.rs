@@ -1,20 +1,41 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, DbStats, Drop, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
+    BuildInfo, CollStats, DbStats, Drop, Find, Handler, Insert, IsMaster, ListCollections,
+    ListDatabases, Ping, WhatsMyUri,
 };
 use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
+use std::net::SocketAddr;
+
+pub struct Request<'a> {
+    peer_addr: SocketAddr,
+    op_code: &'a OpCode,
+}
+
+impl<'a> Request<'a> {
+    pub fn new(peer_addr: SocketAddr, op_code: &'a OpCode) -> Self {
+        Request { peer_addr, op_code }
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
+
+    pub fn get_op_code(&self) -> &OpCode {
+        self.op_code
+    }
+}
 
 #[derive(Debug, Clone)]
-pub struct Request<'a> {
+pub struct Response<'a> {
     id: u32,
     op_code: &'a OpCode,
     docs: Vec<Document>,
 }
 
-impl<'a> Request<'a> {
+impl<'a> Response<'a> {
     pub fn new(id: u32, op_code: &'a OpCode, docs: Vec<Document>) -> Self {
-        Request { id, op_code, docs }
+        Response { id, op_code, docs }
     }
 
     pub fn get_doc(&self) -> &Document {
@@ -47,82 +68,93 @@ impl CommandExecutionError {
     }
 }
 
-pub fn handle(id: u32, op_code: &OpCode) -> Result<Vec<u8>, CommandExecutionError> {
-    match route(&op_code) {
+pub fn handle(
+    id: u32,
+    peer_addr: SocketAddr,
+    op_code: &OpCode,
+) -> Result<Vec<u8>, CommandExecutionError> {
+    let request = Request {
+        peer_addr,
+        op_code: &op_code,
+    };
+    match route(&request) {
         Ok(doc) => {
             println!("Response: {:?}", doc);
-            let request = Request {
+            let response = Response {
                 id,
                 op_code: &op_code,
                 docs: vec![doc],
             };
-            Ok(op_code.reply(request).unwrap())
+            Ok(op_code.reply(response).unwrap())
         }
         Err(e) => Err(e),
     }
 }
 
-fn run(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
     println!("OP_MSG Command: {}", command);
 
     if command == "isMaster" || command == "ismaster" {
-        IsMaster::new().handle(docs)
+        IsMaster::new().handle(request, docs)
     } else if command == "buildInfo" || command == "buildinfo" {
-        BuildInfo::new().handle(docs)
+        BuildInfo::new().handle(request, docs)
     } else if command == "dbStats" {
-        DbStats::new().handle(docs)
+        DbStats::new().handle(request, docs)
     } else if command == "listDatabases" {
-        ListDatabases::new().handle(docs)
+        ListDatabases::new().handle(request, docs)
     } else if command == "listCollections" {
-        ListCollections::new().handle(docs)
+        ListCollections::new().handle(request, docs)
     } else if command == "find" {
-        Find::new().handle(docs)
+        Find::new().handle(request, docs)
     } else if command == "ping" {
-        Ping::new().handle(docs)
+        Ping::new().handle(request, docs)
     } else if command == "insert" {
-        Insert::new().handle(docs)
+        Insert::new().handle(request, docs)
     } else if command == "drop" {
-        Drop::new().handle(docs)
+        Drop::new().handle(request, docs)
     } else {
         println!("Got unknown OP_MSG command: {}", command);
         Ok(doc! {
             "ok": Bson::Double(0.0),
-            "errmsg": Bson::String("Unknown OP_MSG command".to_string()),
+            "errmsg": Bson::String(format!("no such command: '{}'", command).to_string()),
             "code": Bson::Int32(59),
             "codeName": "CommandNotFound",
         })
     }
 }
 
-fn run_op_query(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+fn run_op_query(
+    request: &Request,
+    docs: &Vec<Document>,
+) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
     println!("OP_QUERY Command: {}", command);
 
     if command == "isMaster" || command == "ismaster" {
-        IsMaster::new().handle(docs)
+        IsMaster::new().handle(request, docs)
     } else {
         println!("Got unknown OP_QUERY command: {}", command);
         Ok(doc! {
             "ok": Bson::Double(0.0),
-            "errmsg": Bson::String("Unknown OP_QUERY command".to_string()),
+            "errmsg": Bson::String(format!("no such command: '{}'", command).to_string()),
             "code": Bson::Int32(59),
             "codeName": "CommandNotFound",
         })
     }
 }
 
-fn route(msg: &OpCode) -> Result<Document, CommandExecutionError> {
-    match msg {
-        OpCode::OpMsg(msg) => run(&msg.sections[0].documents),
-        OpCode::OpQuery(query) => run_op_query(&vec![query.query.clone()]),
+fn route(request: &Request) -> Result<Document, CommandExecutionError> {
+    match request.op_code {
+        OpCode::OpMsg(msg) => run(request, &msg.sections[0].documents),
+        OpCode::OpQuery(query) => run_op_query(request, &vec![query.query.clone()]),
         _ => {
-            println!("*** Got unknown opcode: {:?}", msg);
+            println!("*** Got unknown opcode: {:?}", request.op_code);
             Err(CommandExecutionError::new(format!(
                 "can't handle opcode: {:?}",
-                msg
+                request.op_code
             )))
         }
     }

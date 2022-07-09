@@ -1,3 +1,4 @@
+use crate::handler::Request;
 use crate::pg::PgDb;
 use crate::{commands::Handler, handler::CommandExecutionError};
 use bson::{doc, Bson, Document};
@@ -9,7 +10,11 @@ impl Handler for DbStats {
         DbStats {}
     }
 
-    fn handle(&self, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+    fn handle(
+        &self,
+        _request: &Request,
+        docs: &Vec<Document>,
+    ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let scale = doc.get_f64("scale").unwrap_or(1.0);

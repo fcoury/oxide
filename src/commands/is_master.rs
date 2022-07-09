@@ -1,5 +1,5 @@
 use crate::commands::Handler;
-use crate::handler::CommandExecutionError;
+use crate::handler::{CommandExecutionError, Request};
 use crate::wire::{MAX_DOCUMENT_LEN, MAX_MSG_LEN};
 use bson::{doc, Bson, Document};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,7 +11,11 @@ impl Handler for IsMaster {
         IsMaster {}
     }
 
-    fn handle(&self, _msg: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+    fn handle(
+        &self,
+        _request: &Request,
+        _msg: &Vec<Document>,
+    ) -> Result<Document, CommandExecutionError> {
         let local_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

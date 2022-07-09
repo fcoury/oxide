@@ -1,4 +1,4 @@
-use crate::handler::Request;
+use crate::handler::{Request, Response};
 use crate::wire::Replyable;
 use crate::wire::{OpCode, UnknownMessageKindError, CHECKSUM_PRESENT, HEADER_SIZE, OP_MSG};
 use bson::{doc, ser, Bson, Document};
@@ -80,21 +80,21 @@ impl OpMsg {
 }
 
 impl Replyable for OpMsg {
-    fn reply(&self, req: Request) -> Result<Vec<u8>, UnknownMessageKindError> {
+    fn reply(&self, res: Response) -> Result<Vec<u8>, UnknownMessageKindError> {
         // FIXME extract this serialization of a document to a helper
-        let bson_vec = ser::to_vec(&req.get_doc()).unwrap();
+        let bson_vec = ser::to_vec(&res.get_doc()).unwrap();
         let bson_data: &[u8] = &bson_vec;
         let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
 
-        if let OpCode::OpMsg(op_msg) = req.get_op_code().to_owned() {
-            let header = op_msg.header.get_response(req.get_id(), message_length);
+        if let OpCode::OpMsg(op_msg) = res.get_op_code().to_owned() {
+            let header = op_msg.header.get_response(res.get_id(), message_length);
 
             if self.sections.len() > 0 && self.sections[0].kind == 0 {
                 return Ok(OpMsg::new_with_body_kind(
                     header,
                     self.flags,
                     self.checksum,
-                    req.get_doc(),
+                    res.get_doc(),
                 )
                 .to_vec());
             } else if self.sections.len() > 0 && self.sections[0].kind == 1 {

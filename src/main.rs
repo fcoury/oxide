@@ -16,7 +16,7 @@ struct RequestId(u32);
 
 fn main() {
     dotenv::dotenv().ok();
-    let listener = TcpListener::bind("127.0.0.1:37017").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:47017").unwrap();
     let pool = ThreadPool::new(10);
     let generator = RequestId::init();
 
@@ -54,7 +54,7 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                 let op_code = wire::parse(&buffer).unwrap();
                 println!("Request ({}b): {:?}\t{}", read, op_code, addr);
 
-                let mut response = match handler::handle(id.0, &op_code) {
+                let mut response = match handler::handle(id.0, addr, &op_code) {
                     Ok(reply) => reply,
                     Err(e) => {
                         println!("Handling error: {}", e);
@@ -64,8 +64,8 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                             "code": Bson::Int32(59),
                             "codeName": "CommandNotFound",
                         };
-                        let request = handler::Request::new(id.0, &op_code, vec![err]);
-                        op_code.reply(request).unwrap()
+                        let response = handler::Response::new(id.0, &op_code, vec![err]);
+                        op_code.reply(response).unwrap()
                     }
                 };
 

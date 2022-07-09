@@ -3,7 +3,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
-use crate::handler::Request;
+use crate::handler::{Request, Response};
 
 use super::{
     MsgHeader, OpCode, OpReply, Replyable, Serializable, UnknownMessageKindError, HEADER_SIZE,
@@ -60,21 +60,21 @@ impl OpQuery {
 }
 
 impl Replyable for OpQuery {
-    fn reply(&self, req: Request) -> Result<Vec<u8>, UnknownMessageKindError> {
+    fn reply(&self, res: Response) -> Result<Vec<u8>, UnknownMessageKindError> {
         // FIXME defer this logic to MsgHeader
-        let bson_vec = ser::to_vec(&req.get_doc()).unwrap();
+        let bson_vec = ser::to_vec(&res.get_doc()).unwrap();
         let bson_data: &[u8] = &bson_vec;
         let message_length = HEADER_SIZE + 20 + bson_data.len() as u32;
 
-        if let OpCode::OpQuery(op_query) = req.get_op_code().to_owned() {
+        if let OpCode::OpQuery(op_query) = res.get_op_code().to_owned() {
             let header =
                 op_query
                     .header
-                    .get_response_with_op_code(req.get_id(), message_length, OP_REPLY);
+                    .get_response_with_op_code(res.get_id(), message_length, OP_REPLY);
             let cursor_id = 0;
             let starting_from = 0;
             let number_returned = 1;
-            let docs = vec![req.get_doc().to_owned()];
+            let docs = vec![res.get_doc().to_owned()];
 
             return Ok(OpReply::new(
                 header,

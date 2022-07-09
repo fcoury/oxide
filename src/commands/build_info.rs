@@ -1,6 +1,6 @@
-use crate::commands::Handler;
 use crate::handler::CommandExecutionError;
 use crate::wire::MAX_DOCUMENT_LEN;
+use crate::{commands::Handler, handler::Request};
 use bson::{doc, Bson, Document};
 
 const MONGO_DB_VERSION: &str = "5.0.42";
@@ -12,7 +12,11 @@ impl Handler for BuildInfo {
         BuildInfo {}
     }
 
-    fn handle(&self, _msg: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+    fn handle(
+        &self,
+        _request: &Request,
+        _msg: &Vec<Document>,
+    ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
             "version": MONGO_DB_VERSION,
             "gitVersion": "30cf72e1380e1732c0e24016f092ed58e38eeb58",
