@@ -76,7 +76,10 @@ impl OpCode {
         match self {
             OpCode::OpMsg(op_msg) => Ok(op_msg.reply(response).unwrap()),
             OpCode::OpQuery(op_query) => Ok(op_query.reply(response).unwrap()),
-            _ => Err(UnknownMessageKindError),
+            _ => {
+                println!("Unknown Message Received - {:#?}", self);
+                Err(UnknownMessageKindError)
+            }
         }
     }
 }

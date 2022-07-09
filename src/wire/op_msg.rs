@@ -3,6 +3,7 @@ use crate::wire::Replyable;
 use crate::wire::{OpCode, UnknownMessageKindError, CHECKSUM_PRESENT, HEADER_SIZE, OP_MSG};
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
 use super::{MsgHeader, Serializable};
@@ -18,7 +19,7 @@ pub struct OpMsg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpMsgSection {
     pub kind: u8,
-    // pub identifier: u32,
+    pub identifier: Option<String>,
     pub documents: Vec<Document>,
 }
 
@@ -34,6 +35,7 @@ impl OpMsg {
             flags,
             sections: vec![OpMsgSection {
                 kind: 0,
+                identifier: None,
                 documents: vec![doc.to_owned()],
             }],
             checksum,
@@ -50,32 +52,71 @@ impl OpMsg {
         let flags = rdr.read_u32::<LittleEndian>().unwrap();
         let kind = rdr.read_u8().unwrap();
 
-        // FIXME We're only handling kind 0 - and it only has one document
         let mut sections = vec![];
-
-        // peek size of the document
         let size = rdr.read_u32::<LittleEndian>().unwrap();
-        rdr.set_position(rdr.position() - 4);
 
         let mut rdr2 = rdr.clone();
-        let doc = Document::from_reader(rdr).unwrap();
-        let documents = vec![doc];
-        rdr2.set_position(rdr2.position() + size as u64);
 
-        sections.push(OpMsgSection { kind, documents });
+        let pos = if kind == 0 {
+            // peek size of the document
+            rdr.set_position(rdr.position() - 4);
 
+            let doc = Document::from_reader(rdr).unwrap();
+            let documents = vec![doc];
+
+            sections.push(OpMsgSection {
+                kind,
+                identifier: None,
+                documents,
+            });
+
+            rdr2.position() + size as u64
+        } else {
+            let initial_pos = 0;
+
+            // collection is a CString
+            let mut buffer: Vec<u8> = vec![];
+            rdr.read_until(0, &mut buffer).unwrap();
+            let identifier = Some(
+                unsafe { CString::from_vec_unchecked(buffer) }
+                    .to_string_lossy()
+                    .to_string(),
+            );
+
+            let mut documents = vec![];
+            while rdr.position() < (initial_pos + size) as u64 {
+                let reader = rdr.clone();
+                let doc = Document::from_reader(reader).unwrap();
+                let clone = &doc.clone();
+                documents.push(doc);
+
+                let bson_vec = ser::to_vec(&clone).unwrap();
+                let bson_data: &[u8] = &bson_vec;
+                rdr.set_position(rdr.position() + bson_data.len() as u64);
+            }
+
+            sections.push(OpMsgSection {
+                kind,
+                identifier,
+                documents,
+            });
+
+            rdr2.position()
+        };
+
+        rdr2.set_position(pos);
         let checksum = if flags & CHECKSUM_PRESENT != 0 {
             Some(rdr2.read_u32::<LittleEndian>().unwrap())
         } else {
             None
         };
 
-        OpMsg {
+        return OpMsg {
             header,
             flags,
             checksum,
             sections,
-        }
+        };
     }
 }
 
@@ -98,9 +139,18 @@ impl Replyable for OpMsg {
                 )
                 .to_vec());
             } else if self.sections.len() > 0 && self.sections[0].kind == 1 {
+                println!(
+                    "*** Received unsupported kind 1 section for OP_MSG = {:?}",
+                    res.get_op_code()
+                );
                 return Err(UnknownMessageKindError);
             }
         }
+
+        println!(
+            "*** Received unknown op_code in OP_MSG = {:?}",
+            res.get_op_code()
+        );
 
         Err(UnknownMessageKindError)
     }
