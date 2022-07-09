@@ -147,19 +147,15 @@ impl PgDb {
         self.exec(&sql, &[])
     }
 
-    pub fn schema_stats(
-        &mut self,
-        schema: &str,
-        collection: Option<&str>,
-    ) -> Result<Vec<Row>, Error> {
-        let mut params = vec![&schema];
+    pub fn schema_stats(&mut self, schema: &str, collection: Option<&str>) -> Result<Row, Error> {
+        let mut params: Vec<&dyn ToSql> = vec![&schema];
         let mut sql = r#"
-            SELECT COUNT(distinct t.table_name)                                                          AS CountTables,
-                COALESCE(SUM(s.n_live_tup), 0)                                                           AS CountRows,
-                COALESCE(SUM(pg_total_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)  AS SizeTotal,
-                COALESCE(SUM(pg_indexes_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)         AS SizeIndexes,
-                COALESCE(SUM(pg_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)        AS SizeRelation,
-                COUNT(distinct i.indexname)                                                              AS CountIndexes
+            SELECT COUNT(distinct t.table_name)::integer                                                          AS TableCount,
+                COALESCE(SUM(s.n_live_tup), 0)::integer                                                           AS RowCount,
+                COALESCE(SUM(pg_total_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)::integer  AS TotalSize,
+                COALESCE(SUM(pg_indexes_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)::integer         AS IndexSize,
+                COALESCE(SUM(pg_relation_size('"'||t.table_schema||'"."'||t.table_name||'"')), 0)::integer        AS RelationSize,
+                COUNT(distinct i.indexname)::integer                                                              AS IndexCount
             FROM information_schema.tables AS t
             LEFT OUTER
             JOIN pg_stat_user_tables       AS s ON s.schemaname = t.table_schema
@@ -175,7 +171,7 @@ impl PgDb {
             params.push(&collection);
         }
 
-        self.raw_query(&sql, &[])
+        self.client.query_one(&sql, &[&schema])
     }
 }
 

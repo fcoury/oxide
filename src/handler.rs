@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, Drop, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
+    BuildInfo, DbStats, Drop, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
 };
 use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
@@ -71,6 +71,8 @@ fn run(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
         IsMaster::new().handle(docs)
     } else if command == "buildInfo" || command == "buildinfo" {
         BuildInfo::new().handle(docs)
+    } else if command == "dbStats" {
+        DbStats::new().handle(docs)
     } else if command == "listDatabases" {
         ListDatabases::new().handle(docs)
     } else if command == "listCollections" {
