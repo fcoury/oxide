@@ -22,12 +22,12 @@ impl Handler for Find {
         // returns empty if db or collection doesn't exist
         if !client.table_exists(db, collection).unwrap() {
             return Ok(doc! {
-                "ok": Bson::Double(1.0),
                 "cursor": doc! {
+                    "firstBatch": Bson::Array(vec![]),
                     "id": Bson::Int64(0),
                     "ns": format!("{}.{}", db, collection),
-                    "firstBatch": Bson::Array(vec![]),
                 },
+                "ok": Bson::Double(1.0),
             });
         }
 
@@ -45,12 +45,12 @@ impl Handler for Find {
                 println!("{:#?}", res);
 
                 Ok(doc! {
-                    "ok": Bson::Double(1.0),
                     "cursor": doc! {
+                        "firstBatch": res,
                         "id": Bson::Int64(0),
                         "ns": format!("{}.{}", db, collection),
-                        "firstBatch": res,
                     },
+                    "ok": Bson::Double(1.0),
                 })
             }
             Err(error) => {
