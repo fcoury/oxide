@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
+    BuildInfo, Drop, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
 };
 use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
@@ -81,6 +81,8 @@ fn run(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
         Ping::new().handle(docs)
     } else if command == "insert" {
         Insert::new().handle(docs)
+    } else if command == "drop" {
+        Drop::new().handle(docs)
     } else {
         println!("Got unknown OP_MSG command: {}", command);
         Ok(doc! {

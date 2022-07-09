@@ -1,10 +1,11 @@
 use crate::serializer::PostgresSerializer;
-use bson::Bson;
+use bson::{Bson, Document};
 use postgres::error::Error;
 use postgres::Row;
 use postgres::{types::ToSql, Client, NoTls};
 use sql_lexer::sanitize_string;
 use std::env;
+use std::fmt;
 
 pub struct PgDb {
     client: Client,
@@ -130,6 +131,12 @@ impl PgDb {
         self.create_schema_if_not_exists(schema)?;
         self.exec(&sql, &[])
     }
+
+    pub fn drop_table(&mut self, sp: &SqlParam) -> Result<u64, Error> {
+        let name = sp.sanitize();
+        let sql = format!("DROP TABLE IF EXISTS {}", name);
+        self.exec(&sql, &[])
+    }
 }
 
 pub struct SqlParam {
@@ -147,9 +154,22 @@ impl SqlParam {
         }
     }
 
+    pub fn from(doc: &Document, col_attr: &str) -> Self {
+        Self::new(
+            &doc.get_str("$db").unwrap().to_string(),
+            &doc.get_str(col_attr).unwrap().to_string(),
+        )
+    }
+
     pub fn sanitize(&self) -> String {
         let db = sanitize_string(self.db.to_string());
         let collection = sanitize_string(self.collection.to_string());
         format!("{}.{}", db, collection)
+    }
+}
+
+impl fmt::Display for SqlParam {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.sanitize())
     }
 }

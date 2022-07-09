@@ -2,6 +2,7 @@ use crate::handler::CommandExecutionError;
 use bson::Document;
 
 mod build_info;
+mod drop;
 mod find;
 mod insert;
 mod is_master;
@@ -10,6 +11,7 @@ mod list_databases;
 mod ping;
 
 pub use self::build_info::BuildInfo;
+pub use self::drop::Drop;
 pub use self::find::Find;
 pub use self::insert::Insert;
 pub use self::is_master::IsMaster;
