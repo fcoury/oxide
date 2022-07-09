@@ -1,5 +1,8 @@
+use crate::serializer::PostgresSerializer;
+use bson::Bson;
 use postgres::error::Error;
 use postgres::{types::ToSql, Client, NoTls};
+use sql_lexer::sanitize_string;
 use std::env;
 
 pub struct PgDb {
@@ -19,6 +22,24 @@ impl PgDb {
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64, Error> {
         println!("*** SQL: {} - {:#?}", query, params);
         self.client.execute(query, params)
+    }
+
+    pub fn query(&self, s: &str, p: SqlParam) -> String {
+        let table = format!("{}.{}", &p.db, &p.collection);
+        sanitize_string(s.replace("%table%", &table))
+    }
+
+    pub fn insert_docs(&mut self, sp: SqlParam, docs: &Vec<Bson>) -> Result<u64, Error> {
+        let query = self.query("INSERT INTO %table% VALUES ($1)", sp);
+
+        let mut affected = 0;
+        for doc in docs {
+            let bson: Bson = doc.into();
+            let json = bson.into_psql_json();
+            let n = &self.exec(&query, &[&json]).unwrap();
+            affected += n;
+        }
+        Ok(affected)
     }
 
     pub fn get_strings(
@@ -51,10 +72,10 @@ impl PgDb {
     pub fn get_tables(&mut self, schema: &str) -> Vec<String> {
         self.get_strings(
             "
-                SELECT table_name FROM information_schema.tables
-                WHERE table_schema = $1
-                GROUP BY table_name ORDER BY table_name
-                "
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = $1
+            GROUP BY table_name ORDER BY table_name
+            "
             .to_string(),
             &[&schema],
         )
@@ -71,5 +92,43 @@ impl PgDb {
             .unwrap();
 
         row.get(0)
+    }
+
+    pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64, Error> {
+        let sql = format!(
+            "CREATE SCHEMA IF NOT EXISTS {}",
+            sanitize_string(schema.to_string())
+        );
+        self.exec(&sql, &[])
+    }
+
+    pub fn create_table_if_not_exists(&mut self, schema: &str, table: &str) -> Result<u64, Error> {
+        let name = SqlParam::new(schema, table).sanitize();
+        let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
+
+        self.create_schema_if_not_exists(schema)?;
+        self.exec(&sql, &[])
+    }
+}
+
+pub struct SqlParam {
+    pub db: String,
+    pub collection: String,
+    pub comment: Option<String>,
+}
+
+impl SqlParam {
+    pub fn new(db: &str, collection: &str) -> Self {
+        SqlParam {
+            db: db.to_string(),
+            collection: collection.to_string(),
+            comment: None,
+        }
+    }
+
+    pub fn sanitize(&self) -> String {
+        let db = sanitize_string(self.db.to_string());
+        let collection = sanitize_string(self.collection.to_string());
+        format!("{}.{}", db, collection)
     }
 }

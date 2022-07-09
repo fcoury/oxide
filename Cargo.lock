@@ -729,6 +729,7 @@ dependencies = [
  "pretty-hex",
  "serde",
  "serde_json",
+ "sql_lexer",
  "tokio",
 ]
 
@@ -1164,6 +1165,12 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "sql_lexer"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cfc81dbbac5c55cc92508f1272b2d9401b7576fbfcc786d507680baa03397d0"
 
 [[package]]
 name = "stringprep"

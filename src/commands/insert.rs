@@ -1,7 +1,6 @@
-use crate::commands::Handler;
 use crate::pg::PgDb;
-use crate::serializer::PostgresSerializer;
 use crate::wire::UnknownCommandError;
+use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
 pub struct Insert {}
@@ -13,25 +12,22 @@ impl Handler for Insert {
 
     fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         let doc = &docs[0];
-        let collection = doc.get_str("insert").unwrap();
         let db = doc.get_str("$db").unwrap();
+        let collection = doc.get_str("insert").unwrap();
         let docs = doc.get_array("documents").unwrap();
-        let insert_doc = &docs[0];
 
         let mut client = PgDb::new();
+        client.create_table_if_not_exists(db, collection).unwrap();
 
-        let bson: Bson = insert_doc.into();
-        let json = bson.into_psql_json();
-        let query = format!("INSERT INTO {}.{} VALUES ($1)", &db, &collection);
-
-        client.exec(&query, &[&json]).unwrap();
+        let sp = SqlParam::new(db, collection);
+        let inserted = client.insert_docs(sp, docs).unwrap();
 
         Ok(doc! {
           "ok": Bson::Double(1.0),
           "n": Bson::Int64(1),
           "lastErrorObject": doc! {
             "updatedExisting": Bson::Boolean(false),
-            "n": Bson::Int64(1),
+            "n": Bson::Int64(inserted.try_into().unwrap()),
             "ok": Bson::Double(1.0),
           },
         })
