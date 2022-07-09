@@ -1,7 +1,8 @@
-use crate::commands::Handler;
+use crate::deserializer::PostgresJsonDeserializer;
+use crate::pg::PgDb;
 use crate::wire::UnknownCommandError;
+use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
-use postgres::{Client, NoTls};
 
 pub struct Find {}
 
@@ -12,19 +13,18 @@ impl Handler for Find {
 
     fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
         let doc = &docs[0];
-        let collection = doc.get_str("find").unwrap();
         let db = doc.get_str("$db").unwrap();
+        let collection = doc.get_str("find").unwrap();
+        let sp = SqlParam::new(db, collection);
 
-        let mut client =
-            Client::connect("postgresql://postgres:postgres@localhost/ferretdb", NoTls).unwrap();
+        let mut client = PgDb::new();
 
-        let query = format!("SELECT * FROM {}.{}", &db, &collection);
-        let rows = client.query(&query, &[]).unwrap();
+        let rows = client.query("SELECT * FROM %table%", sp, &[]).unwrap();
 
         let mut res: Vec<Bson> = vec![];
         for row in rows.iter() {
             let json_value: serde_json::Value = row.get(0);
-            let bson_value = bson::to_bson(&json_value).unwrap();
+            let bson_value = json_value.from_psql_json();
             println!("{:?}", bson_value);
             res.push(bson_value);
         }

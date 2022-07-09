@@ -4,6 +4,7 @@ use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
 
 mod commands;
+mod deserializer;
 pub mod handler;
 mod pg;
 mod serializer;

@@ -31,7 +31,7 @@ impl PostgresSerializer for Bson {
                 json!({ "$f": s })
             }
             Bson::DateTime(date) => {
-                json!({ "$d": date.timestamp_millis().to_string() })
+                json!({ "$d": date.timestamp_millis() })
             }
             Bson::Array(arr) => Value::Array(arr.into_iter().map(Bson::into_psql_json).collect()),
             Bson::Document(arr) => Value::Object(
@@ -42,7 +42,7 @@ impl PostgresSerializer for Bson {
             Bson::JavaScriptCode(code) => json!({ "$j": code }),
             Bson::JavaScriptCodeWithScope(JavaScriptCodeWithScope { code, scope }) => json!({
                 "$j": code,
-                "s": Bson::Document(scope).into_psql_json(),
+                "s": serde_json::to_string(&scope).unwrap(),
             }),
             Bson::RegularExpression(bson::Regex { pattern, options }) => {
                 let mut chars: Vec<_> = options.chars().collect();
@@ -101,7 +101,7 @@ mod tests {
         let json = Bson::DateTime(bson::DateTime::from_millis(time.try_into().unwrap()))
             .into_psql_json()
             .to_string();
-        assert_eq!(r#"{"$d":"851042397000"}"#, json);
+        assert_eq!(r#"{"$d":851042397000}"#, json);
     }
 
     #[test]

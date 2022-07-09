@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::thread;
 
 mod commands;
+mod deserializer;
 pub mod handler;
 mod pg;
 mod serializer;

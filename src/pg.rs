@@ -1,6 +1,7 @@
 use crate::serializer::PostgresSerializer;
 use bson::Bson;
 use postgres::error::Error;
+use postgres::Row;
 use postgres::{types::ToSql, Client, NoTls};
 use sql_lexer::sanitize_string;
 use std::env;
@@ -24,13 +25,25 @@ impl PgDb {
         self.client.execute(query, params)
     }
 
-    pub fn query(&self, s: &str, p: SqlParam) -> String {
-        let table = format!("{}.{}", &p.db, &p.collection);
+    pub fn query(
+        &mut self,
+        query: &str,
+        sp: SqlParam,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, Error> {
+        let sql = self.get_query(query, sp);
+
+        println!("*** SQL: {} - {:#?}", sql, params);
+        self.client.query(&sql, params)
+    }
+
+    fn get_query(&self, s: &str, sp: SqlParam) -> String {
+        let table = format!("{}.{}", &sp.db, &sp.collection);
         sanitize_string(s.replace("%table%", &table))
     }
 
     pub fn insert_docs(&mut self, sp: SqlParam, docs: &Vec<Bson>) -> Result<u64, Error> {
-        let query = self.query("INSERT INTO %table% VALUES ($1)", sp);
+        let query = self.get_query("INSERT INTO %table% VALUES ($1)", sp);
 
         let mut affected = 0;
         for doc in docs {
