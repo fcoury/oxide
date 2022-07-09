@@ -100,6 +100,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         IsMaster::new().handle(request, docs)
     } else if command == "buildInfo" || command == "buildinfo" {
         BuildInfo::new().handle(request, docs)
+    } else if command == "whatsmyuri" {
+        WhatsMyUri::new().handle(request, docs)
     } else if command == "dbStats" {
         DbStats::new().handle(request, docs)
     } else if command == "listDatabases" {
