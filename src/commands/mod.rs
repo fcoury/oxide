@@ -1,4 +1,4 @@
-use crate::wire::UnknownCommandError;
+use crate::handler::CommandExecutionError;
 use bson::Document;
 
 mod build_info;
@@ -19,5 +19,5 @@ pub use self::ping::Ping;
 
 pub trait Handler {
     fn new() -> Self;
-    fn handle(&self, msg: &Vec<Document>) -> Result<Document, UnknownCommandError>;
+    fn handle(&self, msg: &Vec<Document>) -> Result<Document, CommandExecutionError>;
 }

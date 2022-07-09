@@ -1,6 +1,5 @@
-use crate::commands::Handler;
 use crate::pg::PgDb;
-use crate::wire::UnknownCommandError;
+use crate::{commands::Handler, handler::CommandExecutionError};
 use bson::{bson, doc, Bson, Document};
 
 pub struct ListCollections {}
@@ -10,7 +9,7 @@ impl Handler for ListCollections {
         ListCollections {}
     }
 
-    fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let mut client = PgDb::new();
         let db = doc.get_str("$db").unwrap();

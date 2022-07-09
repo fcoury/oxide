@@ -29,17 +29,6 @@ pub const MORE_TO_COME: u32 = 1 << 1;
 pub const EXHAUST_ALLOWED: u32 = 1 << 16;
 
 #[derive(Debug, Clone)]
-pub struct UnknownCommandError {
-    command: String,
-}
-
-impl UnknownCommandError {
-    pub fn new(command: String) -> UnknownCommandError {
-        UnknownCommandError { command }
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct OpCodeNotImplementedError {
     op_code: u32,
 }

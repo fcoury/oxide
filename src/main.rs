@@ -1,4 +1,5 @@
 use autoincrement::prelude::*;
+use bson::{doc, Bson};
 use oxide::ThreadPool;
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -53,9 +54,22 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                 let op_code = wire::parse(&buffer).unwrap();
                 println!("Request ({}b): {:?}\t{}", read, op_code, addr);
 
-                let mut response = handler::handle(id.0, op_code).unwrap();
+                let mut response = match handler::handle(id.0, &op_code) {
+                    Ok(reply) => reply,
+                    Err(e) => {
+                        println!("Handling error: {}", e);
+                        let err = doc! {
+                            "ok": Bson::Double(0.0),
+                            "errmsg": Bson::String(format!("{}", e)),
+                            "code": Bson::Int32(59),
+                            "codeName": "CommandNotFound",
+                        };
+                        let request = handler::Request::new(id.0, &op_code, vec![err]);
+                        op_code.reply(request).unwrap()
+                    }
+                };
+
                 response.flush().unwrap();
-                // println!("*** Hex Dump:\n {}", pretty_hex(&response));
 
                 let elapsed = now.elapsed();
                 println!("Processed {}b in {:.2?}\n", response.len(), elapsed);

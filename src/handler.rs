@@ -2,7 +2,7 @@
 use crate::commands::{
     BuildInfo, Find, Handler, Insert, IsMaster, ListCollections, ListDatabases, Ping,
 };
-use crate::wire::{OpCode, UnknownCommandError};
+use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
 
 #[derive(Debug, Clone)]
@@ -13,6 +13,10 @@ pub struct Request<'a> {
 }
 
 impl<'a> Request<'a> {
+    pub fn new(id: u32, op_code: &'a OpCode, docs: Vec<Document>) -> Self {
+        Request { id, op_code, docs }
+    }
+
     pub fn get_doc(&self) -> &Document {
         &self.docs[0]
     }
@@ -26,7 +30,24 @@ impl<'a> Request<'a> {
     }
 }
 
-pub fn handle(id: u32, op_code: OpCode) -> Result<Vec<u8>, UnknownCommandError> {
+#[derive(Debug, Clone)]
+pub struct CommandExecutionError {
+    pub message: String,
+}
+
+impl std::fmt::Display for CommandExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl CommandExecutionError {
+    pub fn new(message: String) -> Self {
+        CommandExecutionError { message }
+    }
+}
+
+pub fn handle(id: u32, op_code: &OpCode) -> Result<Vec<u8>, CommandExecutionError> {
     match route(&op_code) {
         Ok(doc) => {
             println!("Response: {:?}", doc);
@@ -41,7 +62,7 @@ pub fn handle(id: u32, op_code: OpCode) -> Result<Vec<u8>, UnknownCommandError> 
     }
 }
 
-fn run(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+fn run(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
     println!("OP_MSG Command: {}", command);
@@ -71,7 +92,7 @@ fn run(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
     }
 }
 
-fn run_op_query(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+fn run_op_query(docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
     println!("OP_QUERY Command: {}", command);
@@ -89,13 +110,16 @@ fn run_op_query(docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
     }
 }
 
-fn route(msg: &OpCode) -> Result<Document, UnknownCommandError> {
+fn route(msg: &OpCode) -> Result<Document, CommandExecutionError> {
     match msg {
         OpCode::OpMsg(msg) => run(&msg.sections[0].documents),
         OpCode::OpQuery(query) => run_op_query(&vec![query.query.clone()]),
         _ => {
             println!("*** Got unknown opcode: {:?}", msg);
-            Err(UnknownCommandError::new("unknown".to_string()))
+            Err(CommandExecutionError::new(format!(
+                "can't handle opcode: {:?}",
+                msg
+            )))
         }
     }
 }

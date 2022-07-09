@@ -1,5 +1,5 @@
+use crate::handler::CommandExecutionError;
 use crate::pg::PgDb;
-use crate::wire::UnknownCommandError;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -10,7 +10,7 @@ impl Handler for Insert {
         Insert {}
     }
 
-    fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("insert").unwrap();

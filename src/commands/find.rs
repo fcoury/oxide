@@ -1,6 +1,6 @@
 use crate::deserializer::PostgresJsonDeserializer;
+use crate::handler::CommandExecutionError;
 use crate::pg::PgDb;
-use crate::wire::UnknownCommandError;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -11,7 +11,7 @@ impl Handler for Find {
         Find {}
     }
 
-    fn handle(&self, docs: &Vec<Document>) -> Result<Document, UnknownCommandError> {
+    fn handle(&self, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("find").unwrap();
@@ -19,25 +19,35 @@ impl Handler for Find {
 
         let mut client = PgDb::new();
 
-        let rows = client.query("SELECT * FROM %table%", sp, &[]).unwrap();
+        let r = client.query("SELECT * FROM %table%", sp, &[]);
+        match r {
+            Ok(rows) => {
+                let mut res: Vec<Bson> = vec![];
+                for row in rows.iter() {
+                    let json_value: serde_json::Value = row.get(0);
+                    let bson_value = json_value.from_psql_json();
+                    println!("{:?}", bson_value);
+                    res.push(bson_value);
+                }
 
-        let mut res: Vec<Bson> = vec![];
-        for row in rows.iter() {
-            let json_value: serde_json::Value = row.get(0);
-            let bson_value = json_value.from_psql_json();
-            println!("{:?}", bson_value);
-            res.push(bson_value);
+                println!("{:#?}", res);
+
+                Ok(doc! {
+                    "ok": Bson::Double(1.0),
+                    "cursor": doc! {
+                        "id": Bson::Int64(0),
+                        "ns": format!("{}.{}", db, collection),
+                        "firstBatch": res,
+                    },
+                })
+            }
+            Err(error) => {
+                println!("Error during find: {:?}", error);
+                Err(CommandExecutionError::new(format!(
+                    "error during find: {:?}",
+                    error
+                )))
+            }
         }
-
-        println!("{:#?}", res);
-
-        Ok(doc! {
-            "ok": Bson::Double(1.0),
-            "cursor": doc! {
-                "id": Bson::Int64(0),
-                "ns": format!("{}.{}", db, collection),
-                "firstBatch": res,
-            },
-        })
     }
 }
