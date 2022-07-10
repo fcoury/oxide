@@ -1,12 +1,13 @@
 use clap::Parser;
 use server::Server;
 
-mod commands;
-mod deserializer;
+pub mod commands;
+pub mod deserializer;
 pub mod handler;
-mod pg;
-mod serializer;
-mod server;
+pub mod pg;
+pub mod serializer;
+pub mod server;
+pub mod threadpool;
 pub mod wire;
 
 #[derive(Parser, Debug)]

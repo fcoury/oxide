@@ -141,6 +141,11 @@ impl PgDb {
         self.exec(&sql, &[])
     }
 
+    pub fn drop_schema(&mut self, schema: &str) -> Result<u64, Error> {
+        let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema);
+        self.exec(&sql, &[])
+    }
+
     pub fn drop_table(&mut self, sp: &SqlParam) -> Result<u64, Error> {
         let name = sp.sanitize();
         let sql = format!("DROP TABLE IF EXISTS {}", name);
