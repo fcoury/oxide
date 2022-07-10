@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_parse_int64() {
         let json = Bson::Int64(1).into_psql_json().to_string();
-        assert_eq!(r#"{"$f":"1"}"#, json);
+        assert_eq!(r#"{"$i":"1"}"#, json);
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
         .into_psql_json()
         .to_string();
         assert_eq!(
-            r#"{"$j":"function a() { return 'hey'; }","s":{"a":1,"b":2}}"#,
+            r#"{"$j":"function a() { return 'hey'; }","s":"{\"a\":1,\"b\":2}"}"#,
             json
         );
     }
