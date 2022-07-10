@@ -1,7 +1,7 @@
 use crate::handler::{handle, Response};
 use crate::threadpool::ThreadPool;
 use crate::wire::parse;
-use autoincrement::prelude::*;
+use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
