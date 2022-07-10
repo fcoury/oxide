@@ -36,24 +36,29 @@ impl TestContext {
     }
 }
 
-pub fn setup_with_db(name: &str) -> TestContext {
+pub fn setup_with_pg_db(name: &str) -> TestContext {
     // static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
     // let id = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
     let _ = env_logger::builder().is_test(true).try_init();
     dotenv::dotenv().ok();
 
-    env::set_var("DATABASE_URL", env::var("TEST_DATABASE_URL").unwrap());
+    PgDb::new().create_db_if_not_exists(name).unwrap();
+
+    env::set_var(
+        "DATABASE_URL",
+        format!("{}/{}", env::var("TEST_DATABASE_URL").unwrap(), name),
+    );
 
     let port: u16 = portpicker::pick_unused_port().unwrap();
     thread::spawn(move || {
         Server::new("localhost".to_string(), port).start();
     });
 
-    PgDb::new().drop_schema(&name).unwrap();
-    TestContext::new(port, name.to_string())
+    PgDb::new().drop_schema("db_test").unwrap();
+    TestContext::new(port, "db_test".to_string())
 }
 
 pub fn setup() -> TestContext {
-    setup_with_db("test_db")
+    setup_with_pg_db("test")
 }

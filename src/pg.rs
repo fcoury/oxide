@@ -1,8 +1,7 @@
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
-use postgres::error::Error;
-use postgres::Row;
-use postgres::{types::ToSql, Client, NoTls};
+use postgres::error::{Error, SqlState};
+use postgres::{types::ToSql, Client, NoTls, Row};
 use sql_lexer::sanitize_string;
 use std::env;
 use std::fmt;
@@ -123,6 +122,20 @@ impl PgDb {
             .unwrap();
 
         row.get(0)
+    }
+
+    pub fn create_db_if_not_exists(&mut self, db: &str) -> Result<u64, Error> {
+        let query = format!("CREATE DATABASE {}", db);
+        let res = self.client.execute(&query, &[]);
+        if let Err(err) = res {
+            if let Some(sql_state) = err.code() {
+                if sql_state == &SqlState::DUPLICATE_DATABASE {
+                    return Ok(0);
+                }
+            }
+            return Err(err);
+        }
+        res
     }
 
     pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64, Error> {
