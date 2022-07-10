@@ -33,7 +33,6 @@ jobs:
 
       - name: Update local toolchain
         run: |
-          rustup update
           rustup component add clippy
       - name: Install cargo-nextest
         uses: baptiste0928/cargo-install@v1
