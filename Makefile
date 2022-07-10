@@ -4,10 +4,7 @@ check:
 	cargo check
 
 start:
-	cargo watch -x 'run --bin server'
-
-client:
-	cargo run --bin client
+	cargo watch -x 'run'
 
 test:
 	cargo nextest run
