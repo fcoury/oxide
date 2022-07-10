@@ -27,13 +27,8 @@ impl Handler for Insert {
         let inserted = client.insert_docs(sp, docs).unwrap();
 
         Ok(doc! {
+          "n": Bson::Int64(inserted.try_into().unwrap()),
           "ok": Bson::Double(1.0),
-          "n": Bson::Int64(1),
-          "lastErrorObject": doc! {
-            "updatedExisting": Bson::Boolean(false),
-            "n": Bson::Int64(inserted.try_into().unwrap()),
-            "ok": Bson::Double(1.0),
-          },
         })
     }
 }

@@ -35,7 +35,10 @@ impl TestContext {
 }
 
 pub fn setup() -> TestContext {
-    let _ = env_logger::builder().is_test(true).try_init();
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Debug)
+        .try_init();
     dotenv::dotenv().ok();
 
     env::set_var("DATABASE_URL", env::var("TEST_DATABASE_URL").unwrap());

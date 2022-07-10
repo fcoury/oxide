@@ -3,7 +3,7 @@ use mongodb::bson::doc;
 mod common;
 
 #[test]
-fn basic_find_test() {
+fn basic_insert_test() {
     let ctx = common::setup();
 
     ctx.col()
