@@ -139,16 +139,16 @@ impl Replyable for OpMsg {
                 )
                 .to_vec());
             } else if self.sections.len() > 0 && self.sections[0].kind == 1 {
-                println!(
-                    "*** Received unsupported kind 1 section for OP_MSG = {:?}",
+                log::error!(
+                    "Received unsupported kind 1 section for OP_MSG = {:?}",
                     res.get_op_code()
                 );
                 return Err(UnknownMessageKindError);
             }
         }
 
-        println!(
-            "*** Received unknown op_code in OP_MSG = {:?}",
+        log::error!(
+            "Received unsupported kind 1 section for OP_MSG = {:?}",
             res.get_op_code()
         );
 

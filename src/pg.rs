@@ -22,7 +22,7 @@ impl PgDb {
     }
 
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64, Error> {
-        println!("*** SQL: {} - {:#?}", query, params);
+        log::debug!("SQL: {} - {:#?}", query, params);
         self.client.execute(query, params)
     }
 
@@ -34,7 +34,7 @@ impl PgDb {
     ) -> Result<Vec<Row>, Error> {
         let sql = self.get_query(query, sp);
 
-        println!("*** SQL: {} - {:#?}", sql, params);
+        log::debug!("SQL: {} - {:#?}", sql, params);
         self.raw_query(&sql, params)
     }
 
@@ -43,7 +43,7 @@ impl PgDb {
         query: &str,
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>, Error> {
-        println!("*** SQL: {} - {:#?}", query, params);
+        log::debug!("SQL: {} - {:#?}", query, params);
         self.client.query(query, params)
     }
 

@@ -45,8 +45,6 @@ impl OpQuery {
             Err(_) => None,
         };
 
-        println!("*** Incoming Document = {:?}", query);
-
         OpQuery {
             header,
             flags,

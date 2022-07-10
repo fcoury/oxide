@@ -79,7 +79,7 @@ pub fn handle(
     };
     match route(&request) {
         Ok(doc) => {
-            println!("Response: {:?}", doc);
+            log::debug!("Sending response: {:#?}", doc);
             let response = Response {
                 id,
                 op_code: &op_code,
@@ -94,7 +94,8 @@ pub fn handle(
 fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
-    println!("OP_MSG Command: {}", command);
+    log::debug!("OP_MSG command: {}", command);
+    log::debug!("Received document: {:#?}", docs);
 
     if command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(request, docs)
@@ -119,7 +120,7 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
     } else if command == "drop" {
         Drop::new().handle(request, docs)
     } else {
-        println!("Got unknown OP_MSG command: {}", command);
+        log::error!("Got unknown OP_MSG command: {}", command);
         Ok(doc! {
             "ok": Bson::Double(0.0),
             "errmsg": Bson::String(format!("no such command: '{}'", command).to_string()),
@@ -135,12 +136,12 @@ fn run_op_query(
 ) -> Result<Document, CommandExecutionError> {
     let command = docs[0].keys().next().unwrap();
 
-    println!("OP_QUERY Command: {}", command);
+    log::debug!("OP_QUERY Command: {}", command);
 
     if command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(request, docs)
     } else {
-        println!("Got unknown OP_QUERY command: {}", command);
+        log::error!("Got unknown OP_QUERY command: {}", command);
         Ok(doc! {
             "ok": Bson::Double(0.0),
             "errmsg": Bson::String(format!("no such command: '{}'", command).to_string()),
@@ -155,7 +156,7 @@ fn route(request: &Request) -> Result<Document, CommandExecutionError> {
         OpCode::OpMsg(msg) => run(request, &msg.sections[0].documents),
         OpCode::OpQuery(query) => run_op_query(request, &vec![query.query.clone()]),
         _ => {
-            println!("*** Got unknown opcode: {:?}", request.op_code);
+            log::error!("Unroutable opcode received: {:?}", request.op_code);
             Err(CommandExecutionError::new(format!(
                 "can't handle opcode: {:?}",
                 request.op_code

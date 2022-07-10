@@ -21,6 +21,7 @@ struct Args {
 
 fn main() {
     dotenv::dotenv().ok();
+    env_logger::init();
 
     let args = Args::parse();
     let ip_addr = args.listen_addr.unwrap_or("127.0.0.1".to_string());

@@ -25,7 +25,7 @@ impl Server {
         let pool = ThreadPool::new(10);
         let generator = RequestId::init();
 
-        println!("OxideDB listening on {}...", addr);
+        log::info!("OxideDB listening on {}...", addr);
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let id = generator.pull();
@@ -37,7 +37,7 @@ impl Server {
             });
         }
 
-        println!("Shutting down.");
+        log::info!("Shutting down.");
     }
 }
 
@@ -57,12 +57,12 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                 let now = Instant::now();
 
                 let op_code = parse(&buffer).unwrap();
-                println!("Request ({}b): {:?}\t{}", read, op_code, addr);
+                log::trace!("{} {}bytes: {:?}", addr, read, op_code);
 
                 let mut response = match handle(id.0, addr, &op_code) {
                     Ok(reply) => reply,
                     Err(e) => {
-                        println!("Handling error: {}", e);
+                        log::error!("Error while handling: {}", e);
                         let err = doc! {
                             "ok": Bson::Double(0.0),
                             "errmsg": Bson::String(format!("{}", e)),
@@ -77,11 +77,11 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                 response.flush().unwrap();
 
                 let elapsed = now.elapsed();
-                println!("Processed {}b in {:.2?}\n", response.len(), elapsed);
+                log::trace!("Processed {}bytes in {:.2?}\n", response.len(), elapsed);
                 stream.write_all(&response).unwrap();
             }
             Err(e) => {
-                println!("[{}-connection] Error: {}", id.0, e);
+                log::error!("Error on request id {}: {}", id.0, e);
                 stream.shutdown(Shutdown::Both).unwrap();
                 return;
             }

@@ -20,8 +20,10 @@ byteorder = "1.4.3"
 chrono = "0.4"
 clap = {version = "3.2.8", features = ["derive"]}
 dotenv = "0.15"
+env_logger = "0.9.0"
 futures = "0.3"
 local-ip-address = "0.4.4"
+log = "0.4"
 mongodb = "2.1"
 postgres = {version = "0.19", features = ["with-serde_json-1"]}
 pretty-hex = "0.3.0"

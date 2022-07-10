@@ -77,7 +77,7 @@ impl OpCode {
             OpCode::OpMsg(op_msg) => Ok(op_msg.reply(response).unwrap()),
             OpCode::OpQuery(op_query) => Ok(op_query.reply(response).unwrap()),
             _ => {
-                println!("Unknown Message Received - {:#?}", self);
+                log::error!("Unknown message during reply - {:#?}", self);
                 Err(UnknownMessageKindError)
             }
         }

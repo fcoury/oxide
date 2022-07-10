@@ -42,11 +42,8 @@ impl Handler for Find {
                 for row in rows.iter() {
                     let json_value: serde_json::Value = row.get(0);
                     let bson_value = json_value.from_psql_json();
-                    println!("{:?}", bson_value);
                     res.push(bson_value);
                 }
-
-                println!("{:#?}", res);
 
                 Ok(doc! {
                     "cursor": doc! {
@@ -58,7 +55,7 @@ impl Handler for Find {
                 })
             }
             Err(error) => {
-                println!("Error during find: {:?}", error);
+                log::error!("Error during find: {:?} - doc: {}", error, &doc);
                 Err(CommandExecutionError::new(format!(
                     "error during find: {:?}",
                     error
