@@ -18,3 +18,12 @@ fn test_list_database() {
     assert_eq!(res.len(), 2);
     assert!(res.get(1).unwrap().name == "test_db");
 }
+
+#[test]
+fn test_list_database_name_only() {
+    let ctx = common::setup();
+
+    let res = ctx.mongodb().list_database_names(None, None).unwrap();
+    assert_eq!(res.len(), 1);
+    assert_eq!(res.get(0).unwrap(), "public");
+}

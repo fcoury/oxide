@@ -28,7 +28,7 @@ impl TestContext {
     }
 
     pub fn col(&self) -> mongodb::sync::Collection<Document> {
-        self.mongodb
+        self.mongodb()
             .database(self.db.as_str())
             .collection(self.collection.as_str())
     }
