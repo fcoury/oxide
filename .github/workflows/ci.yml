@@ -44,7 +44,6 @@ jobs:
           cargo --version --verbose
           rustc --version
           cargo clippy --version
-
       - name: Test
         run: |
           make test
