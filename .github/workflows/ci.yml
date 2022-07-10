@@ -10,8 +10,24 @@ on:
 
 jobs:
 
-  test_phaser:
+  test_oxide:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/oxidedb
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432
     steps:
       - uses: actions/checkout@v2
 
@@ -31,7 +47,7 @@ jobs:
           cargo clippy --version
       # - name: Lint
       #   run: |
-      #     cd phaser
+      #     cd oxide
       #     make lint
 
       - name: Test
@@ -39,7 +55,7 @@ jobs:
           cd oxide
           make check
           make test
-  # build_phaser:
+  # build_oxide:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - uses: actions/checkout@v2
