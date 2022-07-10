@@ -1,13 +1,8 @@
 [package]
-author = "Felipe Coury"
 description = "A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage."
 edition = "2021"
 name = "oxide"
 version = "0.1.0"
-
-# [[bin]]
-# name = "client"
-# path = "src/client/main.rs"
 
 [[bin]]
 name = "server"

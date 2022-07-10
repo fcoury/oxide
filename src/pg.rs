@@ -129,7 +129,9 @@ impl PgDb {
         let res = self.client.execute(&query, &[]);
         if let Err(err) = res {
             if let Some(sql_state) = err.code() {
-                if sql_state == &SqlState::DUPLICATE_DATABASE {
+                if sql_state == &SqlState::DUPLICATE_DATABASE
+                    || sql_state == &SqlState::UNIQUE_VIOLATION
+                {
                     return Ok(0);
                 }
             }
