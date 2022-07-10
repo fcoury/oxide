@@ -45,14 +45,9 @@ jobs:
           cargo --version --verbose
           rustc --version
           cargo clippy --version
-      # - name: Lint
-      #   run: |
-      #     cd oxide
-      #     make lint
 
       - name: Test
         run: |
-          cd oxide
           make check
           make test
   # build_oxide:
