@@ -4,7 +4,7 @@ use oxide::wire::MAX_DOCUMENT_LEN;
 mod common;
 
 #[test]
-fn build_info_test() {
+fn test_build_info() {
     let ctx = common::setup();
 
     let res = ctx.db().run_command(doc! { "buildInfo": 1 }, None).unwrap();

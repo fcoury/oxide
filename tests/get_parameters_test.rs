@@ -24,7 +24,7 @@ fn get_parameters_selected_params_test() {
 }
 
 #[test]
-fn get_parameters_selected_params_with_details_test() {
+fn test_get_parameters_selected_params_with_details() {
     let ctx = common::setup();
 
     let res = ctx
@@ -57,7 +57,7 @@ fn get_parameters_selected_params_with_details_test() {
 }
 
 #[test]
-fn get_parameters_all_test() {
+fn test_get_parameters_all() {
     let ctx = common::setup();
 
     let res = ctx
@@ -79,7 +79,7 @@ fn get_parameters_all_test() {
 }
 
 #[test]
-fn get_parameters_all_test_with_details() {
+fn test_get_parameters_all_with_details() {
     let ctx = common::setup();
 
     let res = ctx
