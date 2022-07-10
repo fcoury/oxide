@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, DbStats, Drop, Find, Handler, Insert, IsMaster, ListCollections,
-    ListDatabases, Ping, WhatsMyUri,
+    BuildInfo, CollStats, DbStats, Drop, Find, GetCmdLineOpts, Handler, Hello, Insert, IsMaster,
+    ListCollections, ListDatabases, Ping, WhatsMyUri,
 };
 use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
@@ -115,6 +115,10 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         Find::new().handle(request, docs)
     } else if command == "ping" {
         Ping::new().handle(request, docs)
+    } else if command == "hello" {
+        Hello::new().handle(request, docs)
+    } else if command == "getCmdLineOpts" {
+        GetCmdLineOpts::new().handle(request, docs)
     } else if command == "insert" {
         Insert::new().handle(request, docs)
     } else if command == "drop" {
