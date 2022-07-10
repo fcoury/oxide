@@ -44,9 +44,6 @@ jobs:
           cargo --version --verbose
           rustc --version
           cargo clippy --version
-      - name: Dependencies check
-        run: |
-          cargo check
       - name: Test
         run: |
           make test
