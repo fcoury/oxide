@@ -1,4 +1,6 @@
 [package]
+author = "Felipe Coury"
+description = "A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage."
 edition = "2021"
 name = "oxide"
 version = "0.1.0"
@@ -16,7 +18,7 @@ autoincrement = {version = "1", features = ["derive", "async"]}
 bson = {version = "2.3.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
 chrono = "0.4"
-clap = {version = "3.0", features = ["derive"]}
+clap = {version = "3.2.8", features = ["derive"]}
 dotenv = "0.15"
 futures = "0.3"
 local-ip-address = "0.4.4"

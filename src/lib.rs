@@ -3,11 +3,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
-mod commands;
-mod deserializer;
+pub mod commands;
+pub mod deserializer;
 pub mod handler;
-mod pg;
-mod serializer;
+pub mod pg;
+pub mod serializer;
 pub mod wire;
 
 pub struct ThreadPool {
