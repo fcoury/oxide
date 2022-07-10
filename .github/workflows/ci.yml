@@ -26,7 +26,7 @@ jobs:
         ports:
           - 5432:5432
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/oxidedb
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432
     steps:
       - uses: actions/checkout@v2
@@ -48,7 +48,6 @@ jobs:
 
       - name: Test
         run: |
-          make check
           make test
   # build_oxide:
   #   runs-on: ubuntu-latest
