@@ -48,7 +48,7 @@ impl PgDb {
     }
 
     fn get_query(&self, s: &str, sp: SqlParam) -> String {
-        let table = format!("{}.{}", &sp.db, &sp.collection);
+        let table = sp.sanitize();
         sanitize_string(s.replace("%table%", &table))
     }
 
@@ -205,7 +205,7 @@ impl SqlParam {
     pub fn sanitize(&self) -> String {
         let db = sanitize_string(self.db.to_string());
         let collection = sanitize_string(self.collection.to_string());
-        format!("{}.{}", db, collection)
+        format!(r#""{}"."{}""#, db, collection)
     }
 }
 
