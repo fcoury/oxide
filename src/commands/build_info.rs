@@ -19,7 +19,7 @@ impl Handler for BuildInfo {
     ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
             "version": MONGO_DB_VERSION,
-            "gitVersion": "30cf72e1380e1732c0e24016f092ed58e38eeb58",
+            "gitVersion": "30cf72e1380e1732c0e24016f092ed58e38eeb58", // FIXME: get this from git
             "modules": Bson::Array(vec![]),
             "sysInfo": "deprecated",
             "versionArray": Bson::Array(vec![
