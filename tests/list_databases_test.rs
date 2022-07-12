@@ -32,7 +32,7 @@ fn test_list_database_name_only() {
 
 #[test]
 fn test_list_database_with_table_with_spaces() {
-    let ctx = common::setup_with_pg_db("test_list_2");
+    let ctx = common::setup_with_pg_db("test_list_3");
 
     ctx.db()
         .collection("my col")
