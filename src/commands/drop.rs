@@ -1,5 +1,4 @@
 use crate::handler::{CommandExecutionError, Request};
-use crate::pg::PgDb;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -12,10 +11,10 @@ impl Handler for Drop {
 
     fn handle(
         &self,
-        _request: &Request,
+        request: &Request,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
-        let mut client = PgDb::new();
+        let mut client = request.get_client();
         let sp = SqlParam::from(&docs[0], "drop");
         client.drop_table(&sp).unwrap();
 

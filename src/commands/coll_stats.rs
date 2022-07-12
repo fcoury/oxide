@@ -1,5 +1,5 @@
 use crate::handler::CommandExecutionError;
-use crate::pg::{PgDb, SqlParam};
+use crate::pg::SqlParam;
 use crate::{commands::Handler, handler::Request};
 use bson::{doc, Bson, Document};
 
@@ -10,11 +10,15 @@ impl Handler for CollStats {
         CollStats {}
     }
 
-    fn handle(&self, _: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
+    fn handle(
+        &self,
+        request: &Request,
+        docs: &Vec<Document>,
+    ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let sp = SqlParam::from(&doc, "collStats");
 
-        let mut client = PgDb::new();
+        let mut client = request.get_client();
         let stats = client.schema_stats(&sp.db, Some(&sp.collection)).unwrap();
 
         Ok(doc! {

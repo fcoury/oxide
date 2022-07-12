@@ -1,5 +1,4 @@
 use crate::handler::Request;
-use crate::pg::PgDb;
 use crate::{commands::Handler, handler::CommandExecutionError};
 use bson::{doc, Bson, Document};
 
@@ -12,13 +11,13 @@ impl Handler for DbStats {
 
     fn handle(
         &self,
-        _request: &Request,
+        request: &Request,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let scale = doc.get_f64("scale").unwrap_or(1.0);
-        let mut client = PgDb::new();
+        let mut client = request.get_client();
         let stats = client.schema_stats(db, None).unwrap();
 
         let table_count: i32 = stats.get("TableCount");

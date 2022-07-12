@@ -1,13 +1,15 @@
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
 use postgres::error::{Error, SqlState};
-use postgres::{types::ToSql, Client, NoTls, Row};
+use postgres::{types::ToSql, NoTls, Row};
+use r2d2::PooledConnection;
+use r2d2_postgres::PostgresConnectionManager;
 use sql_lexer::sanitize_string;
 use std::env;
 use std::fmt;
 
 pub struct PgDb {
-    client: Client,
+    client: PooledConnection<PostgresConnectionManager<NoTls>>,
 }
 
 impl PgDb {
@@ -15,8 +17,15 @@ impl PgDb {
         PgDb::new_with_uri(env::var("DATABASE_URL").unwrap())
     }
 
+    pub fn new_from_pool(pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
+        let client = pool.get().unwrap();
+        PgDb { client }
+    }
+
     pub fn new_with_uri(uri: String) -> Self {
-        let client = Client::connect(&uri, NoTls).unwrap();
+        let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
+        let pool = r2d2::Pool::new(manager).unwrap();
+        let client = pool.get().unwrap();
         PgDb { client }
     }
 

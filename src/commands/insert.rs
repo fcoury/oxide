@@ -1,5 +1,4 @@
 use crate::handler::{CommandExecutionError, Request};
-use crate::pg::PgDb;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -12,7 +11,7 @@ impl Handler for Insert {
 
     fn handle(
         &self,
-        _request: &Request,
+        request: &Request,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
@@ -20,7 +19,7 @@ impl Handler for Insert {
         let collection = doc.get_str("insert").unwrap();
         let docs = doc.get_array("documents").unwrap();
 
-        let mut client = PgDb::new();
+        let mut client = request.get_client();
         client.create_table_if_not_exists(db, collection).unwrap();
 
         let sp = SqlParam::new(db, collection);

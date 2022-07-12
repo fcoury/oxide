@@ -3,18 +3,30 @@ use crate::commands::{
     BuildInfo, CollStats, DbStats, Drop, Find, GetCmdLineOpts, GetParameter, Handler, Hello,
     Insert, IsMaster, ListCollections, ListDatabases, Ping, WhatsMyUri,
 };
+use crate::pg::PgDb;
 use crate::wire::OpCode;
 use bson::{doc, Bson, Document};
+use postgres::NoTls;
+use r2d2_postgres::PostgresConnectionManager;
 use std::net::SocketAddr;
 
 pub struct Request<'a> {
+    pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &'a OpCode,
 }
 
 impl<'a> Request<'a> {
-    pub fn new(peer_addr: SocketAddr, op_code: &'a OpCode) -> Self {
-        Request { peer_addr, op_code }
+    pub fn new(
+        pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
+        peer_addr: SocketAddr,
+        op_code: &'a OpCode,
+    ) -> Self {
+        Request {
+            pool,
+            peer_addr,
+            op_code,
+        }
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
@@ -23,6 +35,10 @@ impl<'a> Request<'a> {
 
     pub fn get_op_code(&self) -> &OpCode {
         self.op_code
+    }
+
+    pub fn get_client(&self) -> PgDb {
+        PgDb::new_from_pool(self.pool.clone())
     }
 }
 
@@ -70,10 +86,12 @@ impl CommandExecutionError {
 
 pub fn handle(
     id: u32,
+    pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &OpCode,
 ) -> Result<Vec<u8>, CommandExecutionError> {
     let request = Request {
+        pool,
         peer_addr,
         op_code: &op_code,
     };

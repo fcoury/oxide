@@ -1,6 +1,5 @@
 use crate::deserializer::PostgresJsonDeserializer;
 use crate::handler::{CommandExecutionError, Request};
-use crate::pg::PgDb;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -13,7 +12,7 @@ impl Handler for Find {
 
     fn handle(
         &self,
-        _request: &Request,
+        request: &Request,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
@@ -21,7 +20,7 @@ impl Handler for Find {
         let collection = doc.get_str("find").unwrap();
         let sp = SqlParam::new(db, collection);
 
-        let mut client = PgDb::new();
+        let mut client = request.get_client();
 
         // returns empty if db or collection doesn't exist
         if !client.table_exists(db, collection).unwrap() {

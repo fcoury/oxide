@@ -3,6 +3,8 @@ use crate::threadpool::ThreadPool;
 use crate::wire::parse;
 use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
+use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
+use std::env;
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpListener, TcpStream};
 
@@ -12,14 +14,29 @@ struct RequestId(u32);
 pub struct Server {
     listen_addr: String,
     port: u16,
+    pg_url: String,
 }
 
 impl Server {
     pub fn new(listen_addr: String, port: u16) -> Self {
-        Server { listen_addr, port }
+        Self::new_with_pgurl(listen_addr, port, env::var("DATABASE_URL").unwrap())
+    }
+
+    pub fn new_with_pgurl(listen_addr: String, port: u16, pg_url: String) -> Self {
+        Server {
+            listen_addr,
+            port,
+            pg_url,
+        }
     }
 
     pub fn start(&self) {
+        let manager = PostgresConnectionManager::new(self.pg_url.parse().unwrap(), NoTls);
+        let pool = r2d2::Pool::new(manager).unwrap();
+        self.start_with_pool(pool);
+    }
+
+    pub fn start_with_pool(&self, pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) {
         let addr = format!("{}:{}", self.listen_addr, self.port);
         let listener = TcpListener::bind(&addr).unwrap();
         let pool = ThreadPool::new(10);
@@ -29,11 +46,12 @@ impl Server {
         for stream in listener.incoming() {
             let stream = stream.unwrap();
             let id = generator.pull();
+            let pg_pool = pg_pool.clone();
 
             stream.set_nodelay(true).unwrap();
 
             pool.execute(|| {
-                handle_connection(stream, id);
+                handle_connection(stream, id, pg_pool);
             });
         }
 
@@ -41,7 +59,11 @@ impl Server {
     }
 }
 
-fn handle_connection(mut stream: TcpStream, id: RequestId) {
+fn handle_connection(
+    mut stream: TcpStream,
+    id: RequestId,
+    pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+) {
     let mut buffer = [0; 1204];
     let addr = stream.peer_addr().unwrap();
 
@@ -59,7 +81,7 @@ fn handle_connection(mut stream: TcpStream, id: RequestId) {
                 let op_code = parse(&buffer).unwrap();
                 log::trace!("{} {}bytes: {:?}", addr, read, op_code);
 
-                let mut response = match handle(id.0, addr, &op_code) {
+                let mut response = match handle(id.0, &pool, addr, &op_code) {
                     Ok(reply) => reply,
                     Err(e) => {
                         log::error!("Error while handling: {}", e);

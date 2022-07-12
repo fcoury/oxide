@@ -2,6 +2,7 @@
 use mongodb::bson::Document;
 use oxide::pg::PgDb;
 use oxide::server::Server;
+use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
@@ -50,17 +51,19 @@ pub fn setup_with_pg_db(name: &str) -> TestContext {
 
     PgDb::new().create_db_if_not_exists(name).unwrap();
 
-    env::set_var(
-        "DATABASE_URL",
-        format!("{}/{}", env::var("TEST_DATABASE_URL").unwrap(), name),
-    );
-
+    let pg_url = format!("{}/{}", env::var("TEST_DATABASE_URL").unwrap(), name);
     let port: u16 = portpicker::pick_unused_port().unwrap();
+
+    let manager = PostgresConnectionManager::new(pg_url.parse().unwrap(), NoTls);
+    let pool = r2d2::Pool::new(manager).unwrap();
+    PgDb::new_from_pool(pool.clone())
+        .drop_schema("db_test")
+        .unwrap();
+
     thread::spawn(move || {
-        Server::new("localhost".to_string(), port).start();
+        Server::new("localhost".to_string(), port).start_with_pool(pool);
     });
 
-    PgDb::new().drop_schema("db_test").unwrap();
     TestContext::new(port, "db_test".to_string())
 }
 
