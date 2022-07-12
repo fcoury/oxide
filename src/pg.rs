@@ -205,6 +205,11 @@ impl PgDb {
         }
     }
 
+    pub fn drop_db(&mut self, schema: &str) -> Result<u64, Error> {
+        let sql = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", schema);
+        self.exec(&sql, &[])
+    }
+
     pub fn drop_schema(&mut self, schema: &str) -> Result<u64, Error> {
         let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema);
         self.exec(&sql, &[])
