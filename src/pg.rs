@@ -154,7 +154,27 @@ impl PgDb {
             "CREATE SCHEMA IF NOT EXISTS {}",
             sanitize_string(schema.to_string())
         );
-        self.exec(&sql, &[])
+
+        let mut attempt = 0;
+        loop {
+            match self.exec(&sql, &[]) {
+                Ok(u64) => return Ok(u64),
+                Err(err) => {
+                    if let Some(sql_state) = err.code() {
+                        log::info!("Error {:?} - attempt {}", sql_state, attempt);
+                        if sql_state != &SqlState::DUPLICATE_DATABASE
+                            && sql_state != &SqlState::UNIQUE_VIOLATION
+                        {
+                            return Err(err);
+                        }
+                    }
+                    attempt += 1;
+                    if attempt > 3 {
+                        return Err(err);
+                    }
+                }
+            }
+        }
     }
 
     pub fn create_table_if_not_exists(&mut self, schema: &str, table: &str) -> Result<u64, Error> {
@@ -162,7 +182,27 @@ impl PgDb {
         let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
 
         self.create_schema_if_not_exists(schema)?;
-        self.exec(&sql, &[])
+
+        let mut attempt = 0;
+        loop {
+            match self.exec(&sql, &[]) {
+                Ok(u64) => return Ok(u64),
+                Err(err) => {
+                    if let Some(sql_state) = err.code() {
+                        log::info!("Error {:?} - attempt {}", sql_state, attempt);
+                        if sql_state != &SqlState::DUPLICATE_DATABASE
+                            && sql_state != &SqlState::UNIQUE_VIOLATION
+                        {
+                            return Err(err);
+                        }
+                    }
+                    attempt += 1;
+                    if attempt > 3 {
+                        return Err(err);
+                    }
+                }
+            }
+        }
     }
 
     pub fn drop_schema(&mut self, schema: &str) -> Result<u64, Error> {
