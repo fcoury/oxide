@@ -119,10 +119,11 @@ impl PgDb {
     }
 
     pub fn get_table_size(&mut self, schema: &str, table: &str) -> i64 {
+        let schema_table = SqlParam::new(schema, table).sanitize();
         let row = self
             .client
             .query_one(
-                format!("SELECT pg_relation_size('{}.{}')", schema, table).as_str(),
+                format!("SELECT pg_relation_size('{}')", schema_table).as_str(),
                 &[],
             )
             .unwrap();

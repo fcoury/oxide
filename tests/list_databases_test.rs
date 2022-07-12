@@ -29,3 +29,16 @@ fn test_list_database_name_only() {
     assert_eq!(res.len(), 1);
     assert_eq!(res.get(0).unwrap(), "public");
 }
+
+#[test]
+fn test_list_database_with_table_with_spaces() {
+    let ctx = common::setup_with_pg_db("test_list_2");
+
+    ctx.db()
+        .collection("my col")
+        .insert_one(doc! { "x": 1 }, None)
+        .unwrap();
+
+    let res = ctx.mongodb().list_databases(None, None).unwrap();
+    assert_eq!(res.len(), 2);
+}
