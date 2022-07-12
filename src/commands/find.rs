@@ -21,8 +21,6 @@ impl Handler for Find {
         let collection = doc.get_str("find").unwrap();
         let sp = SqlParam::new(db, collection);
 
-        println!("{:?}", doc);
-
         let mut client = PgDb::new();
 
         // returns empty if db or collection doesn't exist
