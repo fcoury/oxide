@@ -16,6 +16,8 @@ futures = "0.3"
 local-ip-address = "0.4.4"
 log = "0.4"
 mongodb = {version = "2.1", features = ["tokio-sync"]}
+mongodb-language-model = "0.1.0"
+# mongodb-language-model = {path = "../mongodb-language-model-rust"}
 portpicker = "0.1"
 postgres = {version = "0.19", features = ["with-serde_json-1"]}
 pretty-hex = "0.3.0"
