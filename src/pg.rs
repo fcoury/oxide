@@ -36,7 +36,9 @@ impl PgDb {
 
         if let Some(f) = filter {
             let filter = super::parser::parse(f);
-            sql = format!("{} WHERE {}", sql, filter);
+            if filter != "" {
+                sql = format!("{} WHERE {}", sql, filter);
+            }
         }
 
         log::debug!("SQL: {} - {:#?}", sql, params);

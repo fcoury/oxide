@@ -6,6 +6,9 @@ use mongodb_language_model::{
 };
 
 pub fn parse(doc: Document) -> String {
+    if doc.is_empty() {
+        return "".to_string();
+    }
     let bson: Bson = doc.into();
     let json = bson.into_psql_json();
     let str = serde_json::to_string(&json).unwrap();
@@ -115,6 +118,12 @@ fn parse_leaf_value(leaf_value: LeafValue) -> String {
 mod tests {
     use super::*;
     use bson::doc;
+
+    #[test]
+    fn test_empty() {
+        let doc = doc! {};
+        assert_eq!("", parse(doc));
+    }
 
     #[test]
     fn test_simple_str() {
