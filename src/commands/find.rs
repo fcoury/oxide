@@ -37,7 +37,13 @@ impl Handler for Find {
             });
         }
 
-        let r = client.query("SELECT * FROM %table%", sp, &[]);
+        let filter = if doc.contains_key("filter") {
+            Some(doc.get_document("filter").unwrap().clone())
+        } else {
+            None
+        };
+
+        let r = client.query("SELECT * FROM %table%", sp, filter, &[]);
         match r {
             Ok(rows) => {
                 let mut res: Vec<Bson> = vec![];

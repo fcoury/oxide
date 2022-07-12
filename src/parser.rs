@@ -37,12 +37,12 @@ fn parse_clause(clause: Clause) -> String {
     }
 }
 
-fn to_field(key: &str) -> String {
+fn field_to_jsonb(key: &str) -> String {
     format!("_jsonb->'{}'", key)
 }
 
 fn parse_leaf(leaf: LeafClause) -> String {
-    let field = to_field(&leaf.key);
+    let field = field_to_jsonb(&leaf.key);
     match leaf.value {
         Value::Leaf(leaf_value) => {
             format!("{} = {}", field, parse_leaf_value(leaf_value))
@@ -102,9 +102,13 @@ fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
     }
 }
 
+fn value_to_jsonb(value: String) -> String {
+    format!("'{}'", value)
+}
+
 fn parse_leaf_value(leaf_value: LeafValue) -> String {
     let json = leaf_value.value;
-    json.to_string()
+    value_to_jsonb(json.to_string())
 }
 
 #[cfg(test)]
@@ -115,20 +119,20 @@ mod tests {
     #[test]
     fn test_simple_str() {
         let doc = doc! {"name": "test"};
-        assert_eq!(r#"_jsonb->'name' = "test""#, parse(doc))
+        assert_eq!(r#"_jsonb->'name' = '"test"'"#, parse(doc))
     }
 
     #[test]
     fn test_simple_int() {
         let doc = doc! {"age": 12};
-        assert_eq!(r#"_jsonb->'age' = 12"#, parse(doc))
+        assert_eq!(r#"_jsonb->'age' = '12'"#, parse(doc))
     }
 
     #[test]
     fn test_and() {
         let doc = doc! {"a": "name", "b": 212};
         assert_eq!(
-            r#"(_jsonb->'a' = "name" AND _jsonb->'b' = 212)"#,
+            r#"(_jsonb->'a' = '"name"' AND _jsonb->'b' = '212')"#,
             parse(doc)
         )
     }
@@ -139,7 +143,7 @@ mod tests {
             doc! { "a": "name", "b": 212 },
         ]};
         assert_eq!(
-            r#"(_jsonb->'a' = "name" AND _jsonb->'b' = 212)"#,
+            r#"(_jsonb->'a' = '"name"' AND _jsonb->'b' = '212')"#,
             parse(doc)
         )
     }
@@ -150,7 +154,7 @@ mod tests {
             doc! { "a": 1, "b": 2, "c": 3 },
         ]};
         assert_eq!(
-            r#"(_jsonb->'a' = 1 AND _jsonb->'b' = 2 AND _jsonb->'c' = 3)"#,
+            r#"(_jsonb->'a' = '1' AND _jsonb->'b' = '2' AND _jsonb->'c' = '3')"#,
             parse(doc)
         )
     }
@@ -162,7 +166,7 @@ mod tests {
             doc! { "c": "name", "d": 212 },
         ]};
         assert_eq!(
-            r#"((_jsonb->'a' = "name" AND _jsonb->'b' = 212) OR (_jsonb->'c' = "name" AND _jsonb->'d' = 212))"#,
+            r#"((_jsonb->'a' = '"name"' AND _jsonb->'b' = '212') OR (_jsonb->'c' = '"name"' AND _jsonb->'d' = '212'))"#,
             parse(doc)
         )
     }
@@ -170,6 +174,6 @@ mod tests {
     #[test]
     fn test_with_gt_oper() {
         let doc = doc! {"age": {"$gt": 12}};
-        assert_eq!(r#"_jsonb->'age' > 12"#, parse(doc))
+        assert_eq!(r#"_jsonb->'age' > '12'"#, parse(doc))
     }
 }

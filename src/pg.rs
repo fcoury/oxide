@@ -29,9 +29,15 @@ impl PgDb {
         &mut self,
         query: &str,
         sp: SqlParam,
+        filter: Option<Document>,
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>, Error> {
-        let sql = self.get_query(query, sp);
+        let mut sql = self.get_query(query, sp);
+
+        if let Some(f) = filter {
+            let filter = super::parser::parse(f);
+            sql = format!("{} WHERE {}", sql, filter);
+        }
 
         log::debug!("SQL: {} - {:#?}", sql, params);
         self.raw_query(&sql, params)
