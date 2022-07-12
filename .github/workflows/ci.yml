@@ -31,19 +31,25 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Update local toolchain
-        run: |
-          rustup component add clippy
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v1
+
       - name: Install cargo-nextest
         uses: baptiste0928/cargo-install@v1
         with:
           crate: cargo-nextest
           locked: true
+
       - name: Toolchain info
         run: |
           cargo --version --verbose
           rustc --version
           cargo clippy --version
+
       - name: Test
         run: |
           make test
