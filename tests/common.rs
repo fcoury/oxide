@@ -2,6 +2,7 @@
 use mongodb::bson::Document;
 use oxide::pg::PgDb;
 use oxide::server::Server;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
 pub struct TestContext {
@@ -12,7 +13,11 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn new(port: u16, db: String) -> Self {
-        let collection = "test_collection".to_string();
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let collection = format!("test_collection_{}", id).to_string();
         let client_uri = format!("mongodb://localhost:{}/test", port);
         let mongodb = mongodb::sync::Client::with_uri_str(&client_uri).unwrap();
 
