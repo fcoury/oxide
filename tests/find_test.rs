@@ -104,3 +104,32 @@ fn test_find_with_float() {
             .unwrap()
     );
 }
+
+#[test]
+fn test_find_with_gt_float() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "x": 1.2, "name": "Peter" },
+                doc! { "x": 2.3, "name": "James" },
+                doc! { "x": 3, "name": "Mary" },
+            ],
+            None,
+        )
+        .unwrap();
+
+    let cursor = ctx.col().find(doc! { "x": { "$lte": 2.3 } }, None).unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    assert_eq!(2, rows.len());
+    assert_eq!(
+        "Peter",
+        rows.into_iter()
+            .next()
+            .unwrap()
+            .unwrap()
+            .get_str("name")
+            .unwrap()
+    );
+}
