@@ -8,10 +8,12 @@ use std::io::{BufRead, Cursor, Read, Write};
 mod op_msg;
 mod op_query;
 mod op_reply;
+mod util;
 
 use crate::handler::{Request, Response};
 
 pub use self::op_msg::OpMsg;
+pub use self::op_msg::OpMsgSection;
 pub use self::op_query::OpQuery;
 pub use self::op_reply::OpReply;
 
@@ -45,6 +47,20 @@ pub struct MsgHeader {
 }
 
 impl MsgHeader {
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<MsgHeader, UnknownMessageKindError> {
+        let mut cursor = Cursor::new(bytes);
+        let message_length = cursor.read_u32::<LittleEndian>().unwrap();
+        let request_id = cursor.read_u32::<LittleEndian>().unwrap();
+        let response_to = cursor.read_u32::<LittleEndian>().unwrap();
+        let op_code = cursor.read_u32::<LittleEndian>().unwrap();
+        Ok(MsgHeader {
+            message_length,
+            request_id,
+            response_to,
+            op_code,
+        })
+    }
+
     pub fn get_response(&self, request_id: u32, message_length: u32) -> MsgHeader {
         self.get_response_with_op_code(request_id, message_length, self.op_code)
     }
@@ -97,8 +113,13 @@ pub trait Serializable {
 pub fn parse(buffer: &[u8]) -> Result<OpCode, OpCodeNotImplementedError> {
     let mut cursor = Cursor::new(buffer);
     let header = MsgHeader::parse(&mut cursor);
+
     if header.op_code == OP_MSG {
-        Ok(OpCode::OpMsg(OpMsg::parse(header, &mut cursor)))
+        let mut msg_buffer: Vec<u8> = vec![0; header.message_length as usize];
+        cursor.set_position(0);
+        cursor.read_exact(&mut msg_buffer).unwrap();
+
+        Ok(OpCode::OpMsg(OpMsg::from_bytes(&msg_buffer).unwrap()))
     } else if header.op_code == OP_QUERY {
         Ok(OpCode::OpQuery(OpQuery::parse(header, &mut cursor)))
     } else {

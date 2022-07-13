@@ -24,6 +24,7 @@ postgres = {version = "0.19", features = ["with-serde_json-1"]}
 pretty-hex = "0.3.0"
 r2d2 = "0.8.10"
 r2d2_postgres = "0.18.1"
+regex = "1"
 serde = "1"
 serde_json = {version = "1", features = ["preserve_order"]}
 sql_lexer = "0.9.3"

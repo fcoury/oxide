@@ -4,7 +4,7 @@ use crate::commands::{
     Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases, Ping, WhatsMyUri,
 };
 use crate::pg::PgDb;
-use crate::wire::OpCode;
+use crate::wire::{OpCode, OpMsg};
 use bson::{doc, Bson, Document};
 use postgres::NoTls;
 use r2d2_postgres::PostgresConnectionManager;
@@ -177,9 +177,79 @@ fn run_op_query(
     }
 }
 
+fn handle_op_msg(request: &Request, msg: OpMsg) -> Result<Document, CommandExecutionError> {
+    if msg.sections.len() < 1 {
+        log::error!("Received OP_MSG with no sections:\n{:#?}", msg);
+        return Err(CommandExecutionError::new(
+            "OP_MSG must have at least one section, received none".to_string(),
+        ));
+    }
+
+    let section = msg.sections[0].clone();
+    if section.kind == 0 {
+        return run(request, &section.documents);
+    }
+
+    if section.kind == 1 {
+        if section.identifier.is_none() {
+            log::error!(
+                "Received a kind 1 section from OP_MSG with no identifier:\n{:#?}",
+                msg
+            );
+            return Err(CommandExecutionError::new(
+                "all kind 1 sections on OP_MSG must have an identifier, received none".to_string(),
+            ));
+        }
+
+        let mut identifier = section.identifier.unwrap();
+        identifier.pop();
+
+        if identifier == "documents" {
+            if msg.sections.len() < 2 {
+                log::error!(
+                    "Received a document kind 1 section with no matching kind 0:\n{:#?}",
+                    msg
+                );
+                return Err(CommandExecutionError::new(
+                    "OP_MSG with a kind 1 documents section must also have at least one kind 0 section, received none".to_string(),
+                ));
+            }
+
+            let mut doc = msg.sections[1].documents[0].clone();
+            doc.insert(identifier, section.documents.clone());
+            return run(request, &vec![doc]);
+        }
+
+        log::error!(
+            "Received unknown kind 1 section identifier from OP_MSG:\n{:#?}",
+            msg
+        );
+        return Err(CommandExecutionError::new(
+            format!(
+                "received unknown kind 1 section identifier from OP_MSG: {}",
+                identifier
+            )
+            .to_string(),
+        ));
+    }
+
+    log::error!(
+        "Received unknown section from OP_MSG: {}\n{:#?}",
+        section.kind,
+        msg
+    );
+    Err(CommandExecutionError::new(
+        format!(
+            "received unknown section kind from OP_MSG: {}",
+            section.kind
+        )
+        .to_string(),
+    ))
+}
+
 fn route(request: &Request) -> Result<Document, CommandExecutionError> {
     match request.op_code {
-        OpCode::OpMsg(msg) => run(request, &msg.sections[0].documents),
+        OpCode::OpMsg(msg) => handle_op_msg(request, msg.clone()),
         OpCode::OpQuery(query) => run_op_query(request, &vec![query.query.clone()]),
         _ => {
             log::error!("Unroutable opcode received: {:?}", request.op_code);

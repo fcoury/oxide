@@ -1,11 +1,14 @@
 use crate::handler::{Request, Response};
+use crate::utils::to_cstring;
 use crate::wire::Replyable;
 use crate::wire::{OpCode, UnknownMessageKindError, CHECKSUM_PRESENT, HEADER_SIZE, OP_MSG};
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use pretty_hex::pretty_hex;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
+use super::util::parse_section;
 use super::{MsgHeader, Serializable};
 
 #[derive(Debug, Clone)]
@@ -21,6 +24,14 @@ pub struct OpMsgSection {
     pub kind: u8,
     pub identifier: Option<String>,
     pub documents: Vec<Document>,
+}
+
+impl OpMsgSection {
+    pub fn from_bytes(
+        mut bytes: Vec<u8>,
+    ) -> Result<(OpMsgSection, Vec<u8>), UnknownMessageKindError> {
+        parse_section(&mut bytes)
+    }
 }
 
 impl OpMsg {
@@ -42,81 +53,41 @@ impl OpMsg {
         }
     }
 
-    pub fn parse(header: MsgHeader, rdr: &mut Cursor<&[u8]>) -> OpMsg {
-        let size = header.message_length as usize - 16;
-        let mut body = vec![0; size];
-        rdr.read_exact(&mut body).unwrap();
+    pub fn from_bytes(bytes: &[u8]) -> Result<OpMsg, UnknownMessageKindError> {
+        let mut cursor = Cursor::new(bytes);
+        let mut header_buffer: Vec<u8> = vec![0u8; HEADER_SIZE as usize];
+        cursor.read_exact(&mut header_buffer).unwrap();
 
-        let mut rdr = Cursor::new(&body);
+        let header = MsgHeader::from_bytes(header_buffer).unwrap();
+        let flags = cursor.read_u32::<LittleEndian>().unwrap();
 
-        let flags = rdr.read_u32::<LittleEndian>().unwrap();
-        let kind = rdr.read_u8().unwrap();
+        let mut bytes: Vec<u8> = vec![];
+        cursor.read_to_end(&mut bytes).unwrap();
 
         let mut sections = vec![];
-        let size = rdr.read_u32::<LittleEndian>().unwrap();
-
-        let mut rdr2 = rdr.clone();
-
-        let pos = if kind == 0 {
-            // peek size of the document
-            rdr.set_position(rdr.position() - 4);
-
-            let doc = Document::from_reader(rdr).unwrap();
-            let documents = vec![doc];
-
-            sections.push(OpMsgSection {
-                kind,
-                identifier: None,
-                documents,
-            });
-
-            rdr2.position() + size as u64
-        } else {
-            let initial_pos = 0;
-
-            // collection is a CString
-            let mut buffer: Vec<u8> = vec![];
-            rdr.read_until(0, &mut buffer).unwrap();
-            let identifier = Some(
-                unsafe { CString::from_vec_unchecked(buffer) }
-                    .to_string_lossy()
-                    .to_string(),
-            );
-
-            let mut documents = vec![];
-            while rdr.position() < (initial_pos + size) as u64 {
-                let reader = rdr.clone();
-                let doc = Document::from_reader(reader).unwrap();
-                let clone = &doc.clone();
-                documents.push(doc);
-
-                let bson_vec = ser::to_vec(&clone).unwrap();
-                let bson_data: &[u8] = &bson_vec;
-                rdr.set_position(rdr.position() + bson_data.len() as u64);
+        loop {
+            let (section, remaining) = parse_section(&mut bytes).unwrap();
+            bytes = remaining;
+            sections.push(section);
+            if bytes.is_empty() {
+                break;
             }
+            if (bytes.len() as u64) <= 4 {
+                break;
+            }
+        }
 
-            sections.push(OpMsgSection {
-                kind,
-                identifier,
-                documents,
-            });
+        let mut checksum = None;
+        if flags & CHECKSUM_PRESENT != 0 {
+            checksum = Some(cursor.read_u32::<LittleEndian>().unwrap());
+        }
 
-            rdr2.position()
-        };
-
-        rdr2.set_position(pos);
-        let checksum = if flags & CHECKSUM_PRESENT != 0 {
-            Some(rdr2.read_u32::<LittleEndian>().unwrap())
-        } else {
-            None
-        };
-
-        return OpMsg {
+        Ok(OpMsg {
             header,
             flags,
-            checksum,
             sections,
-        };
+            checksum,
+        })
     }
 }
 
@@ -139,16 +110,18 @@ impl Replyable for OpMsg {
                 )
                 .to_vec());
             } else if self.sections.len() > 0 && self.sections[0].kind == 1 {
-                log::error!(
-                    "Received unsupported kind 1 section for OP_MSG = {:?}",
-                    res.get_op_code()
-                );
-                return Err(UnknownMessageKindError);
+                return Ok(OpMsg::new_with_body_kind(
+                    header,
+                    self.flags,
+                    self.checksum,
+                    res.get_doc(),
+                )
+                .to_vec());
             }
         }
 
         log::error!(
-            "Received unsupported kind 1 section for OP_MSG = {:?}",
+            "Received unsupported section for msg = {:?}",
             res.get_op_code()
         );
 

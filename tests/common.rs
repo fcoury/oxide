@@ -3,13 +3,17 @@ use mongodb::bson::Document;
 use oxide::pg::PgDb;
 use oxide::server::Server;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
+use std::io::{Read, Write};
+use std::net::{Shutdown, TcpStream};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
+#[derive(Debug, Clone)]
 pub struct TestContext {
     pub db: String,
     pub collection: String,
     mongodb: mongodb::sync::Client,
+    port: u16,
 }
 
 impl TestContext {
@@ -26,6 +30,7 @@ impl TestContext {
             db,
             collection,
             mongodb,
+            port,
         }
     }
 
@@ -39,6 +44,16 @@ impl TestContext {
 
     pub fn col(&self) -> mongodb::sync::Collection<Document> {
         self.db().collection(self.collection.as_str())
+    }
+
+    pub fn send(&self, bytes: &[u8]) -> Vec<u8> {
+        let mut stream = TcpStream::connect(&format!("localhost:{}", self.port)).unwrap();
+        stream.write_all(bytes).unwrap();
+        let mut buffer = [0u8; 1024];
+        stream.read(&mut buffer).unwrap();
+        stream.shutdown(Shutdown::Write).unwrap();
+
+        buffer[..].to_vec()
     }
 }
 

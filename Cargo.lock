@@ -879,6 +879,7 @@ dependencies = [
  "pretty-hex",
  "r2d2",
  "r2d2_postgres",
+ "regex",
  "serde",
  "serde_json",
  "sql_lexer",
