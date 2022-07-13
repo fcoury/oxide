@@ -42,7 +42,11 @@ fn main() {
             .parse()
             .unwrap(),
     );
-    if let Some(pg_url) = args.postgres_url {
+    let mut pg_url = args.postgres_url;
+    if pg_url.is_none() {
+        pg_url = env::var("DATABASE_URL").ok();
+    }
+    if let Some(pg_url) = pg_url {
         Server::new_with_pgurl(ip_addr, port, pg_url).start();
     } else {
         log::error!(indoc! {"
