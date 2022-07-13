@@ -18,7 +18,7 @@ Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) an
 
 > $ ./oxide --postgres-url "postgres://postgres:postgres@localhost:5432/test"
 [2022-07-13T02:57:46Z INFO  oxide::server] Connecting to PostgreSQL database...
-[2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on localhost:27017...
+[2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on 127.0.0.1:27017...
 ```
 
 You can also set the `DATABASE_URL` environment variable or even use a `.env` file.
@@ -54,7 +54,7 @@ test> db.col.find({ "name": "Fernanda" })
 [ { _id: ObjectId("62ce3536d10f489bc82520c6"), name: 'Fernanda' } ]
 ```
 
-By default oxide will bind to localhost and port 27017. You can change those settings using the following parameters:
+By default oxide will bind to 127.0.0.1 and port 27017. You can change those settings using the following parameters:
 
 ```shell
 > $ ./oxide --help

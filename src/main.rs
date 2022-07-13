@@ -35,7 +35,7 @@ fn main() {
     let args = Args::parse();
     let ip_addr = args
         .listen_addr
-        .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "localhost".to_string()));
+        .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string()));
     let port = args.port.unwrap_or(
         env::var("OXIDE_PORT")
             .unwrap_or("27017".to_string())
