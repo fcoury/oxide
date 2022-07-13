@@ -21,7 +21,9 @@ Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) an
 [2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on localhost:27017...
 ```
 
-And now you can use any [MongoDB](https://www.mongodb.com) client to connect to OxideDB, like [mongosh](https://www.mongodb.com/docs/mongodb-shell/):
+You can also set the `DATABASE_URL` environment variable or even use a `.env` file. 
+
+And with the database configuration set, you can use any [MongoDB](https://www.mongodb.com) client to connect to OxideDB, like [mongosh](https://www.mongodb.com/docs/mongodb-shell/):
 
 ```shell
 > $ mongosh
@@ -52,7 +54,7 @@ test> db.col.find({ "name": "Fernanda" })
 [ { _id: ObjectId("62ce3536d10f489bc82520c6"), name: 'Fernanda' } ]
 ```
 
-By default oxide will bind to localhost's port 27017. You can change those settings using the following parameters:
+By default oxide will bind to localhost and port 27017. You can change those settings using the following parameters:
 
 ```shell
 > $ ./oxide --help
