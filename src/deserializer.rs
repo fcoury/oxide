@@ -37,7 +37,7 @@ impl PostgresJsonDeserializer for Value {
                     );
                 }
                 if o.contains_key("$f") {
-                    return Bson::Double(o["$f"].as_str().unwrap().parse::<f64>().unwrap());
+                    return Bson::Double(o["$f"].as_f64().unwrap());
                 }
                 if o.contains_key("$j") {
                     if o.contains_key("s") {

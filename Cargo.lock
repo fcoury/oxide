@@ -765,9 +765,9 @@ dependencies = [
 
 [[package]]
 name = "mongodb-language-model"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14458c45eef78f5633acf035870727f440d1d3a9c0b623020563084ce8ee379a"
+checksum = "9ee44284859365e33abcdc1ff3c2802df582de0e9b37857ff522849e137ac92b"
 dependencies = [
  "pest",
  "pest_derive",

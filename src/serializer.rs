@@ -19,16 +19,8 @@ impl PostgresSerializer for Bson {
         match self {
             Bson::Int32(i) => json!(i),
             Bson::Int64(i) => json!({ "$i": i.to_string() }),
-            Bson::Double(f) if f.is_normal() => {
-                let mut s = f.to_string();
-                if f.fract() == 0.0 {
-                    s.push_str(".0");
-                }
-                json!({ "$f": s })
-            }
-            Bson::Double(f) if f == 0.0 => {
-                let s = if f.is_sign_negative() { "-0.0" } else { "0.0" };
-                json!({ "$f": s })
+            Bson::Double(f) => {
+                json!({ "$f": f })
             }
             Bson::DateTime(date) => {
                 json!({ "$d": date.timestamp_millis() })
@@ -88,7 +80,7 @@ mod tests {
     #[test]
     fn test_parse_float() {
         let json = Bson::Double(1.0).into_psql_json().to_string();
-        assert_eq!(r#"{"$f":"1.0"}"#, json);
+        assert_eq!(r#"{"$f":1.0}"#, json);
     }
 
     #[test]

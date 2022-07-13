@@ -1,4 +1,4 @@
-use bson::Document;
+use bson::{Bson, Document};
 use mongodb::bson::doc;
 
 mod common;
@@ -70,5 +70,37 @@ fn test_find_with_or() {
             .filter(|r| r.is_ok())
             .map(|r| r.unwrap().get_str("name").unwrap().to_string())
             .collect::<Vec<String>>()
+    );
+}
+
+#[test]
+fn test_find_with_float() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "x": 1.2, "name": "Peter" },
+                doc! { "x": 2.3, "name": "James" },
+                doc! { "x": 3, "name": "Mary" },
+            ],
+            None,
+        )
+        .unwrap();
+
+    let cursor = ctx
+        .col()
+        .find(doc! { "x": Bson::Double(2.3) }, None)
+        .unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    assert_eq!(1, rows.len());
+    assert_eq!(
+        "James",
+        rows.into_iter()
+            .next()
+            .unwrap()
+            .unwrap()
+            .get_str("name")
+            .unwrap()
     );
 }
