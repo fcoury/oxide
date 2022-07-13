@@ -824,7 +824,7 @@ checksum = "21326818e99cfe6ce1e524c2a805c189a99b5ae555a35d19f9a284b427d86afa"
 
 [[package]]
 name = "oxide"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "autoincrement",
  "bson",
