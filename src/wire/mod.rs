@@ -113,8 +113,13 @@ pub trait Serializable {
 pub fn parse(buffer: &[u8]) -> Result<OpCode, OpCodeNotImplementedError> {
     let mut cursor = Cursor::new(buffer);
     let header = MsgHeader::parse(&mut cursor);
+
     if header.op_code == OP_MSG {
-        Ok(OpCode::OpMsg(OpMsg::parse(header, &mut cursor)))
+        let mut msg_buffer: Vec<u8> = vec![0; header.message_length as usize];
+        cursor.set_position(0);
+        cursor.read_exact(&mut msg_buffer).unwrap();
+
+        Ok(OpCode::OpMsg(OpMsg::from_bytes(&msg_buffer).unwrap()))
     } else if header.op_code == OP_QUERY {
         Ok(OpCode::OpQuery(OpQuery::parse(header, &mut cursor)))
     } else {

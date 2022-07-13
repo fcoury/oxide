@@ -143,7 +143,6 @@ impl OpMsg {
                 rdr.set_position(rdr.position() + bson_data.len() as u64);
             }
 
-            println!("OpMsg kind 1 = {:?}", documents);
             sections.push(OpMsgSection {
                 kind,
                 identifier,
