@@ -16,7 +16,7 @@ Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) an
     Use --postgres-url <url> or env var DATABASE_URL to set the connection URL and try again.
     For more information use --help.
 
-> $ ./target/debug/oxide --postgres-url postgres://postgres:postgres@localhost:5432/test
+> $ ./oxide --postgres-url postgres://postgres:postgres@localhost:5432/test
 [2022-07-13T02:57:46Z INFO  oxide::server] Connecting to PostgreSQL database...
 [2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on localhost:27017...
 ```
