@@ -3,8 +3,6 @@ use crate::wire::{OpMsg, OpMsgSection};
 use bson::{ser, Document};
 use byteorder::{LittleEndian, ReadBytesExt};
 use indoc::indoc;
-use pretty_hex::pretty_hex;
-use regex::Regex;
 use std::io::{BufRead, Cursor, Read};
 
 use super::UnknownMessageKindError;
@@ -103,35 +101,9 @@ fn parse_kind1(bytes: Vec<u8>) -> (OpMsgSection, Vec<u8>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::hexstring_to_bytes;
+
     use super::*;
-
-    fn make_bytes(hexstr: &str) -> Vec<u8> {
-        let re = Regex::new(r"((\d|[a-f]){2})").unwrap();
-        let mut bytes: Vec<u8> = vec![];
-        for cap in re.captures_iter(hexstr) {
-            bytes.push(u8::from_str_radix(cap.get(1).unwrap().as_str(), 16).unwrap());
-        }
-        return bytes;
-    }
-
-    // fn make_op_msg(op_msg_hexstr: &str) -> () {
-    //     let re = Regex::new(r"\d{4}\s{3}(((\d|[a-f]){2}\s)+)\s{2}.*").unwrap();
-    //     let mut bytes: Vec<u8> = vec![];
-    //     for cap in re.captures_iter(op_msg_hexstr) {
-    //         for b in cap
-    //             .get(1)
-    //             .unwrap()
-    //             .as_str()
-    //             .split_whitespace()
-    //             .map(|x| u8::from_str_radix(x, 16).unwrap())
-    //             .collect::<Vec<u8>>()
-    //         {
-    //             bytes.push(b);
-    //         }
-    //     }
-    //     // let op_msg = OpMsg::from_bytes(bytes.as_slice()).unwrap();
-    //     // println!("{:?}", op_msg);
-    // }
 
     #[test]
     fn test_parse_sections() {
@@ -146,7 +118,7 @@ mod tests {
             19 59 d3 a3 2c cf 00 02 24 64 62 00 05 00 00 00
             74 65 73 74 00 00
         "};
-        let mut bytes = make_bytes(kind1kind0);
+        let mut bytes = hexstring_to_bytes(kind1kind0);
         let (section1, mut bytes) = parse_section(&mut bytes).unwrap();
         assert_eq!(section1.kind, 1);
         assert_eq!(section1.identifier.unwrap(), "documents\0");
@@ -179,7 +151,7 @@ mod tests {
             74 65 73 74 00 00
         "};
 
-        let mut bytes = make_bytes(kind0);
+        let mut bytes = hexstring_to_bytes(kind0);
         let (section, _) = parse_section(&mut bytes).unwrap();
         assert_eq!(section.kind, 0);
     }
@@ -204,7 +176,7 @@ mod tests {
             00
         "};
 
-        let mut bytes = make_bytes(kind1);
+        let mut bytes = hexstring_to_bytes(kind1);
         let (section, _) = parse_section(&mut bytes).unwrap();
         assert_eq!(section.kind, 1);
     }
@@ -224,7 +196,7 @@ mod tests {
             74 65 73 74 00 00
         "};
 
-        let bytes = make_bytes(op_msg_hexstr);
+        let bytes = hexstring_to_bytes(op_msg_hexstr);
         let op_msg = OpMsg::from_bytes(&bytes).unwrap();
 
         assert_eq!(op_msg.header.message_length, 150);
@@ -236,8 +208,10 @@ mod tests {
         assert_eq!(op_msg.sections.len(), 2);
 
         let section1 = &op_msg.sections[0];
+        let identifier = section1.identifier.clone().unwrap();
         assert_eq!(section1.kind, 1);
         assert_eq!(section1.documents.len(), 1);
+        assert_eq!(identifier, "documents\0");
         assert_eq!(
             section1.documents[0].get_object_id("_id").unwrap(),
             bson::oid::ObjectId::parse_str("62ced69a337879a1acc29d40").unwrap()
