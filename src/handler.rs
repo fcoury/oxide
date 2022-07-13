@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, DbStats, Drop, Find, GetCmdLineOpts, GetParameter, Handler, Hello,
-    Insert, IsMaster, ListCollections, ListDatabases, Ping, WhatsMyUri,
+    BuildInfo, CollStats, ConnectionStatus, DbStats, Drop, Find, GetCmdLineOpts, GetParameter,
+    Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases, Ping, WhatsMyUri,
 };
 use crate::pg::PgDb;
 use crate::wire::OpCode;
@@ -143,6 +143,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         GetCmdLineOpts::new().handle(request, docs)
     } else if command == "getParameter" {
         GetParameter::new().handle(request, docs)
+    } else if command == "connectionStatus" {
+        ConnectionStatus::new().handle(request, docs)
     } else {
         log::error!("Got unknown OP_MSG command: {}", command);
         Ok(doc! {

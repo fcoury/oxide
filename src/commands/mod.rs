@@ -3,6 +3,7 @@ use bson::Document;
 
 mod build_info;
 mod coll_stats;
+mod connection_status;
 mod db_stats;
 mod drop;
 mod find;
@@ -18,6 +19,7 @@ mod whats_my_uri;
 
 pub use self::build_info::BuildInfo;
 pub use self::coll_stats::CollStats;
+pub use self::connection_status::ConnectionStatus;
 pub use self::db_stats::DbStats;
 pub use self::drop::Drop;
 pub use self::find::Find;
