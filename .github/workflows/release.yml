@@ -12,9 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # FIXME crate local-ip-address is not playing nice on Windows
-          # - target: x86_64-pc-windows-gnu
-          #   archive: zip
+          - target: x86_64-pc-windows-gnu
+            archive: zip
           - target: x86_64-unknown-linux-musl
             archive: tar.gz tar.xz
           - target: x86_64-apple-darwin
