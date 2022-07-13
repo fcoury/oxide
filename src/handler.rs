@@ -179,7 +179,13 @@ fn run_op_query(
 
 fn route(request: &Request) -> Result<Document, CommandExecutionError> {
     match request.op_code {
-        OpCode::OpMsg(msg) => run(request, &msg.sections[0].documents),
+        OpCode::OpMsg(msg) => {
+            // println!(
+            //     "kind: {:?}",
+            //     &msg.sections.iter().map(|s| s.kind).collect::<Vec<u8>>()
+            // );
+            run(request, &msg.sections[0].documents)
+        }
         OpCode::OpQuery(query) => run_op_query(request, &vec![query.query.clone()]),
         _ => {
             log::error!("Unroutable opcode received: {:?}", request.op_code);

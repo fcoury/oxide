@@ -1,11 +1,14 @@
 use crate::handler::{Request, Response};
+use crate::utils::to_cstring;
 use crate::wire::Replyable;
 use crate::wire::{OpCode, UnknownMessageKindError, CHECKSUM_PRESENT, HEADER_SIZE, OP_MSG};
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use pretty_hex::pretty_hex;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
+use super::util::parse_section;
 use super::{MsgHeader, Serializable};
 
 #[derive(Debug, Clone)]
@@ -21,6 +24,14 @@ pub struct OpMsgSection {
     pub kind: u8,
     pub identifier: Option<String>,
     pub documents: Vec<Document>,
+}
+
+impl OpMsgSection {
+    pub fn from_bytes(
+        mut bytes: Vec<u8>,
+    ) -> Result<(OpMsgSection, Vec<u8>), UnknownMessageKindError> {
+        parse_section(&mut bytes)
+    }
 }
 
 impl OpMsg {
@@ -40,6 +51,43 @@ impl OpMsg {
             }],
             checksum,
         }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<OpMsg, UnknownMessageKindError> {
+        let mut cursor = Cursor::new(bytes);
+        let mut header_buffer: Vec<u8> = vec![0u8; HEADER_SIZE as usize];
+        cursor.read_exact(&mut header_buffer).unwrap();
+
+        let header = MsgHeader::from_bytes(header_buffer).unwrap();
+        let flags = cursor.read_u32::<LittleEndian>().unwrap();
+
+        let mut bytes: Vec<u8> = vec![];
+        cursor.read_to_end(&mut bytes).unwrap();
+
+        let mut sections = vec![];
+        loop {
+            let (section, remaining) = parse_section(&mut bytes).unwrap();
+            bytes = remaining;
+            sections.push(section);
+            if bytes.is_empty() {
+                break;
+            }
+            if (bytes.len() as u64) <= 4 {
+                break;
+            }
+        }
+
+        let mut checksum = None;
+        if flags & CHECKSUM_PRESENT != 0 {
+            checksum = Some(cursor.read_u32::<LittleEndian>().unwrap());
+        }
+
+        Ok(OpMsg {
+            header,
+            flags,
+            sections,
+            checksum,
+        })
     }
 
     pub fn parse(header: MsgHeader, rdr: &mut Cursor<&[u8]>) -> OpMsg {
@@ -95,6 +143,7 @@ impl OpMsg {
                 rdr.set_position(rdr.position() + bson_data.len() as u64);
             }
 
+            println!("OpMsg kind 1 = {:?}", documents);
             sections.push(OpMsgSection {
                 kind,
                 identifier,
