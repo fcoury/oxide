@@ -4,7 +4,7 @@ check:
 	cargo check
 
 start:
-	cargo watch -x 'run'
+	./scripts/start.sh
 
 test:
 	cargo nextest run

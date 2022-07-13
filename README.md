@@ -16,12 +16,12 @@ Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) an
     Use --postgres-url <url> or env var DATABASE_URL to set the connection URL and try again.
     For more information use --help.
 
-> $ ./oxide --postgres-url postgres://postgres:postgres@localhost:5432/test
+> $ ./oxide --postgres-url "postgres://postgres:postgres@localhost:5432/test"
 [2022-07-13T02:57:46Z INFO  oxide::server] Connecting to PostgreSQL database...
 [2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on localhost:27017...
 ```
 
-You can also set the `DATABASE_URL` environment variable or even use a `.env` file. 
+You can also set the `DATABASE_URL` environment variable or even use a `.env` file.
 
 And with the database configuration set, you can use any [MongoDB](https://www.mongodb.com) client to connect to OxideDB, like [mongosh](https://www.mongodb.com/docs/mongodb-shell/):
 
@@ -77,5 +77,6 @@ OPTIONS:
 ```shell
 git clone https://github.com/fcoury/oxide.git
 cd oxide
-cargo run
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
+make start
 ```
