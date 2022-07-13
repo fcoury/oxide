@@ -19,7 +19,11 @@ pub struct Server {
 
 impl Server {
     pub fn new(listen_addr: String, port: u16) -> Self {
-        Self::new_with_pgurl(listen_addr, port, env::var("DATABASE_URL").unwrap())
+        Self::new_with_pgurl(
+            listen_addr,
+            port,
+            env::var("DATABASE_URL").unwrap_or("postgres:://localhost:5432/oxide".to_string()),
+        )
     }
 
     pub fn new_with_pgurl(listen_addr: String, port: u16, pg_url: String) -> Self {
@@ -31,9 +35,13 @@ impl Server {
     }
 
     pub fn start(&self) {
+        log::info!("Connecting to PostgreSQL database...");
         let manager = PostgresConnectionManager::new(self.pg_url.parse().unwrap(), NoTls);
-        let pool = r2d2::Pool::new(manager).unwrap();
-        self.start_with_pool(pool);
+        if let Ok(pool) = r2d2::Pool::new(manager) {
+            self.start_with_pool(pool);
+        } else {
+            log::error!("Failed to connect to PostgreSQL.");
+        }
     }
 
     pub fn start_with_pool(&self, pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) {

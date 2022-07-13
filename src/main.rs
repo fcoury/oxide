@@ -1,4 +1,5 @@
 use clap::Parser;
+use indoc::indoc;
 use server::Server;
 use std::env;
 
@@ -20,6 +21,9 @@ struct Args {
 
     #[clap(short, long)]
     port: Option<u16>,
+
+    #[clap(short = 'u', long)]
+    postgres_url: Option<String>,
 }
 
 fn main() {
@@ -38,6 +42,13 @@ fn main() {
             .parse()
             .unwrap(),
     );
-
-    Server::new(ip_addr, port).start();
+    if let Some(pg_url) = args.postgres_url {
+        Server::new_with_pgurl(ip_addr, port, pg_url).start();
+    } else {
+        log::error!(indoc! {"
+            No PostgreSQL URL specified.
+            Use --postgres-url <url> or env var DATABASE_URL to set the connection URL and try again.
+            For more information use --help.
+        "});
+    }
 }
