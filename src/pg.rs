@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
 use postgres::error::{Error, SqlState};
@@ -7,6 +8,15 @@ use r2d2_postgres::PostgresConnectionManager;
 use sql_lexer::sanitize_string;
 use std::env;
 use std::fmt;
+
+pub struct AlreadyExistsError {
+    target: String,
+}
+
+pub enum PgError {
+    AlreadyExists(AlreadyExistsError),
+    Other(Error),
+}
 
 pub struct PgDb {
     client: PooledConnection<PostgresConnectionManager<NoTls>>,
@@ -186,6 +196,25 @@ impl PgDb {
         }
     }
 
+    pub fn create_table(&mut self, sp: SqlParam) -> Result<u64, PgError> {
+        let query = format!("CREATE TABLE {} (_jsonb jsonb)", sp.clone());
+        match self.exec(&query, &[]) {
+            Ok(u64) => Ok(u64),
+            Err(err) => {
+                if let Some(sql_state) = err.code() {
+                    if sql_state == &SqlState::DUPLICATE_TABLE
+                        || sql_state == &SqlState::UNIQUE_VIOLATION
+                    {
+                        return Err(PgError::AlreadyExists(AlreadyExistsError {
+                            target: sp.to_string(),
+                        }));
+                    }
+                }
+                Err(PgError::Other(err))
+            }
+        }
+    }
+
     pub fn create_table_if_not_exists(&mut self, schema: &str, table: &str) -> Result<u64, Error> {
         let name = SqlParam::new(schema, table).sanitize();
         let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
@@ -263,6 +292,7 @@ impl PgDb {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SqlParam {
     pub db: String,
     pub collection: String,
@@ -272,8 +302,8 @@ pub struct SqlParam {
 impl SqlParam {
     pub fn new(db: &str, collection: &str) -> Self {
         SqlParam {
-            db: db.to_string(),
-            collection: collection.to_string(),
+            db: sanitize_string(db.to_string()),
+            collection: sanitize_string(collection.to_string()),
             comment: None,
         }
     }
@@ -286,9 +316,7 @@ impl SqlParam {
     }
 
     pub fn sanitize(&self) -> String {
-        let db = sanitize_string(self.db.to_string());
-        let collection = sanitize_string(self.collection.to_string());
-        format!(r#""{}"."{}""#, db, collection)
+        format!(r#""{}"."{}""#, self.db, self.collection)
     }
 }
 
