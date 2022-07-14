@@ -8,7 +8,6 @@ fn test_build_info() {
     let ctx = common::setup();
 
     let res = ctx.db().run_command(doc! { "buildInfo": 1 }, None).unwrap();
-    println!("{:?}", res);
     assert_eq!(res.get_str("version").unwrap(), "5.0.42");
     assert_eq!(
         res.get_str("gitVersion").unwrap(),

@@ -11,7 +11,6 @@ fn test_drop_database() {
     col.insert_one(doc! { "x": 1 }, None).unwrap();
 
     let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
-    println!("{:?}", dbs);
     assert!(dbs.contains(&"test_drop_database_1".to_string()));
 
     db.drop(None).unwrap();
@@ -26,7 +25,6 @@ fn test_drop_inexistent_database() {
     let db = ctx.mongodb().database("test_drop_database_2");
 
     let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
-    println!("{:?}", dbs);
     assert!(!dbs.contains(&"test_drop_database_2".to_string()));
 
     db.drop(None).unwrap();
