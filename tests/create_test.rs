@@ -3,7 +3,7 @@ use bson::{doc, Document};
 mod common;
 
 #[test]
-fn test_basic_create() {
+fn test_create_basic() {
     let ctx = common::setup();
 
     ctx.db()
