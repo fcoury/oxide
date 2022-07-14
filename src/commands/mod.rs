@@ -15,6 +15,7 @@ mod insert;
 mod is_master;
 mod list_collections;
 mod list_databases;
+mod list_indexes;
 mod ping;
 mod whats_my_uri;
 
@@ -32,6 +33,7 @@ pub use self::insert::Insert;
 pub use self::is_master::IsMaster;
 pub use self::list_collections::ListCollections;
 pub use self::list_databases::ListDatabases;
+pub use self::list_indexes::ListIndexes;
 pub use self::ping::Ping;
 pub use self::whats_my_uri::WhatsMyUri;
 
