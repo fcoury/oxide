@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, ConnectionStatus, DbStats, Drop, Find, GetCmdLineOpts, GetParameter,
-    Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases, Ping, WhatsMyUri,
+    BuildInfo, CollStats, ConnectionStatus, Create, DbStats, Drop, Find, GetCmdLineOpts,
+    GetParameter, Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases, Ping,
+    WhatsMyUri,
 };
 use crate::pg::PgDb;
 use crate::wire::{OpCode, OpMsg};
@@ -119,6 +120,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         Find::new().handle(request, docs)
     } else if command == "insert" {
         Insert::new().handle(request, docs)
+    } else if command == "create" {
+        Create::new().handle(request, docs)
     } else if command == "drop" {
         Drop::new().handle(request, docs)
     } else if command == "isMaster" || command == "ismaster" {
