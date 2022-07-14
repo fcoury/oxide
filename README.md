@@ -10,7 +10,7 @@ This README is a work in progress.
 
 Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) and run it. You will need to point it to a running PostgreSQL for Oxide to use as its backend.
 
-```shell
+```
 > $ ./oxide
 [2022-07-13T02:56:15Z ERROR oxide] No PostgreSQL URL specified.
     Use --postgres-url <url> or env var DATABASE_URL to set the connection URL and try again.
@@ -25,7 +25,7 @@ You can also set the `DATABASE_URL` environment variable or even use a `.env` fi
 
 And with the database configuration set, you can use any [MongoDB](https://www.mongodb.com) client to connect to OxideDB, like [mongosh](https://www.mongodb.com/docs/mongodb-shell/):
 
-```shell
+```
 > $ mongosh
 Current Mongosh Log ID:	62ce3531d10f489bc82520c4
 Connecting to:		mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+1.5.0
@@ -56,7 +56,7 @@ test> db.col.find({ "name": "Fernanda" })
 
 By default oxide will bind to 127.0.0.1 and port 27017. You can change those settings using the following parameters:
 
-```shell
+```
 > $ ./oxide --help
 oxide 0.1.0
 A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage.
