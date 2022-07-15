@@ -2,9 +2,29 @@
 
 [![CI workflow](https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg)](https://github.com/fcoury/oxide/actions/workflows/ci.yml)
 
-OxideDB is a personal pet project, inspired by [FerretDB](https://ferretdb.io) and its aim is to close the gap between applications that need MongoDB on top of an existing PostgreSQL deployment and don't want to spend time and effort managing yet another database environment.
+OxideDB is a translation layer that works as a MongoDB database server while using PostgreSQL's JSON capabilities as the underlying data store.
 
-This README is a work in progress.
+This project might be something that you might be interested on if:
+
+- You spend too much time managing; or too much money paying for a MongoDB instance, while only using it as a simple
+document store, without any sharding features
+- You already have a running PostgreSQL deployment, or prefer to manage it over MongoDB
+
+On the other hand, if your use-case leverages MongoDB as a distributed database, then unfortunately this project might
+not be for you. At least right now supporting multi-sharding and scale-out deployments is not part of the roadmap.
+
+## Current status
+
+The project was heavily inspired by [FerretDB](https://ferretdb.io) and is on its early days. The main difference is that 
+there in no intention to support any database other than PostgreSQL (FerretDB is also supporting Tigris) and it's written
+in Rust, as opposed to Go.
+
+In order to translate the MongoDB Query language, which is based on JSON, to SQL I have ported [the mongodb-language-model library](https://github.com/mongodb-js/mongodb-language-model) that was originally written in Node.js and PEG.js to Rust and [pest.rs](https://pest.rs/). It was an excellent opportunity to learn how parsers work in a bit more depth.
+
+You can check it out here: [mongodb-language-model-rust](https://github.com/fcoury/mongodb-language-model-rust).
+
+At this moment, it's being developed as a personal project, but contributors are highly welcomed. If that something you'd 
+be interested on, be more than welcome to contact me.
 
 ## Quickstart
 
