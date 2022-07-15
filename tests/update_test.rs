@@ -61,7 +61,10 @@ fn test_update_with_conflicting_nested_keys() {
     );
 
     assert!(res.is_err());
-    assert_eq!(res.unwrap_err().to_string(), "Command failed (CommandNotFound): Cannot update 'field.y.z' and 'field.z' at the same time)");
+    assert!(res
+        .unwrap_err()
+        .to_string()
+        .contains("Cannot update 'field.y.z' and 'field.z' at the same time"));
 }
 
 #[test]
@@ -79,8 +82,8 @@ fn test_update_with_conflicting_keys() {
     );
 
     assert!(res.is_err());
-    assert_eq!(
-        res.unwrap_err().to_string(),
-        "Command failed (CommandNotFound): Cannot update 'field' and 'field.z' at the same time)"
-    );
+    assert!(res
+        .unwrap_err()
+        .to_string()
+        .contains("Cannot update 'field' and 'field.z' at the same time"));
 }

@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::commands::{UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
@@ -15,9 +16,15 @@ pub struct AlreadyExistsError {
     target: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InvalidUpdateError {
     reason: String,
+}
+
+impl InvalidUpdateError {
+    pub fn new(reason: String) -> Self {
+        InvalidUpdateError { reason }
+    }
 }
 
 #[derive(Debug)]
@@ -82,7 +89,7 @@ impl PgDb {
         &mut self,
         sp: &SqlParam,
         filter: Option<&Document>,
-        update: &Document,
+        update: UpdateOper,
         _multi: bool,
     ) -> Result<u64, UpdateError> {
         let where_str = if let Some(f) = filter {
@@ -95,40 +102,50 @@ impl PgDb {
             "".to_string()
         };
 
-        if !update.contains_key("$set") {
-            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
-                reason: "No $set field found".to_string(),
-            }));
-        }
+        let statements = match update {
+            UpdateOper::Update(updates) => {
+                let mut statements = vec![];
+                for update in updates {
+                    match update {
+                        UpdateDoc::Set(set) => {
+                            let updates = set
+                                .keys()
+                                .map(|k| {
+                                    let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
+                                    let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
+                                    format!("{} = {}", field, value)
+                                })
+                                .collect::<Vec<String>>()
+                                .join(", ");
 
-        let set = update.get_document("$set");
-        if set.is_err() {
-            log::error!("Error trying to retrieve $set for update: {:?}", set);
-            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
-                reason: "$set has to be an object".to_string(),
-            }));
-        }
+                            let sql =
+                                format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
+                            statements.push(sql);
+                        }
+                        UpdateDoc::Inc(_inc) => {
+                            todo!()
+                        }
+                    }
+                }
+                statements
+            }
+            UpdateOper::Replace(_replace) => {
+                todo!()
+            }
+        };
 
-        let pairs = set.unwrap();
-        let updates = pairs
-            .keys()
-            .map(|k| {
-                let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
-                let value = value_to_jsonb(format!("{}", pairs.get(k).unwrap()));
-                format!("{} = {}", field, value)
-            })
-            .collect::<Vec<String>>()
-            .join(", ");
-
-        let sql = format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
-        println!("SQL = {}", sql);
-        match self.exec(&sql, &[]) {
-            Ok(n) => return Ok(n),
-            Err(e) => {
-                log::error!("Error trying to update: {:?}", e);
-                return Err(UpdateError::Other(e));
+        // FIXME start a transaction here
+        let mut total = 0;
+        for sql in statements {
+            match self.exec(&sql, &[]) {
+                Ok(n) => total += n,
+                Err(e) => {
+                    log::error!("Error trying to update: {:?}", e);
+                    return Err(UpdateError::Other(e));
+                }
             }
         }
+        Ok(total)
     }
 
     pub fn raw_query(
