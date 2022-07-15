@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use crate::handler::{CommandExecutionError, Request};
-use crate::pg::InvalidUpdateError;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -16,6 +15,17 @@ pub enum UpdateOper {
 pub enum UpdateDoc {
     Set(Document),
     Inc(Document),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvalidUpdateError {
+    reason: String,
+}
+
+impl InvalidUpdateError {
+    pub fn new(reason: String) -> Self {
+        InvalidUpdateError { reason }
+    }
 }
 
 impl UpdateDoc {

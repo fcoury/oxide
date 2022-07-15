@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::commands::{UpdateDoc, UpdateOper};
+use crate::commands::{InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
@@ -15,17 +15,6 @@ use std::fmt;
 #[derive(Debug)]
 pub struct AlreadyExistsError {
     target: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct InvalidUpdateError {
-    reason: String,
-}
-
-impl InvalidUpdateError {
-    pub fn new(reason: String) -> Self {
-        InvalidUpdateError { reason }
-    }
 }
 
 #[derive(Debug)]
