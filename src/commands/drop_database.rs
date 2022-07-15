@@ -15,7 +15,6 @@ impl Handler for DropDatabase {
         request: &Request,
         docs: &Vec<Document>,
     ) -> Result<Document, CommandExecutionError> {
-        println!("{:?}", docs);
         let mut client = request.get_client();
         let db = sanitize_string(docs[0].get_str("$db").unwrap().to_string());
         client.drop_schema(&db).unwrap();
