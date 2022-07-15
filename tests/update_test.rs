@@ -47,7 +47,7 @@ fn test_update_with_nested_keys() {
 }
 
 #[test]
-fn test_update_with_conflicting_keys() {
+fn test_update_with_conflicting_nested_keys() {
     let ctx = common::setup();
 
     ctx.col()
@@ -62,4 +62,25 @@ fn test_update_with_conflicting_keys() {
 
     assert!(res.is_err());
     assert_eq!(res.unwrap_err().to_string(), "Command failed (CommandNotFound): Cannot update 'field.y.z' and 'field.z' at the same time)");
+}
+
+#[test]
+fn test_update_with_conflicting_keys() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(vec![doc! { "field": { "y": { "z": 21 } } }], None)
+        .unwrap();
+
+    let res = ctx.col().update_many(
+        doc! {},
+        doc! { "$set": { "field": { "y": { "z": 3 } }, "field.z": 2 } },
+        None,
+    );
+
+    assert!(res.is_err());
+    assert_eq!(
+        res.unwrap_err().to_string(),
+        "Command failed (CommandNotFound): Cannot update 'field' and 'field.z' at the same time)"
+    );
 }

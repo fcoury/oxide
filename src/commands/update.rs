@@ -91,7 +91,9 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
             if expanded.contains_key(ikey) {
                 let target = keys
                     .iter()
-                    .find(|k| k.starts_with(&format!("{}.", ikey)))
+                    .find(|k| {
+                        k.to_string() == ikey.to_string() || k.starts_with(&format!("{}.", ikey))
+                    })
                     .unwrap();
                 return Err(KeyConflictError {
                     source: key.to_string(),
@@ -99,10 +101,10 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
                 });
             }
             expanded.insert(ikey, path_to_doc(key, value).get(ikey).unwrap());
-            keys.push(&key);
         } else {
             expanded.insert(key, value);
         }
+        keys.push(&key);
     }
     Ok(expanded)
 }
