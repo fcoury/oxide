@@ -17,12 +17,15 @@ pub mod wire;
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Args {
+    /// Listening address defaults to 127.0.0.1
     #[clap(short, long)]
     listen_addr: Option<String>,
 
+    /// Listening port, defaults to 27017
     #[clap(short, long)]
     port: Option<u16>,
 
+    /// PostgreSQL connection URL
     #[clap(short = 'u', long)]
     postgres_url: Option<String>,
 }
