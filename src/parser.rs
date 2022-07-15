@@ -42,7 +42,7 @@ fn parse_clause(clause: Clause) -> String {
     }
 }
 
-fn field_to_jsonb(key: &str) -> String {
+pub fn field_to_jsonb(key: &str) -> String {
     format!("_jsonb->'{}'", key)
 }
 
@@ -119,7 +119,7 @@ fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
     }
 }
 
-fn value_to_jsonb(value: String) -> String {
+pub fn value_to_jsonb(value: String) -> String {
     format!("'{}'", value)
 }
 

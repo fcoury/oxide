@@ -18,6 +18,7 @@ mod list_collections;
 mod list_databases;
 mod list_indexes;
 mod ping;
+mod update;
 mod whats_my_uri;
 
 pub use self::build_info::BuildInfo;
@@ -37,6 +38,7 @@ pub use self::list_collections::ListCollections;
 pub use self::list_databases::ListDatabases;
 pub use self::list_indexes::ListIndexes;
 pub use self::ping::Ping;
+pub use self::update::Update;
 pub use self::whats_my_uri::WhatsMyUri;
 
 pub trait Handler {
