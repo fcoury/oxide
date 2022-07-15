@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
 use postgres::error::{Error, SqlState};
@@ -9,12 +10,25 @@ use sql_lexer::sanitize_string;
 use std::env;
 use std::fmt;
 
+#[derive(Debug)]
 pub struct AlreadyExistsError {
     target: String,
 }
 
-pub enum PgError {
+#[derive(Debug)]
+pub struct InvalidUpdateError {
+    reason: String,
+}
+
+#[derive(Debug)]
+pub enum CreateTableError {
     AlreadyExists(AlreadyExistsError),
+    Other(Error),
+}
+
+#[derive(Debug)]
+pub enum UpdateError {
+    InvalidUpdate(InvalidUpdateError),
     Other(Error),
 }
 
@@ -62,6 +76,59 @@ impl PgDb {
 
         log::debug!("SQL: {} - {:#?}", sql, params);
         self.raw_query(&sql, params)
+    }
+
+    pub fn update(
+        &mut self,
+        sp: &SqlParam,
+        filter: Option<&Document>,
+        update: &Document,
+        _multi: bool,
+    ) -> Result<u64, UpdateError> {
+        let where_str = if let Some(f) = filter {
+            if f.keys().count() < 1 {
+                "".to_string()
+            } else {
+                format!(" WHERE {}", super::parser::parse(f.clone()))
+            }
+        } else {
+            "".to_string()
+        };
+
+        if !update.contains_key("$set") {
+            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
+                reason: "No $set field found".to_string(),
+            }));
+        }
+
+        let set = update.get_document("$set");
+        if set.is_err() {
+            log::error!("Error trying to retrieve $set for update: {:?}", set);
+            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
+                reason: "$set has to be an object".to_string(),
+            }));
+        }
+
+        let pairs = set.unwrap();
+        let updates = pairs
+            .keys()
+            .map(|k| {
+                let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
+                let value = value_to_jsonb(format!("{}", pairs.get(k).unwrap()));
+                format!("{} = {}", field, value)
+            })
+            .collect::<Vec<String>>()
+            .join(", ");
+
+        let sql = format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
+        println!("SQL = {}", sql);
+        match self.exec(&sql, &[]) {
+            Ok(n) => return Ok(n),
+            Err(e) => {
+                log::error!("Error trying to update: {:?}", e);
+                return Err(UpdateError::Other(e));
+            }
+        }
     }
 
     pub fn raw_query(
@@ -196,7 +263,7 @@ impl PgDb {
         }
     }
 
-    pub fn create_table(&mut self, sp: SqlParam) -> Result<u64, PgError> {
+    pub fn create_table(&mut self, sp: SqlParam) -> Result<u64, CreateTableError> {
         let query = format!("CREATE TABLE {} (_jsonb jsonb)", sp.clone());
         match self.exec(&query, &[]) {
             Ok(u64) => Ok(u64),
@@ -205,12 +272,12 @@ impl PgDb {
                     if sql_state == &SqlState::DUPLICATE_TABLE
                         || sql_state == &SqlState::UNIQUE_VIOLATION
                     {
-                        return Err(PgError::AlreadyExists(AlreadyExistsError {
+                        return Err(CreateTableError::AlreadyExists(AlreadyExistsError {
                             target: sp.to_string(),
                         }));
                     }
                 }
-                Err(PgError::Other(err))
+                Err(CreateTableError::Other(err))
             }
         }
     }

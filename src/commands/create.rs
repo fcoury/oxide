@@ -1,5 +1,5 @@
 use crate::handler::{CommandExecutionError, Request};
-use crate::pg::PgError;
+use crate::pg::CreateTableError;
 use crate::{commands::Handler, pg::SqlParam};
 use bson::{doc, Bson, Document};
 
@@ -30,11 +30,11 @@ impl Handler for Create {
                 "ok": Bson::Double(1.0),
             }),
             Err(e) => match e {
-                PgError::AlreadyExists(_) => Err(CommandExecutionError::new(format!(
+                CreateTableError::AlreadyExists(_) => Err(CommandExecutionError::new(format!(
                     "a collection '{}' already exists",
                     sp.clone()
                 ))),
-                PgError::Other(e) => Err(CommandExecutionError::new(format!("{}", e))),
+                CreateTableError::Other(e) => Err(CommandExecutionError::new(format!("{}", e))),
             },
         }
     }

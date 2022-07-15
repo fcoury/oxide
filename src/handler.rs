@@ -2,7 +2,7 @@
 use crate::commands::{
     BuildInfo, CollStats, ConnectionStatus, Create, DbStats, Drop, DropDatabase, Find,
     GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases,
-    ListIndexes, Ping, WhatsMyUri,
+    ListIndexes, Ping, Update, WhatsMyUri,
 };
 use crate::pg::PgDb;
 use crate::wire::{OpCode, OpMsg};
@@ -120,6 +120,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         Find::new().handle(request, docs)
     } else if command == "insert" {
         Insert::new().handle(request, docs)
+    } else if command == "update" {
+        Update::new().handle(request, docs)
     } else if command == "create" {
         Create::new().handle(request, docs)
     } else if command == "drop" {
@@ -153,7 +155,7 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
     } else if command == "connectionStatus" {
         ConnectionStatus::new().handle(request, docs)
     } else {
-        log::error!("Got unknown OP_MSG command: {}", command);
+        log::error!("Got unknown OP_MSG command: {}\n{:?}", command, docs);
         Ok(doc! {
             "ok": Bson::Double(0.0),
             "errmsg": Bson::String(format!("no such command: '{}'", command).to_string()),
