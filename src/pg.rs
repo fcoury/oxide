@@ -3,6 +3,7 @@ use crate::commands::{UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
+use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
 use r2d2::PooledConnection;
@@ -122,8 +123,33 @@ impl PgDb {
                                 format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
                             statements.push(sql);
                         }
-                        UpdateDoc::Inc(_inc) => {
-                            todo!()
+                        // $inc: { a: 2, b: 3, c: 1 }
+                        UpdateDoc::Inc(inc) => {
+                            let updates = inc
+                                .iter()
+                                .map(|(k, v)|
+                                    format!("json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb", k, k, v)
+                                )
+                                .collect::<Vec<String>>()
+                                .join(" || ");
+
+                            // UPDATE "test"."ages" SET
+                            // 	_jsonb = _jsonb
+                            // 		|| json_build_object('age', COALESCE(_jsonb->'age')::numeric + 1)::jsonb
+                            // 		|| json_build_object('limit', COALESCE(_jsonb->'limit')::numeric - 2)::jsonb;
+
+                            let sql = format!(
+                                indoc! {"
+                                UPDATE {}
+                                SET _jsonb = _jsonb ||
+                                    {}
+                                {}
+                            "},
+                                sp.sanitize(),
+                                updates,
+                                where_str
+                            );
+                            statements.push(sql);
                         }
                     }
                 }

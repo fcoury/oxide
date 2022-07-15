@@ -30,12 +30,13 @@ impl UpdateDoc {
                     )));
                 }
             },
-            _ => {
-                return Err(InvalidUpdateError::new(format!(
-                    "Unhandled update operation: {:?}",
-                    self
-                )));
-            }
+            UpdateDoc::Inc(u) => Ok(UpdateDoc::Inc(u.clone())),
+            // _ => {
+            //     return Err(InvalidUpdateError::new(format!(
+            //         "Unhandled update operation: {:?}",
+            //         self
+            //     )));
+            // }
         }
     }
 }
@@ -164,6 +165,23 @@ fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
                     }
                 };
                 match UpdateDoc::Set(expanded_doc).validate() {
+                    Ok(update_doc) => res.push(update_doc),
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
+                    }
+                }
+            }
+            "$inc" => {
+                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!(
+                            "Cannot update '{}' and '{}' at the same time",
+                            e.target, e.source
+                        )));
+                    }
+                };
+                match UpdateDoc::Inc(expanded_doc).validate() {
                     Ok(update_doc) => res.push(update_doc),
                     Err(e) => {
                         return Err(InvalidUpdateError::new(format!("{:?}", e)));

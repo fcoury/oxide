@@ -87,3 +87,101 @@ fn test_update_with_conflicting_keys() {
         .to_string()
         .contains("Cannot update 'field' and 'field.z' at the same time"));
 }
+
+#[test]
+fn test_update_with_inc() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "one": 1, "v": 1 },
+                doc! { "two": 2, "v": 2 },
+                doc! { "three": "three", "v": 0 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .update_many(doc! { "one": 1 }, doc! { "$inc": { "v": 1 } }, None)
+        .unwrap();
+
+    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let row1 = res.next().unwrap().unwrap();
+    assert_eq!(row1.get_i32("v").unwrap(), 2);
+}
+
+#[test]
+fn test_update_with_inc_multiple_fields() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "one": 1, "v": 1, "z": 1 },
+                doc! { "one": 1, "v": 2, "z": 10 },
+                doc! { "three": "three", "v": 0, "z": 100 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .update_many(
+            doc! { "one": 1 },
+            doc! { "$inc": { "v": 10, "z": -2 } },
+            None,
+        )
+        .unwrap();
+
+    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let row1 = res.next().unwrap().unwrap();
+    assert_eq!(row1.get_i32("v").unwrap(), 11);
+    assert_eq!(row1.get_i32("z").unwrap(), -1);
+    let row2 = res.next().unwrap().unwrap();
+    assert_eq!(row2.get_i32("v").unwrap(), 12);
+    assert_eq!(row2.get_i32("z").unwrap(), 8);
+}
+
+#[test]
+#[ignore]
+fn test_update_with_inc_double_fields() {
+    todo!("double fields need to be casted properly with $f");
+    /*
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "one": 1, "v": 1, "z": 1.5 },
+                doc! { "one": 1, "v": 2, "z": 10.2 },
+                doc! { "three": "three", "v": 0, "z": 100 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .update_many(
+            doc! { "one": 1 },
+            doc! { "$inc": { "v": 10, "z": -2 } },
+            None,
+        )
+        .unwrap();
+
+    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let row1 = res.next().unwrap().unwrap();
+    assert_eq!(row1.get_i32("v").unwrap(), 11);
+    assert_eq!(row1.get_f64("z").unwrap(), -0.5);
+    let row2 = res.next().unwrap().unwrap();
+    assert_eq!(row2.get_i32("v").unwrap(), 12);
+    assert_eq!(row2.get_f64("z").unwrap(), 8.2);
+    */
+}
+
+#[test]
+#[ignore]
+fn test_update_inc_with_nested_fields() {
+    todo!("nested fields are exanded but we don't consider those when building the update clause");
+}
