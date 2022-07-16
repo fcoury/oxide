@@ -147,8 +147,10 @@ fn test_update_with_inc_multiple_fields() {
 #[test]
 #[ignore]
 fn test_update_with_inc_double_fields() {
-    todo!("double fields need to be casted properly with $f");
-    /*
+    // FIXME We have to change how updates work, instead of doing
+    //       them in batch, we'll have to get one doc, update it
+    //       and so on.
+    // #16 - https://github.com/fcoury/oxide/issues/16
     let ctx = common::setup();
 
     ctx.col()

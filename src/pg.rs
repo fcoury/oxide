@@ -150,6 +150,7 @@ impl PgDb {
         };
 
         // FIXME start a transaction here
+        // #16 - https://github.com/fcoury/oxide/issues/16
         let mut total = 0;
         for sql in statements {
             match self.exec(&sql, &[]) {
