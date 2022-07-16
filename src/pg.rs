@@ -112,7 +112,21 @@ impl PgDb {
                                 format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
                             statements.push(sql);
                         }
-                        // $inc: { a: 2, b: 3, c: 1 }
+                        UpdateDoc::Unset(unset) => {
+                            let removals = unset
+                                .keys()
+                                .map(|k| format!("'{}'", k))
+                                .collect::<Vec<String>>()
+                                .join(" - ");
+
+                            let sql = format!(
+                                "UPDATE {} SET _jsonb = _jsonb - {}{}",
+                                sp.sanitize(),
+                                removals,
+                                where_str
+                            );
+                            statements.push(sql);
+                        }
                         UpdateDoc::Inc(inc) => {
                             let updates = inc
                                 .iter()

@@ -179,11 +179,44 @@ fn test_update_with_inc_double_fields() {
     let row2 = res.next().unwrap().unwrap();
     assert_eq!(row2.get_i32("v").unwrap(), 12);
     assert_eq!(row2.get_f64("z").unwrap(), 8.2);
-    */
 }
 
 #[test]
 #[ignore]
 fn test_update_inc_with_nested_fields() {
     todo!("nested fields are exanded but we don't consider those when building the update clause");
+}
+
+#[test]
+fn test_update_unset() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "idx": 1, "one": 1, "v": 1, "z": 1.5 },
+                doc! { "idx": 2, "one": 1, "v": 2, "z": 10.2 },
+                doc! { "idx": 3, "three": "three", "v": 0, "z": 100 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .update_many(doc! { "one": 1 }, doc! { "$unset": { "v": 1 } }, None)
+        .unwrap();
+
+    let mut res = ctx.col().find(doc! { "idx": 1 }, None).unwrap();
+    let row1 = res.next().unwrap().unwrap();
+    assert_eq!(row1.get("v"), None);
+    assert_eq!(row1.get_f64("z").unwrap(), 1.5);
+
+    let mut res = ctx.col().find(doc! { "idx": 2 }, None).unwrap();
+    let row2 = res.next().unwrap().unwrap();
+    assert_eq!(row2.get("v"), None);
+    assert_eq!(row2.get_f64("z").unwrap(), 10.2);
+
+    let mut res = ctx.col().find(doc! { "idx": 3 }, None).unwrap();
+    let row3 = res.next().unwrap().unwrap();
+    assert_eq!(row3.get_i32("v").unwrap(), 0);
 }
