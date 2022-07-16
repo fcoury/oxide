@@ -93,23 +93,23 @@ impl PgDb {
         };
 
         let table_name = format!("{} t", sp.sanitize());
-        let mut prefix = "".to_string();
-        let mut from = "".to_string();
         if !multi {
-            prefix = format!(
-                indoc! {"
-                    WITH cte AS (
-                        SELECT _jsonb
-                        FROM   {}
-                        {}
-                        LIMIT 1
-                    )
-                "},
-                sp.sanitize(),
-                where_str
+            // gets the first id that matches
+            let sql = format!(
+                "SELECT _jsonb->'_id'->>'$o' FROM {} {} LIMIT 1",
+                table_name, where_str
             );
-            from = " FROM cte".to_string();
-            where_str = " WHERE t._jsonb = cte._jsonb".to_string();
+            let rows = self.raw_query(&sql, &[]).unwrap();
+            if rows.len() < 1 {
+                return Ok(0);
+            }
+            let id: String = rows[0].get(0);
+            let match_id = format!("_jsonb->'_id'->>'$o' = '{}'", id);
+            if where_str == "" {
+                where_str = format!(" WHERE {}", match_id);
+            } else {
+                where_str = format!("{} AND {}", where_str, match_id);
+            }
         };
 
         let statements = match update {
@@ -128,10 +128,7 @@ impl PgDb {
                                 .collect::<Vec<String>>()
                                 .join(", ");
 
-                            let sql = format!(
-                                "{}UPDATE {} SET {}{}{}",
-                                prefix, table_name, updates, from, where_str
-                            );
+                            let sql = format!("UPDATE {} SET {}{}", table_name, updates, where_str);
                             statements.push(sql);
                         }
                         UpdateDoc::Unset(unset) => {
@@ -147,11 +144,9 @@ impl PgDb {
                             }
 
                             let sql = format!(
-                                "{}UPDATE {} SET _jsonb = _jsonb{}{}{}",
-                                prefix,
+                                "UPDATE {} SET _jsonb = _jsonb{}{}",
                                 table_name,
                                 removals.join(""),
-                                from,
                                 where_str
                             );
                             statements.push(sql);
@@ -172,13 +167,12 @@ impl PgDb {
 
                             let sql = format!(
                                 indoc! {"
-                                {}UPDATE {}
+                                UPDATE {}
                                 SET _jsonb = _jsonb ||
                                     {}
                                 {}
-                                {}
                             "},
-                                prefix, table_name, updates, from, where_str
+                                table_name, updates, where_str
                             );
                             statements.push(sql);
                         }
@@ -188,10 +182,7 @@ impl PgDb {
             }
             UpdateOper::Replace(replace) => {
                 let json = Bson::Document(replace).into_psql_json();
-                let sql = format!(
-                    "{}UPDATE {} SET _jsonb = $1 {}{}",
-                    prefix, table_name, from, where_str
-                );
+                let sql = format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str);
                 return match self.exec(&sql, &[&json]) {
                     Ok(count) => Ok(count),
                     Err(e) => Err(UpdateError::Other(e)),
