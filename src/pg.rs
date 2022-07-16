@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::commands::{InvalidUpdateError, UpdateDoc, UpdateOper};
+use crate::commands::{collapse_fields, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
@@ -113,16 +113,21 @@ impl PgDb {
                             statements.push(sql);
                         }
                         UpdateDoc::Unset(unset) => {
-                            let removals = unset
-                                .keys()
-                                .map(|k| format!("'{}'", k))
-                                .collect::<Vec<String>>()
-                                .join(" - ");
+                            let mut removals = vec![];
+                            let fields = collapse_fields(&unset);
+
+                            for field in fields.keys().filter(|f| !f.contains(".")) {
+                                removals.push(format!(" - '{}'", field));
+                            }
+
+                            for field in fields.keys().filter(|f| f.contains(".")) {
+                                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
+                            }
 
                             let sql = format!(
-                                "UPDATE {} SET _jsonb = _jsonb - {}{}",
+                                "UPDATE {} SET _jsonb = _jsonb{}{}",
                                 sp.sanitize(),
-                                removals,
+                                removals.join(""),
                                 where_str
                             );
                             statements.push(sql);

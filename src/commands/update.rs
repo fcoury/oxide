@@ -147,6 +147,22 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
     Ok(expanded)
 }
 
+pub fn collapse_fields(doc: &Document) -> Document {
+    let mut collapsed = doc![];
+    for (key, value) in doc.iter() {
+        if value.as_document().is_none() {
+            collapsed.insert(key, value);
+            continue;
+        }
+
+        let res = collapse_fields(value.as_document().unwrap());
+        for (k, v) in res {
+            collapsed.insert(format!("{}.{}", key, k), v);
+        }
+    }
+    collapsed
+}
+
 fn get_path(doc: &Document, path: String) -> Option<&Bson> {
     let parts: Vec<&str> = path.split(".").collect();
     let mut current = doc;
@@ -300,5 +316,12 @@ mod tests {
             parse_update(&mixed_doc).unwrap_err(),
             InvalidUpdateError::new("Unknown modifier: b".to_string())
         );
+    }
+
+    #[test]
+    fn test_collapse_fields() {
+        let nested = doc! { "a": 1, "b": { "c": 2, "d": 3, "e": { "f": 1 } } };
+        let collapsed = collapse_fields(&nested);
+        assert_eq!(collapsed, doc! { "a": 1, "b.c": 2, "b.d": 3, "b.e.f": 1 });
     }
 }
