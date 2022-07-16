@@ -131,8 +131,8 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String) -> (String, String) {
 
     if json.is_number() {
         field = format!(
-            "(CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END)",
-            field, field, field
+            "(jsonb_typeof({}) = 'number' OR jsonb_typeof({}->'$f') = 'number') AND (CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END)",
+            field, field, field, field, field
         );
     }
     (field, value_to_jsonb(json.to_string()))
@@ -159,7 +159,7 @@ mod tests {
     fn test_simple_int() {
         let doc = doc! {"age": 12};
         assert_eq!(
-            r#"(CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) = '12'"#,
+            r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) = '12'"#,
             parse(doc)
         )
     }
@@ -168,7 +168,7 @@ mod tests {
     fn test_simple_double() {
         let doc = doc! {"age": Bson::Double(1.2)};
         assert_eq!(
-            r#"(CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) = '1.2'"#,
+            r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) = '1.2'"#,
             parse(doc)
         )
     }
@@ -177,7 +177,7 @@ mod tests {
     fn test_and() {
         let doc = doc! {"a": "name", "b": 212};
         assert_eq!(
-            r#"(_jsonb->'a' = '"name"' AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212')"#,
+            r#"(_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212')"#,
             parse(doc)
         )
     }
@@ -188,7 +188,7 @@ mod tests {
             doc! { "a": "name", "b": 212 },
         ]};
         assert_eq!(
-            r#"(_jsonb->'a' = '"name"' AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212')"#,
+            r#"(_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212')"#,
             parse(doc)
         )
     }
@@ -199,7 +199,7 @@ mod tests {
             doc! { "a": 1, "b": 2, "c": 3 },
         ]};
         assert_eq!(
-            r#"((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) = '1' AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '2' AND (CASE WHEN (_jsonb->'c' ? '$f') THEN (_jsonb->'c'->>'$f')::numeric ELSE (_jsonb->'c')::numeric END) = '3')"#,
+            r#"((jsonb_typeof(_jsonb->'a') = 'number' OR jsonb_typeof(_jsonb->'a'->'$f') = 'number') AND (CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) = '1' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '2' AND (jsonb_typeof(_jsonb->'c') = 'number' OR jsonb_typeof(_jsonb->'c'->'$f') = 'number') AND (CASE WHEN (_jsonb->'c' ? '$f') THEN (_jsonb->'c'->>'$f')::numeric ELSE (_jsonb->'c')::numeric END) = '3')"#,
             parse(doc)
         )
     }
@@ -211,7 +211,7 @@ mod tests {
             doc! { "c": "name", "d": 212 },
         ]};
         assert_eq!(
-            r#"((_jsonb->'a' = '"name"' AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212') OR (_jsonb->'c' = '"name"' AND (CASE WHEN (_jsonb->'d' ? '$f') THEN (_jsonb->'d'->>'$f')::numeric ELSE (_jsonb->'d')::numeric END) = '212'))"#,
+            r#"((_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) = '212') OR (_jsonb->'c' = '"name"' AND (jsonb_typeof(_jsonb->'d') = 'number' OR jsonb_typeof(_jsonb->'d'->'$f') = 'number') AND (CASE WHEN (_jsonb->'d' ? '$f') THEN (_jsonb->'d'->>'$f')::numeric ELSE (_jsonb->'d')::numeric END) = '212'))"#,
             parse(doc)
         )
     }
@@ -220,7 +220,7 @@ mod tests {
     fn test_with_gt_oper() {
         let doc = doc! {"age": {"$gt": 12}};
         assert_eq!(
-            r#"(CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12'"#,
+            r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12'"#,
             parse(doc)
         )
     }
@@ -229,7 +229,7 @@ mod tests {
     fn test_with_simple_unary_not() {
         let doc = doc! { "age": {"$not": {"$gt": 12 } } };
         assert_eq!(
-            r#"NOT ((CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12')"#,
+            r#"NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12')"#,
             parse(doc)
         )
     }
@@ -238,7 +238,7 @@ mod tests {
     fn test_with_unary_not() {
         let doc = doc! { "x": 1, "age": {"$not": {"$gt": 12} }, "y": 2 };
         assert_eq!(
-            r#"((CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END) = '1' AND NOT ((CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12') AND (CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END) = '2')"#,
+            r#"((jsonb_typeof(_jsonb->'x') = 'number' OR jsonb_typeof(_jsonb->'x'->'$f') = 'number') AND (CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END) = '1' AND NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12') AND (jsonb_typeof(_jsonb->'y') = 'number' OR jsonb_typeof(_jsonb->'y'->'$f') = 'number') AND (CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END) = '2')"#,
             parse(doc)
         )
     }
@@ -248,7 +248,7 @@ mod tests {
         let doc =
             doc! { "age": {"$not": {"$gt": 12} }, "$or": vec! [ doc!{ "y": 2 }, doc!{ "x": 1 } ]};
         assert_eq!(
-            r#"(NOT ((CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12') AND ((CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END) = '2' OR (CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END) = '1'))"#,
+            r#"(NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND (CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END) > '12') AND ((jsonb_typeof(_jsonb->'y') = 'number' OR jsonb_typeof(_jsonb->'y'->'$f') = 'number') AND (CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END) = '2' OR (jsonb_typeof(_jsonb->'x') = 'number' OR jsonb_typeof(_jsonb->'x'->'$f') = 'number') AND (CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END) = '1'))"#,
             parse(doc)
         )
     }

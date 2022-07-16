@@ -133,3 +133,26 @@ fn test_find_with_gt_float() {
             .unwrap()
     );
 }
+
+#[test]
+fn test_find_type_bracketing() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "counter": 1 },
+                doc! { "counter": "Str" },
+                doc! { "counter": 3 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    let cursor = ctx
+        .col()
+        .find(doc! { "counter": { "$gt": 1 } }, None)
+        .unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    assert_eq!(1, rows.len());
+}

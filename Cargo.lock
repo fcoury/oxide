@@ -128,7 +128,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "time 0.3.11",
- "uuid",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -740,7 +740,7 @@ dependencies = [
  "trust-dns-proto",
  "trust-dns-resolver",
  "typed-builder",
- "uuid",
+ "uuid 0.8.2",
  "webpki-roots",
 ]
 
@@ -848,6 +848,7 @@ dependencies = [
  "serde_json",
  "sql_lexer",
  "tokio",
+ "uuid 1.1.2",
 ]
 
 [[package]]
@@ -1730,6 +1731,28 @@ checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 dependencies = [
  "getrandom",
  "serde",
+]
+
+[[package]]
+name = "uuid"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd6469f4314d5f1ffec476e05f17cc9a78bc7a27a6a857842170bdf8d6f98d2f"
+dependencies = [
+ "getrandom",
+ "rand",
+ "uuid-macro-internal",
+]
+
+[[package]]
+name = "uuid-macro-internal"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "548f7181a5990efa50237abb7ebca410828b57a8955993334679f8b50b35c97d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
