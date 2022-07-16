@@ -75,7 +75,8 @@ mod tests {
     #[test]
     fn test_parse_int64() {
         let json = Bson::Int64(1).into_psql_json().to_string();
-        assert_eq!(r#"{"$i":"1"}"#, json);
+        // assert_eq!(r#"{"$i":"1"}"#, json);
+        assert_eq!(r#"1"#, json);
     }
 
     #[test]
