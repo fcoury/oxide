@@ -154,6 +154,5 @@ fn test_find_type_bracketing() {
         .find(doc! { "counter": { "$gt": 1 } }, None)
         .unwrap();
     let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
-    println!("{:?}", rows);
     assert_eq!(1, rows.len());
 }

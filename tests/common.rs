@@ -5,7 +5,6 @@ use oxide::server::Server;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
 #[derive(Debug, Clone)]
@@ -18,11 +17,8 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn new(port: u16, db: String) -> Self {
-        let id = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let collection = format!("test_collection_{}", id).to_string();
+        let id = uuid::Uuid::new_v4().to_string();
+        let collection = format!("test_{}", id).to_string();
         let client_uri = format!("mongodb://localhost:{}/test", port);
         let mongodb = mongodb::sync::Client::with_uri_str(&client_uri).unwrap();
 
