@@ -5,6 +5,54 @@ use bson::{doc, Bson, Document};
 
 pub struct Update {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateOper {
+    Update(Vec<UpdateDoc>),
+    Replace(Document),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UpdateDoc {
+    Inc(Document),
+    Set(Document),
+    Unset(Document),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvalidUpdateError {
+    reason: String,
+}
+
+impl InvalidUpdateError {
+    pub fn new(reason: String) -> Self {
+        InvalidUpdateError { reason }
+    }
+}
+
+impl UpdateDoc {
+    fn validate(&self) -> Result<UpdateDoc, InvalidUpdateError> {
+        match self {
+            UpdateDoc::Set(doc) => match expand_fields(doc) {
+                Ok(u) => Ok(UpdateDoc::Set(u)),
+                Err(e) => {
+                    return Err(InvalidUpdateError::new(format!(
+                        "Cannot update '{}' and '{}' at the same time",
+                        e.target, e.source
+                    )));
+                }
+            },
+            UpdateDoc::Unset(doc) => Ok(UpdateDoc::Unset(doc.clone())),
+            UpdateDoc::Inc(u) => Ok(UpdateDoc::Inc(u.clone())),
+            // _ => {
+            //     return Err(InvalidUpdateError::new(format!(
+            //         "Unhandled update operation: {:?}",
+            //         self
+            //     )));
+            // }
+        }
+    }
+}
+
 impl Handler for Update {
     fn new() -> Self {
         Update {}
@@ -27,26 +75,16 @@ impl Handler for Update {
         for update in updates {
             let doc = update.as_document().unwrap();
             let q = doc.get_document("q").unwrap();
-            let u = doc.get_document("u").unwrap();
+            let update_doc = parse_update(doc.get_document("u").unwrap());
+            let multi = doc.get_bool("multi").unwrap_or(false);
 
-            let set = match expand_fields(u.get_document("$set").unwrap()) {
-                Ok(u) => u,
-                Err(e) => {
-                    return Err(CommandExecutionError {
-                        message: format!(
-                            "Cannot update '{}' and '{}' at the same time",
-                            e.target, e.source
-                        ),
-                    })
-                }
-            };
+            if update_doc.is_err() {
+                return Err(CommandExecutionError::new(format!("{:?}", update_doc)));
+            }
 
-            let mut u = u.clone();
-            u.insert("$set", set);
-
-            let multi = doc.get_bool("multi").unwrap_or(true);
-
-            n += client.update(&sp, Some(q), &u, multi).unwrap();
+            n += client
+                .update(&sp, Some(q), update_doc.unwrap(), multi)
+                .unwrap();
         }
 
         Ok(doc! {
@@ -109,6 +147,22 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
     Ok(expanded)
 }
 
+pub fn collapse_fields(doc: &Document) -> Document {
+    let mut collapsed = doc![];
+    for (key, value) in doc.iter() {
+        if value.as_document().is_none() {
+            collapsed.insert(key, value);
+            continue;
+        }
+
+        let res = collapse_fields(value.as_document().unwrap());
+        for (k, v) in res {
+            collapsed.insert(format!("{}.{}", key, k), v);
+        }
+    }
+    collapsed
+}
+
 fn get_path(doc: &Document, path: String) -> Option<&Bson> {
     let parts: Vec<&str> = path.split(".").collect();
     let mut current = doc;
@@ -119,6 +173,77 @@ fn get_path(doc: &Document, path: String) -> Option<&Bson> {
         }
     }
     None
+}
+
+fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
+    let mut res: Vec<UpdateDoc> = vec![];
+    if !doc.keys().any(|k| k.starts_with("$")) {
+        return Ok(UpdateOper::Replace(doc.clone()));
+    }
+    for (key, value) in doc.iter() {
+        match key.as_str() {
+            "$set" => {
+                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!(
+                            "Cannot update '{}' and '{}' at the same time",
+                            e.target, e.source
+                        )));
+                    }
+                };
+                match UpdateDoc::Set(expanded_doc).validate() {
+                    Ok(update_doc) => res.push(update_doc),
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
+                    }
+                }
+            }
+            "$unset" => {
+                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!(
+                            "Cannot update '{}' and '{}' at the same time",
+                            e.target, e.source
+                        )));
+                    }
+                };
+                match UpdateDoc::Unset(expanded_doc).validate() {
+                    Ok(update_doc) => res.push(update_doc),
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
+                    }
+                }
+            }
+            "$inc" => {
+                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!(
+                            "Cannot update '{}' and '{}' at the same time",
+                            e.target, e.source
+                        )));
+                    }
+                };
+                match UpdateDoc::Inc(expanded_doc).validate() {
+                    Ok(update_doc) => res.push(update_doc),
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
+                    }
+                }
+            }
+            _ => {
+                if key.starts_with("$") || res.len() > 0 {
+                    return Err(InvalidUpdateError::new(format!(
+                        "Unknown modifier: {}",
+                        key
+                    )));
+                }
+            }
+        }
+    }
+    Ok(UpdateOper::Update(res))
 }
 
 #[cfg(test)]
@@ -166,5 +291,37 @@ mod tests {
         let err = expanded.unwrap_err();
         assert_eq!(err.source, "a.b.c");
         assert_eq!(err.target, "a.b");
+    }
+
+    #[test]
+    fn test_parse_update() {
+        let set_doc = doc! { "$set": { "a": 1 } };
+        let repl_doc = doc! { "b": 2, "c": 8, "d": 9 };
+        let unknown_doc = doc! { "$xyz": { "a": 1 } };
+        let mixed_doc = doc! { "$set": { "x": 1 }, "b": 2 };
+
+        assert_eq!(
+            parse_update(&set_doc).unwrap(),
+            UpdateOper::Update(vec![UpdateDoc::Set(doc! { "a": 1 })])
+        );
+        assert_eq!(
+            parse_update(&repl_doc).unwrap(),
+            UpdateOper::Replace(repl_doc)
+        );
+        assert_eq!(
+            parse_update(&unknown_doc).unwrap_err(),
+            InvalidUpdateError::new("Unknown modifier: $xyz".to_string())
+        );
+        assert_eq!(
+            parse_update(&mixed_doc).unwrap_err(),
+            InvalidUpdateError::new("Unknown modifier: b".to_string())
+        );
+    }
+
+    #[test]
+    fn test_collapse_fields() {
+        let nested = doc! { "a": 1, "b": { "c": 2, "d": 3, "e": { "f": 1 } } };
+        let collapsed = collapse_fields(&nested);
+        assert_eq!(collapsed, doc! { "a": 1, "b.c": 2, "b.d": 3, "b.e.f": 1 });
     }
 }

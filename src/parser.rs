@@ -103,6 +103,8 @@ fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
     let operator = match exp_tree.operator.as_str() {
         "$and" => "AND",
         "$or" => "OR",
+        // FIXME handle $nor expression
+        // #17 - https://github.com/fcoury/oxide/issues/17
         // "$nor" => "NOR", FIXME
         t => unimplemented!("parse_expression_tree operator unimplemented = {:?}", t),
     };

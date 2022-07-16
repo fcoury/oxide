@@ -70,7 +70,7 @@ pub fn setup_with_pg_db(name: &str) -> TestContext {
     let port: u16 = portpicker::pick_unused_port().unwrap();
 
     let manager = PostgresConnectionManager::new(pg_url.parse().unwrap(), NoTls);
-    let pool = r2d2::Pool::new(manager).unwrap();
+    let pool = r2d2::Pool::builder().max_size(2).build(manager).unwrap();
     PgDb::new_from_pool(pool.clone())
         .drop_schema("db_test")
         .unwrap();

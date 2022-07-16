@@ -1,7 +1,9 @@
 #![allow(dead_code)]
+use crate::commands::{collapse_fields, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
+use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
 use r2d2::PooledConnection;
@@ -13,11 +15,6 @@ use std::fmt;
 #[derive(Debug)]
 pub struct AlreadyExistsError {
     target: String,
-}
-
-#[derive(Debug)]
-pub struct InvalidUpdateError {
-    reason: String,
 }
 
 #[derive(Debug)]
@@ -82,10 +79,10 @@ impl PgDb {
         &mut self,
         sp: &SqlParam,
         filter: Option<&Document>,
-        update: &Document,
-        _multi: bool,
+        update: UpdateOper,
+        multi: bool,
     ) -> Result<u64, UpdateError> {
-        let where_str = if let Some(f) = filter {
+        let mut where_str = if let Some(f) = filter {
             if f.keys().count() < 1 {
                 "".to_string()
             } else {
@@ -95,40 +92,117 @@ impl PgDb {
             "".to_string()
         };
 
-        if !update.contains_key("$set") {
-            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
-                reason: "No $set field found".to_string(),
-            }));
-        }
+        let table_name = format!("{} t", sp.sanitize());
+        if !multi {
+            // gets the first id that matches
+            let sql = format!(
+                "SELECT _jsonb->'_id'->>'$o' FROM {} {} LIMIT 1",
+                table_name, where_str
+            );
+            let rows = self.raw_query(&sql, &[]).unwrap();
+            if rows.len() < 1 {
+                return Ok(0);
+            }
+            let id: String = rows[0].get(0);
+            let match_id = format!("_jsonb->'_id'->>'$o' = '{}'", id);
+            if where_str == "" {
+                where_str = format!(" WHERE {}", match_id);
+            } else {
+                where_str = format!("{} AND {}", where_str, match_id);
+            }
+        };
 
-        let set = update.get_document("$set");
-        if set.is_err() {
-            log::error!("Error trying to retrieve $set for update: {:?}", set);
-            return Err(UpdateError::InvalidUpdate(InvalidUpdateError {
-                reason: "$set has to be an object".to_string(),
-            }));
-        }
+        let statements = match update {
+            UpdateOper::Update(updates) => {
+                let mut statements = vec![];
+                for update in updates {
+                    match update {
+                        UpdateDoc::Set(set) => {
+                            let updates = set
+                                .keys()
+                                .map(|k| {
+                                    let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
+                                    let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
+                                    format!("{} = {}", field, value)
+                                })
+                                .collect::<Vec<String>>()
+                                .join(", ");
 
-        let pairs = set.unwrap();
-        let updates = pairs
-            .keys()
-            .map(|k| {
-                let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
-                let value = value_to_jsonb(format!("{}", pairs.get(k).unwrap()));
-                format!("{} = {}", field, value)
-            })
-            .collect::<Vec<String>>()
-            .join(", ");
+                            let sql = format!("UPDATE {} SET {}{}", table_name, updates, where_str);
+                            statements.push(sql);
+                        }
+                        UpdateDoc::Unset(unset) => {
+                            let mut removals = vec![];
+                            let fields = collapse_fields(&unset);
 
-        let sql = format!("UPDATE {} SET {}{}", sp.sanitize(), updates, where_str);
-        println!("SQL = {}", sql);
-        match self.exec(&sql, &[]) {
-            Ok(n) => return Ok(n),
-            Err(e) => {
-                log::error!("Error trying to update: {:?}", e);
-                return Err(UpdateError::Other(e));
+                            for field in fields.keys().filter(|f| !f.contains(".")) {
+                                removals.push(format!(" - '{}'", field));
+                            }
+
+                            for field in fields.keys().filter(|f| f.contains(".")) {
+                                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
+                            }
+
+                            let sql = format!(
+                                "UPDATE {} SET _jsonb = _jsonb{}{}",
+                                table_name,
+                                removals.join(""),
+                                where_str
+                            );
+                            statements.push(sql);
+                        }
+                        UpdateDoc::Inc(inc) => {
+                            let updates = inc
+                                .iter()
+                                .map(|(k, v)|
+                                    format!("json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb", k, k, v)
+                                )
+                                .collect::<Vec<String>>()
+                                .join(" || ");
+
+                            // UPDATE "test"."ages" SET
+                            // 	_jsonb = _jsonb
+                            // 		|| json_build_object('age', COALESCE(_jsonb->'age')::numeric + 1)::jsonb
+                            // 		|| json_build_object('limit', COALESCE(_jsonb->'limit')::numeric - 2)::jsonb;
+
+                            let sql = format!(
+                                indoc! {"
+                                UPDATE {}
+                                SET _jsonb = _jsonb ||
+                                    {}
+                                {}
+                            "},
+                                table_name, updates, where_str
+                            );
+                            statements.push(sql);
+                        }
+                    }
+                }
+                statements
+            }
+            UpdateOper::Replace(replace) => {
+                let json = Bson::Document(replace).into_psql_json();
+                let sql = format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str);
+                return match self.exec(&sql, &[&json]) {
+                    Ok(count) => Ok(count),
+                    Err(e) => Err(UpdateError::Other(e)),
+                };
+            }
+        };
+
+        // FIXME start a transaction here
+        // #16 - https://github.com/fcoury/oxide/issues/16
+        let mut total = 0;
+        for sql in statements {
+            match self.exec(&sql, &[]) {
+                Ok(n) => total += n,
+                Err(e) => {
+                    log::error!("Error trying to update: {:?}", e);
+                    return Err(UpdateError::Other(e));
+                }
             }
         }
+        Ok(total)
     }
 
     pub fn raw_query(
