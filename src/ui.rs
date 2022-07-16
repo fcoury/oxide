@@ -1,4 +1,5 @@
 use crate::parser::parse;
+use crate::pg::PgDb;
 use bson::ser;
 use nickel::{HttpRouter, JsonBody, Nickel, Options};
 use rust_embed::RustEmbed;
@@ -38,13 +39,33 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
 
     server.post(
         "/convert",
-        middleware! { |req, mut res|
+        middleware! { |req, _res|
             let req_json = req.json_as::<Value>().unwrap();
             println!("{:?}", req_json);
             let doc = ser::to_document(&req_json).unwrap();
-            println!("{:?}", doc);
             let sql = parse(doc);
             json!({ "sql": sql })
+
+        },
+    );
+
+    server.get(
+        "/databases",
+        middleware! { |_req, _res|
+            let mut client = PgDb::new();
+            let databases = client.get_schemas();
+            json!({ "databases": databases })
+
+        },
+    );
+
+    server.get(
+        "/databases/:database/collections",
+        middleware! { |req, _res|
+            let database = req.param("database").unwrap();
+            let mut client = PgDb::new();
+            let collections = client.get_tables(database);
+            json!({ "collections": collections })
 
         },
     );
