@@ -1,13 +1,15 @@
 use crate::parser::parse;
 use crate::pg::PgDb;
 use bson::ser;
-use nickel::{HttpRouter, JsonBody, Nickel, Options};
+use nickel::{HttpRouter, JsonBody, MediaType, Nickel, Options};
 use rust_embed::RustEmbed;
 use serde_json::{json, Value};
 use std::env;
+use std::ffi::OsStr;
+use std::path::Path;
 
 #[derive(RustEmbed)]
-#[folder = "assets/"]
+#[folder = "public/"]
 struct Asset;
 
 pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
@@ -33,6 +35,7 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     server.get(
         "/",
         middleware! { |_req, _res|
+            log::info!("GET /index.html (static)");
             str.clone()
         },
     );
@@ -41,17 +44,33 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         "/convert",
         middleware! { |req, _res|
             let req_json = req.json_as::<Value>().unwrap();
-            println!("{:?}", req_json);
+            log::info!("POST /convert\n{:?}", req_json);
             let doc = ser::to_document(&req_json).unwrap();
             let sql = parse(doc);
             json!({ "sql": sql })
+        },
+    );
 
+    server.post(
+        "/run",
+        middleware! { |req, _res|
+            let req_json = req.json_as::<Value>().unwrap();
+            let query = req_json["query"].as_str().unwrap();
+            log::info!("POST /query\n{}", query);
+            let mut client = PgDb::new();
+            let mut rows = vec![];
+            for row in client.raw_query(query, &[]).unwrap() {
+                let row: serde_json::Value = row.try_get::<&str, serde_json::Value>("_jsonb").unwrap();
+                rows.push(row);
+            }
+            json!({ "rows": rows })
         },
     );
 
     server.get(
         "/databases",
         middleware! { |_req, _res|
+            log::info!("GET /databases");
             let mut client = PgDb::new();
             let databases = client.get_schemas();
             json!({ "databases": databases })
@@ -63,12 +82,46 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         "/databases/:database/collections",
         middleware! { |req, _res|
             let database = req.param("database").unwrap();
+            log::info!("GET /collections\ndatabase = {}", database);
             let mut client = PgDb::new();
             let collections = client.get_tables(database);
             json!({ "collections": collections })
 
         },
     );
+
+    server.utilize(router! {
+        get "**" => |req, mut res| {
+            let file = req.path_without_query().unwrap().trim_start_matches("/");
+            log::info!("GET /{} (static)", file);
+
+            let html = Asset::get(file);
+            match html {
+                Some(html) => {
+                    let html_str = std::str::from_utf8(html.data.as_ref()).unwrap();
+                    let media_type = match Path::new(file).extension() {
+                        Some(ext) => {
+                            if ext == OsStr::new("html") {
+                                MediaType::Html
+                            } else if ext == OsStr::new("css") {
+                                MediaType::Css
+                            } else if ext == OsStr::new("js") {
+                                MediaType::Js
+                            } else {
+                                MediaType::Txt
+                            }
+                        }
+                        None => MediaType::Txt,
+                    };
+                    res.set(media_type);
+                    format!("{}", html_str)
+                }
+                None => {
+                    format!("{}", "404")
+                }
+            }
+        }
+    });
 
     log::info!("Web UI started at http://{}:{}...", listen_addr, port);
     server.listen(format!("{}:{}", listen_addr, port)).unwrap();
