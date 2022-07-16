@@ -1,0 +1,50 @@
+<script type="module">
+  import { h, render, Component } from "https://cdn.skypack.dev/preact";
+  import { useState } from "https://cdn.skypack.dev/preact/hooks";
+  // import { Router } from "https://cdn.skypack.dev/preact-router";
+  import htm from "https://cdn.skypack.dev/htm";
+
+  const html = htm.bind(h);
+
+  function App(props) {
+    const convert = async (e) => {
+      setJson(JSON.stringify(JSON.parse(json), null, 2));
+      const res = await fetch('/convert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: json
+      });
+      const data = await res.json();
+      setSql(data.sql);
+    };
+
+    const [json, setJson] = useState(`{"$or": [{"name": "Felipe"}, {"age": {"$gt": 30}}]}`);
+    const [sql, setSql] = useState('');
+
+    return html`<div>
+      <${TextArea} value=${json} onChange=${(e) => setJson(e.target.value)} />
+      <button onClick=${convert}>Convert</button>
+      <${TextArea} value=${sql} readonly />
+    </div>`;
+  }
+
+  function TextArea(props) {
+    console.log('props', props, props?.readonly);
+
+    return html`
+      <textarea
+        ...${props?.readonly ? { disabled: true } : null}
+        onChange=${props.onChange}
+        value=${props.value}
+        cols="80"
+        rows="20"
+      >
+        ${props.value}
+      </textarea>
+    `;
+  }
+
+  render(html`<${App} name="World" />`, document.body);
+</script>
