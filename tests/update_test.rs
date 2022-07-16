@@ -291,3 +291,24 @@ fn test_update_unset_nested_fields() {
     assert_eq!(doc.get("remove"), None);
     assert_eq!(doc.get_i32("keep").unwrap(), 1);
 }
+
+#[test]
+fn test_update_multi_off() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![doc! { "x": 1 }, doc! { "x": 1 }, doc! { "x": 1 }],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .update_one(doc! { "x": 1 }, doc! { "$set": { "x": 10 } }, None)
+        .unwrap();
+
+    let cursor = ctx.col().find(doc! { "x": 10 }, None).unwrap();
+    let results = cursor.collect::<Vec<_>>();
+
+    assert_eq!(results.len(), 1);
+}
