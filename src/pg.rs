@@ -186,8 +186,16 @@ impl PgDb {
                 }
                 statements
             }
-            UpdateOper::Replace(_replace) => {
-                todo!()
+            UpdateOper::Replace(replace) => {
+                let json = Bson::Document(replace).into_psql_json();
+                let sql = format!(
+                    "{}UPDATE {} SET _jsonb = $1 {}{}",
+                    prefix, table_name, from, where_str
+                );
+                return match self.exec(&sql, &[&json]) {
+                    Ok(count) => Ok(count),
+                    Err(e) => Err(UpdateError::Other(e)),
+                };
             }
         };
 

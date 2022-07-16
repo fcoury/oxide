@@ -312,3 +312,31 @@ fn test_update_multi_off() {
 
     assert_eq!(results.len(), 1);
 }
+
+#[test]
+fn test_update_one_with_replacement_document() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![doc! { "x": 1, "y": 2 }, doc! { "x": 2 }, doc! { "x": 3 }],
+            None,
+        )
+        .unwrap();
+
+    ctx.col()
+        .replace_one(doc! { "x": 1 }, doc! { "new_key": "oh_yes" }, None)
+        .unwrap();
+
+    let cursor = ctx.col().find(doc! { "x": 1 }, None).unwrap();
+    let results = cursor.collect::<Vec<_>>();
+    assert_eq!(results.len(), 0);
+
+    let cursor = ctx.col().find(doc! { "x": 2 }, None).unwrap();
+    let results = cursor.collect::<Vec<_>>();
+    assert_eq!(results.len(), 1);
+
+    let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }, None).unwrap();
+    let results = cursor.collect::<Vec<_>>();
+    assert_eq!(results[0].clone().unwrap(), doc! { "new_key": "oh_yes" });
+}
