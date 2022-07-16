@@ -42,35 +42,33 @@
     const [databases, setDatabases] = useState([]);
     const [collections, setCollections] = useState([]);
     const [database, setDatabase] = useState("");
-    const [sql, setSql] = useState('');
+    const [collection, setCollection] = useState("");
+    const [where, setWhere] = useState('');
 
     const convert = async (e) => {
       setJson(JSON.stringify(JSON.parse(json), null, 2));
       const data = await post('/convert', JSON.parse(json));
-      setSql(data.sql);
+      setWhere(data.sql);
     };
 
     const loadDatabases = async (e) => {
       let { databases } = await get('/databases');
       if (!databases) return;
-      setDatabases(databases);
-      setDatabase(databases[0]);
+      const filteredDatabases = databases.filter((db) => db !== 'public');
+      setDatabases(filteredDatabases);
+      setDatabase(filteredDatabases[0], () => loadCollections());
     };
 
     const loadCollections = async (e) => {
-      console.log('loading collections for', database);
       if (!database) return;
       let { collections } = await get(`/databases/${database}/collections`);
       setCollections(collections);
+      setCollection(collections[0]);
     };
 
     useEffect(() => convert(), [json]);
     useEffect(() => loadCollections(), [database]);
     useEffect(() => loadDatabases(), []);
-
-    console.log('databases', databases);
-    console.log('database', database);
-    console.log('collections', collections);
 
     const dboptions = databases ? databases.map(db => ({
       value: db,
@@ -82,13 +80,19 @@
       label: col,
     })) : [];
 
-    return html`<div>
-      <${Select} options=${dboptions} value=${props.value} onChange=${setDatabase} />
-      <${Select} options=${coloptions} value=${props.value} />
-      <${TextArea} value=${json} onChange=${(e) => setJson(e.target.value)} />
-      <button onClick=${convert}>Convert</button>
-      <${TextArea} value=${sql} readonly />
-    </div>`;
+    const sql = `SELECT _jsob\nFROM "${database}"."${collection}"\nWHERE ${where}`;
+
+    return html`
+      <div>
+        <div>
+          <${Select} options=${dboptions} value=${props.value} onChange=${setDatabase} />
+          <${Select} options=${coloptions} value=${props.value} onChange=${setCollection} />
+        </div>
+        <${TextArea} value=${json} onChange=${(e) => setJson(e.target.value)} />
+        <div><button onClick=${convert}>Convert</button></div>
+        <${TextArea} value=${sql} readonly />
+      </div>
+    `;
   }
 
   function TextArea(props) {
