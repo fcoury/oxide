@@ -8,3 +8,6 @@ start:
 
 test:
 	cargo nextest run
+
+devweb:
+	./scripts/start.sh web

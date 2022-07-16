@@ -29,6 +29,10 @@ enum Commands {
         /// Listening port, defaults to 8087
         #[clap(short, long)]
         port: Option<u16>,
+
+        /// PostgreSQL connection URL
+        #[clap(short = 'u', long)]
+        postgres_url: Option<String>,
     },
 }
 
@@ -61,10 +65,15 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Web { listen_addr, port }) => {
+        Some(Commands::Web {
+            listen_addr,
+            port,
+            postgres_url,
+        }) => {
             ui::start(
                 &listen_addr.unwrap_or("127.0.0.1".to_string()),
                 port.unwrap_or(8087),
+                postgres_url,
             );
         }
         None => {

@@ -18,7 +18,8 @@ impl PostgresSerializer for Bson {
     fn into_psql_json(self) -> Value {
         match self {
             Bson::Int32(i) => json!(i),
-            Bson::Int64(i) => json!({ "$i": i.to_string() }),
+            // Bson::Int64(i) => json!({ "$i": i.to_string() }),
+            Bson::Int64(i) => json!(i),
             Bson::Double(f) => {
                 json!({ "$f": f })
             }
