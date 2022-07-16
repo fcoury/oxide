@@ -3,6 +3,9 @@ use indoc::indoc;
 use server::Server;
 use std::env;
 
+#[macro_use]
+extern crate nickel;
+
 pub mod commands;
 pub mod deserializer;
 pub mod handler;
@@ -11,6 +14,7 @@ pub mod pg;
 pub mod serializer;
 pub mod server;
 pub mod threadpool;
+pub mod ui;
 pub mod utils;
 pub mod wire;
 
@@ -57,7 +61,12 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Web { listen_addr, port }) => println!("{:?}, {:?}", listen_addr, port),
+        Some(Commands::Web { listen_addr, port }) => {
+            ui::start(
+                &listen_addr.unwrap_or("127.0.0.1".to_string()),
+                port.unwrap_or(8087),
+            );
+        }
         None => {
             start(cli.listen_addr, cli.port, cli.postgres_url);
         }
