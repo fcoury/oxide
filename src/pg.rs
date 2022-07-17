@@ -153,7 +153,9 @@ impl PgDb {
         // apply limit
         println!("limit: {:?}", limit);
         if let Some(limit) = limit {
-            where_str = self.add_ids_to_where(sp, limit, where_str.as_str());
+            if limit > 0 {
+                where_str = self.add_ids_to_where(sp, limit, where_str.as_str());
+            }
         }
 
         let sql = format!("DELETE FROM {}{}", sp.to_string(), where_str);
@@ -566,6 +568,10 @@ impl SqlParam {
             &doc.get_str("$db").unwrap().to_string(),
             &doc.get_str(col_attr).unwrap().to_string(),
         )
+    }
+
+    pub fn exists(&self, client: &mut PgDb) -> Result<bool, Error> {
+        client.table_exists(&self.db, &self.collection)
     }
 
     pub fn sanitize(&self) -> String {

@@ -19,6 +19,23 @@ impl Handler for Delete {
         let collection = doc.get_str("delete").unwrap();
         let deletes = doc.get_array("deletes").unwrap();
         let sp = SqlParam::new(db, collection);
+        let mut client = request.get_client();
+
+        let exists = sp.exists(&mut client);
+
+        match exists {
+            Ok(exists) => {
+                if !exists {
+                    return Ok(doc! {
+                        "n": Bson::Int64(0),
+                        "ok": Bson::Double(1.0),
+                    });
+                }
+            }
+            Err(e) => {
+                return Err(CommandExecutionError::new(e.to_string()));
+            }
+        };
 
         if deletes.len() > 1 {
             return Err(CommandExecutionError::new(
@@ -30,7 +47,6 @@ impl Handler for Delete {
         let filter = delete_doc.get_document("q").unwrap();
         let limit: Option<i32> = delete_doc.get_i32("limit").ok();
 
-        let mut client = request.get_client();
         let n = client.delete(&sp, Some(filter), limit).unwrap();
 
         Ok(doc! {

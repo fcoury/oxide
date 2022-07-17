@@ -1,4 +1,4 @@
-use bson::doc;
+use bson::{doc, Document};
 
 mod common;
 
@@ -35,4 +35,17 @@ fn test_delete_one() {
     let cursor = ctx.col().find(doc! {}, None).unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_delete_inexistent() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .db()
+        .collection::<Document>("this_doesnt_exist")
+        .delete_many(doc! { "x": 1 }, None)
+        .unwrap();
+
+    assert_eq!(res.deleted_count, 0);
 }
