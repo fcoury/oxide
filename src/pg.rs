@@ -354,7 +354,7 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<String>, Error> {
         let mut strings = Vec::new();
-        let rows = self.raw_query(&sql, params)?;
+        let rows = self.raw_query(&sql, params).unwrap();
         for row in rows.iter() {
             strings.push(row.get(0));
         }
@@ -468,7 +468,7 @@ impl PgDb {
         let name = SqlParam::new(schema, table).sanitize();
         let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
 
-        self.create_schema_if_not_exists(schema)?;
+        self.create_schema_if_not_exists(schema).unwrap();
 
         let mut attempt = 0;
         loop {
