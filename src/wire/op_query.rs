@@ -36,6 +36,20 @@ impl OpQuery {
         let number_to_return = cursor.read_u32::<LittleEndian>().unwrap();
         let mut new_cursor = cursor.clone();
         new_cursor.set_position(cursor.position());
+
+        let len = cursor.get_ref().len();
+        if (cursor.position() as usize) < len - 1 {
+            return OpQuery {
+                header,
+                flags,
+                collection,
+                number_to_skip,
+                number_to_return,
+                query: doc! {},
+                return_fields: None,
+            };
+        }
+
         let query = Document::from_reader(cursor).unwrap();
         let bson_vec = ser::to_vec(&query).unwrap();
         let query_size: u64 = bson_vec.len().try_into().unwrap();

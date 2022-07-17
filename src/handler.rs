@@ -169,11 +169,12 @@ fn run_op_query(
     request: &Request,
     docs: &Vec<Document>,
 ) -> Result<Document, CommandExecutionError> {
-    let command = docs[0].keys().next().unwrap();
+    let empty = "".to_string();
+    let command = docs[0].keys().next().unwrap_or(&empty);
 
     log::debug!("OP_QUERY Command: {}", command);
 
-    if command == "isMaster" || command == "ismaster" {
+    if command == "" || command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(request, docs)
     } else {
         log::error!("Got unknown OP_QUERY command: {}", command);

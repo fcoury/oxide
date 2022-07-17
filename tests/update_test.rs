@@ -340,3 +340,9 @@ fn test_update_one_with_replacement_document() {
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results[0].clone().unwrap(), doc! { "new_key": "oh_yes" });
 }
+
+#[test]
+fn test_large_update() {
+    let ctx = common::setup();
+    ctx.send_file("tests/fixtures/binaries/large-update-1.bin");
+}

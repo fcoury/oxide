@@ -3,6 +3,7 @@ use mongodb::bson::Document;
 use oxide::pg::PgDb;
 use oxide::server::Server;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::{env, thread};
@@ -45,11 +46,22 @@ impl TestContext {
     pub fn send(&self, bytes: &[u8]) -> Vec<u8> {
         let mut stream = TcpStream::connect(&format!("localhost:{}", self.port)).unwrap();
         stream.write_all(bytes).unwrap();
+        stream.flush().unwrap();
         let mut buffer = [0u8; 1024];
         stream.read(&mut buffer).unwrap();
         stream.shutdown(Shutdown::Write).unwrap();
 
         buffer[..].to_vec()
+    }
+
+    pub fn send_file(&self, filename: &str) -> Vec<u8> {
+        let mut f = File::open(&filename).unwrap();
+        let metadata = fs::metadata(&filename).unwrap();
+        println!("file size = {}", metadata.len());
+        let mut buffer = vec![0; metadata.len() as usize];
+        f.read(&mut buffer).unwrap();
+
+        self.send(&buffer)
     }
 }
 

@@ -311,7 +311,7 @@ impl PgDb {
 
     pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64, Error> {
         let sql = format!(
-            "CREATE SCHEMA IF NOT EXISTS {}",
+            r#"CREATE SCHEMA IF NOT EXISTS "{}""#,
             sanitize_string(schema.to_string())
         );
 

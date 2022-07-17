@@ -70,6 +70,7 @@ impl Handler for Update {
         let sp = SqlParam::new(db, collection);
 
         let mut client = request.get_client();
+        client.create_table_if_not_exists(db, collection).unwrap();
 
         let mut n = 0;
         for update in updates {
