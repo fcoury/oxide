@@ -344,5 +344,5 @@ fn test_update_one_with_replacement_document() {
 #[test]
 fn test_large_update() {
     let ctx = common::setup();
-    ctx.send_file("tests/fixtures/binaries/update-3.bin");
+    ctx.send_file("tests/fixtures/binaries/large-update-1.bin");
 }
