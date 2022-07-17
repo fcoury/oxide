@@ -3,6 +3,7 @@ use crate::threadpool::ThreadPool;
 use crate::wire::parse;
 use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
+use byteorder::{ByteOrder, LittleEndian};
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
 use std::env;
 use std::io::prelude::*;
@@ -72,23 +73,41 @@ fn handle_connection(
     id: RequestId,
     pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
 ) {
-    let mut buffer = [0; 1204];
     let addr = stream.peer_addr().unwrap();
+    log::debug!("Client connected: {}", addr);
 
     loop {
-        match stream.read(&mut buffer) {
-            Ok(read) => {
-                if read < 1 {
-                    stream.flush().unwrap();
-                    break;
-                }
+        let mut size_buffer = [0; 4];
+        let read = stream.peek(&mut size_buffer).unwrap();
+        let size = LittleEndian::read_u32(&size_buffer);
+        if size == 0 {
+            stream.flush().unwrap();
+            break;
+        }
+        let mut buffer = vec![0; size as usize];
 
+        match stream.read_exact(&mut buffer) {
+            Ok(_read) => {
                 use std::time::Instant;
                 let now = Instant::now();
 
-                let op_code = parse(&buffer).unwrap();
+                let op_code = parse(&buffer);
                 log::trace!("{} {}bytes: {:?}", addr, read, op_code);
+                if op_code.is_err() {
+                    log::error!(
+                        "Could not understand - {} {} bytes: {:?}",
+                        addr,
+                        read,
+                        op_code
+                    );
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
+                    return;
+                }
 
+                let op_code = op_code.unwrap();
                 let mut response = match handle(id.0, &pool, addr, &op_code) {
                     Ok(reply) => reply,
                     Err(e) => {
@@ -108,6 +127,7 @@ fn handle_connection(
 
                 let elapsed = now.elapsed();
                 log::trace!("Processed {}bytes in {:.2?}\n", response.len(), elapsed);
+
                 stream.write_all(&response).unwrap();
             }
             Err(e) => {
