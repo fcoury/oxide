@@ -2,11 +2,15 @@
 use mongodb::bson::Document;
 use oxide::pg::PgDb;
 use oxide::server::Server;
+use r2d2::Pool;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
+use std::sync::Once;
 use std::{env, thread};
+
+static INIT: Once = Once::new();
 
 #[derive(Debug, Clone)]
 pub struct TestContext {
@@ -65,12 +69,35 @@ impl TestContext {
     }
 }
 
-pub fn setup_with_pg_db(name: &str) -> TestContext {
+pub fn initialize(pool: Pool<PostgresConnectionManager<NoTls>>) {
+    INIT.call_once(|| {
+        let mut pg = PgDb::new_from_pool(pool);
+        pg.exec(
+            indoc::indoc! {"
+                DO $$ DECLARE
+                    r RECORD;
+                BEGIN
+                    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'db_test') LOOP
+                        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                    END LOOP;
+                END $$;
+            "},
+            &[],
+        )
+        .unwrap();
+    });
+}
+
+pub fn setup_with_pg_db(name: &str, drop: bool) -> TestContext {
     // static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
     // let id = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
     let _ = env_logger::builder().is_test(true).try_init();
     dotenv::dotenv().ok();
+
+    if drop {
+        PgDb::new().drop_db(name).unwrap();
+    }
 
     PgDb::new().create_db_if_not_exists(name).unwrap();
 
@@ -79,9 +106,7 @@ pub fn setup_with_pg_db(name: &str) -> TestContext {
 
     let manager = PostgresConnectionManager::new(pg_url.parse().unwrap(), NoTls);
     let pool = r2d2::Pool::builder().max_size(2).build(manager).unwrap();
-    PgDb::new_from_pool(pool.clone())
-        .drop_schema("db_test")
-        .unwrap();
+    initialize(pool.clone());
 
     thread::spawn(move || {
         Server::new("localhost".to_string(), port).start_with_pool(pool);
@@ -91,5 +116,9 @@ pub fn setup_with_pg_db(name: &str) -> TestContext {
 }
 
 pub fn setup() -> TestContext {
-    setup_with_pg_db("test")
+    setup_with_pg_db("db_test", false)
+}
+
+pub fn setup_with_drop(drop: bool) -> TestContext {
+    setup_with_pg_db("test", drop)
 }
