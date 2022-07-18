@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, ConnectionStatus, Create, DbStats, Drop, DropDatabase, Find,
+    BuildInfo, CollStats, ConnectionStatus, Create, DbStats, Delete, Drop, DropDatabase, Find,
     GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases,
     ListIndexes, Ping, Update, WhatsMyUri,
 };
@@ -122,6 +122,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         Insert::new().handle(request, docs)
     } else if command == "update" {
         Update::new().handle(request, docs)
+    } else if command == "delete" {
+        Delete::new().handle(request, docs)
     } else if command == "create" {
         Create::new().handle(request, docs)
     } else if command == "drop" {

@@ -75,6 +75,99 @@ impl PgDb {
         self.raw_query(&sql, params)
     }
 
+    fn get_matching_ids(
+        &mut self,
+        sp: &SqlParam,
+        limit: i32,
+        filter: Option<&Document>,
+    ) -> Option<Vec<String>> {
+        let where_str = match filter {
+            Some(f) => {
+                let filter = super::parser::parse(f.clone());
+                if filter != "" {
+                    format!("WHERE {}", filter)
+                } else {
+                    "".to_string()
+                }
+            }
+            None => "".to_string(),
+        };
+        let sql = format!(
+            "SELECT _jsonb->'_id'->>'$o' FROM {} {} LIMIT {}",
+            sp.sanitize(),
+            where_str,
+            limit,
+        );
+        let ids = self
+            .client
+            .query(&sql, &[])
+            .unwrap()
+            .into_iter()
+            .map(|r| r.get(0))
+            .collect::<Vec<String>>();
+        if ids.is_empty() {
+            None
+        } else {
+            Some(ids)
+        }
+    }
+
+    fn add_ids_to_where(&mut self, sp: &SqlParam, limit: i32, where_str: &str) -> String {
+        let ids = self.get_matching_ids(sp, limit, None);
+        if ids.is_some() {
+            let in_ids = format!(
+                "({})",
+                ids.unwrap()
+                    .into_iter()
+                    .map(|id| format!("'{}'", id))
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+            let where_id = format!("_jsonb->'_id'->>'$o' IN {}", in_ids);
+            if where_str == "" {
+                format!("WHERE {}", where_id)
+            } else {
+                format!("{} AND {}", where_str, where_id)
+            }
+        } else {
+            where_str.to_string()
+        }
+    }
+
+    pub fn delete(
+        &mut self,
+        sp: &SqlParam,
+        filter: Option<&Document>,
+        limit: Option<i32>,
+    ) -> Result<u64, UpdateError> {
+        let mut where_str = if let Some(f) = filter {
+            if f.keys().count() < 1 {
+                "".to_string()
+            } else {
+                format!(" WHERE {}", super::parser::parse(f.clone()))
+            }
+        } else {
+            "".to_string()
+        };
+
+        // apply limit
+        println!("limit: {:?}", limit);
+        if let Some(limit) = limit {
+            if limit > 0 {
+                where_str = self.add_ids_to_where(sp, limit, where_str.as_str());
+            }
+        }
+
+        let sql = format!("DELETE FROM {}{}", sp.to_string(), where_str);
+        match self.exec(&sql, &[]) {
+            Ok(n) => Ok(n),
+            Err(e) => {
+                log::error!("Error trying to update: {:?}", e);
+                return Err(UpdateError::Other(e));
+            }
+        }
+    }
+
     pub fn update(
         &mut self,
         sp: &SqlParam,
@@ -263,7 +356,7 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<String>, Error> {
         let mut strings = Vec::new();
-        let rows = self.raw_query(&sql, params)?;
+        let rows = self.raw_query(&sql, params).unwrap();
         for row in rows.iter() {
             strings.push(row.get(0));
         }
@@ -377,7 +470,7 @@ impl PgDb {
         let name = SqlParam::new(schema, table).sanitize();
         let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
 
-        self.create_schema_if_not_exists(schema)?;
+        self.create_schema_if_not_exists(schema).unwrap();
 
         let mut attempt = 0;
         loop {
@@ -475,6 +568,10 @@ impl SqlParam {
             &doc.get_str("$db").unwrap().to_string(),
             &doc.get_str(col_attr).unwrap().to_string(),
         )
+    }
+
+    pub fn exists(&self, client: &mut PgDb) -> Result<bool, Error> {
+        client.table_exists(&self.db, &self.collection)
     }
 
     pub fn sanitize(&self) -> String {

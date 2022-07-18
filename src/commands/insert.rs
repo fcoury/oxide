@@ -20,7 +20,6 @@ impl Handler for Insert {
         let docs = doc.get_array("documents").unwrap();
 
         let mut client = request.get_client();
-        client.create_schema_if_not_exists(db).unwrap();
         client.create_table_if_not_exists(db, collection).unwrap();
 
         let sp = SqlParam::new(db, collection);
