@@ -390,6 +390,16 @@ impl PgDb {
         .unwrap()
     }
 
+    pub fn get_table_indexes(&mut self, schema: &str, table: &str) -> Result<Vec<Row>, Error> {
+        self.raw_query(
+            "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2",
+            &[
+                &sanitize_string(schema.to_string()),
+                &sanitize_string(table.to_string()),
+            ],
+        )
+    }
+
     pub fn get_table_size(&mut self, schema: &str, table: &str) -> i64 {
         let schema_table = SqlParam::new(schema, table).sanitize();
         let row = self
@@ -492,6 +502,30 @@ impl PgDb {
                 }
             }
         }
+    }
+
+    pub fn create_index(&mut self, sp: &SqlParam, index: &Document) -> Result<u64, Error> {
+        let fields: Vec<String> = index
+            .get_document("key")
+            .unwrap()
+            .into_iter()
+            .map(|(k, _)| format!("(_jsonb->'{}')", k))
+            .collect();
+        let unique = if index.get_bool("unique").unwrap_or(false) {
+            " UNIQUE"
+        } else {
+            ""
+        };
+        let name = index.get_str("name").unwrap();
+        let sql = format!(
+            "CREATE{} INDEX {} ON {} ({})",
+            unique,
+            name,
+            sp.sanitize(),
+            fields.join(", ")
+        );
+
+        self.exec(&sql, &[])
     }
 
     pub fn drop_db(&mut self, schema: &str) -> Result<u64, Error> {

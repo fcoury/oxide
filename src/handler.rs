@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, ConnectionStatus, Create, DbStats, Delete, Drop, DropDatabase, Find,
-    GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster, ListCollections, ListDatabases,
-    ListIndexes, Ping, Update, WhatsMyUri,
+    BuildInfo, CollStats, ConnectionStatus, Create, CreateIndexes, DbStats, Delete, Drop,
+    DropDatabase, Find, GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster,
+    ListCollections, ListDatabases, ListIndexes, Ping, Update, WhatsMyUri,
 };
 use crate::pg::PgDb;
 use crate::wire::{OpCode, OpMsg};
@@ -126,6 +126,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
         Delete::new().handle(request, docs)
     } else if command == "create" {
         Create::new().handle(request, docs)
+    } else if command == "createIndexes" {
+        CreateIndexes::new().handle(request, docs)
     } else if command == "drop" {
         Drop::new().handle(request, docs)
     } else if command == "dropDatabase" {
