@@ -189,3 +189,35 @@ fn test_find_with_exists() {
     assert_eq!(1, res.len());
     assert_eq!("Str", res[0].get_str("counter").unwrap());
 }
+
+#[test]
+fn find_with_in() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "counter": 1, "a": 1 },
+                doc! { "counter": "Str", "a": { "b": false } },
+                doc! { "counter": 3, "a": 2 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    let res = ctx
+        .col()
+        .find(doc! { "a": { "$in": [1, 2] } }, None)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(2, res.len());
+
+    let res = ctx
+        .col()
+        .find(doc! { "a": { "$nin": [1, 2] } }, None)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(1, res.len());
+}
