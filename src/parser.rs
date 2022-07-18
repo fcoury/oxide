@@ -93,6 +93,28 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
         "$gte" => ">=",
         "$ne" => "!=",
         "$eq" => "=",
+        "$exists" => {
+            let source = "_jsonb".to_string();
+            let value = value_oper.value.value;
+
+            let (field, target) = if field.contains(".") {
+                let parts = field.split(".").collect::<Vec<&str>>();
+                let field = parts[parts.len() - 1].to_string();
+                let target = format!("_jsonb->'{}'", parts[0..parts.len() - 1].join("'->'"));
+                (field, target)
+            } else {
+                (field, source)
+            };
+
+            let stmt = format!("{} ? '{}'", target, field);
+            if (value.is_boolean() && !value.as_bool().unwrap())
+                || value.is_number() && value.as_i64().unwrap() == 0
+            {
+                return format!("NOT ({})", stmt);
+            } else {
+                return stmt;
+            }
+        }
         t => unimplemented!("parse_value_operator - operator unimplemented {:?}", t),
     };
     let (field, value) = parse_leaf_value(value_oper.value, field);
@@ -275,5 +297,30 @@ mod tests {
 
         let res = parse(doc);
         println!("  res = {}", res);
+    }
+
+    #[test]
+    fn test_exists() {
+        assert_eq!(parse(doc! { "a": { "$exists": true } }), r#"_jsonb ? 'a'"#);
+        assert_eq!(
+            parse(doc! { "a": { "$exists": false } }),
+            r#"NOT (_jsonb ? 'a')"#
+        );
+        assert_eq!(
+            parse(doc! { "a.b": { "$exists": 1 } }),
+            r#"_jsonb->'a' ? 'b'"#
+        );
+        assert_eq!(
+            parse(doc! { "a.b": { "$exists": 0 } }),
+            r#"NOT (_jsonb->'a' ? 'b')"#
+        );
+        assert_eq!(
+            parse(doc! { "a.b.c": { "$exists": 1 } }),
+            r#"_jsonb->'a'->'b' ? 'c'"#
+        );
+        assert_eq!(
+            parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }),
+            r#"NOT (_jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
+        );
     }
 }
