@@ -2,7 +2,7 @@
 use crate::serializer::PostgresSerializer;
 use bson::{Bson, Document};
 use mongodb_language_model::{
-    Clause, Expression, ExpressionTreeClause, LeafClause, LeafValue, Operator,
+    Clause, Expression, ExpressionTreeClause, LeafClause, LeafValue, ListOperator, Operator,
     OperatorExpressionOperator, Value, ValueOperator,
 };
 
@@ -68,7 +68,48 @@ fn parse_operator(oper: Operator, field: String) -> String {
     match oper {
         Operator::Value(value_oper) => parse_value_operator(value_oper, field.clone()),
         Operator::ExpressionOperator(expr_oper) => parse_expression_operator(expr_oper, field),
-        t => unimplemented!("parse_operator - unimplemented {:?}", t),
+        Operator::List(list_oper) => parse_list_operator(list_oper, field),
+    }
+}
+
+fn parse_list_operator(list_oper: ListOperator, field: String) -> String {
+    match list_oper.operator.as_str() {
+        "$in" | "$nin" => {
+            let values: Vec<serde_json::Value> = list_oper
+                .values
+                .into_iter()
+                .map(|leaf_value| leaf_value.value)
+                .collect();
+            let jsonb_field = if field.contains(".") {
+                let fields = field
+                    .split(".")
+                    .collect::<Vec<&str>>()
+                    .iter()
+                    .map(|f| format!("'{}'", f))
+                    .collect::<Vec<String>>()
+                    .join("->>");
+                format!("_jsonb->{}", fields)
+            } else {
+                format!("_jsonb->>'{}'", field)
+            };
+
+            let clause = format!(
+                "{} = ANY('{{{}}}')",
+                jsonb_field,
+                values
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            );
+
+            if list_oper.operator.as_str() == "$in" {
+                clause
+            } else {
+                format!("NOT ({})", clause)
+            }
+        }
+        t => unimplemented!("parse_list_operator - unimplemented {:?}", t),
     }
 }
 
@@ -321,6 +362,42 @@ mod tests {
         assert_eq!(
             parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }),
             r#"NOT (_jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
+        );
+    }
+
+    #[test]
+    fn test_in() {
+        assert_eq!(
+            parse(doc! { "a": { "$in": [1, 2] } }),
+            r#"_jsonb->>'a' = ANY('{1, 2}')"#
+        );
+
+        assert_eq!(
+            parse(doc! { "a": { "$in": ["a", "b"] } }),
+            r#"_jsonb->>'a' = ANY('{"a", "b"}')"#
+        );
+
+        assert_eq!(
+            parse(doc! { "a.b": { "$in": ["a", "b"] } }),
+            r#"_jsonb->'a'->>'b' = ANY('{"a", "b"}')"#
+        );
+    }
+
+    #[test]
+    fn test_nin() {
+        assert_eq!(
+            parse(doc! { "a": { "$nin": [1, 2] } }),
+            r#"NOT (_jsonb->>'a' = ANY('{1, 2}'))"#
+        );
+
+        assert_eq!(
+            parse(doc! { "a": { "$nin": ["a", "b"] } }),
+            r#"NOT (_jsonb->>'a' = ANY('{"a", "b"}'))"#
+        );
+
+        assert_eq!(
+            parse(doc! { "a.b": { "$nin": ["a", "b"] } }),
+            r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
         );
     }
 }
