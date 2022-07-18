@@ -77,8 +77,12 @@ pub fn initialize(pool: Pool<PostgresConnectionManager<NoTls>>) {
                 DO $$ DECLARE
                     r RECORD;
                 BEGIN
+                    FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = 'db_test') LOOP
+                        EXECUTE 'DROP INDEX IF EXISTS db_test.' || quote_ident(r.indexname) || ' CASCADE';
+                    END LOOP;
+
                     FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'db_test') LOOP
-                        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                        EXECUTE 'DROP TABLE IF EXISTS db_test.' || quote_ident(r.tablename) || ' CASCADE';
                     END LOOP;
                 END $$;
             "},
