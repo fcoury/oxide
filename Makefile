@@ -10,5 +10,5 @@ test:
 	# cargo nextest run
 	cargo test
 
-devweb:
+web:
 	./scripts/start.sh web
