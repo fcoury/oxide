@@ -252,4 +252,28 @@ mod tests {
             parse(doc)
         )
     }
+
+    #[test]
+    fn test_with_boolean() {
+        let doc = doc! {
+            "type": false,
+        };
+
+        assert_eq!(r#"_jsonb->'type' = 'false'"#, parse(doc),);
+    }
+
+    #[test]
+    #[ignore = "missing $in and $exists"]
+    fn test_with_in_and_exists() {
+        let doc = doc! {
+            "type": "queue",
+            "$or": [
+                { "allowedGroups": { "$in": [ "AUTH_GROUP", "Cognito_Admin" ] } },
+                { "allowedGroups": { "$exists": false } }
+            ]
+        };
+
+        let res = parse(doc);
+        println!("  res = {}", res);
+    }
 }
