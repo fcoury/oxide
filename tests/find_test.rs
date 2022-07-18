@@ -156,3 +156,36 @@ fn test_find_type_bracketing() {
     let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
     assert_eq!(1, rows.len());
 }
+
+#[test]
+fn test_find_with_exists() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "counter": 1, "a": 1 },
+                doc! { "counter": "Str", "a": { "b": false } },
+                doc! { "counter": 3, "d": 0 },
+            ],
+            None,
+        )
+        .unwrap();
+
+    let res = ctx
+        .col()
+        .find(doc! { "a": { "$exists": true } }, None)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(2, res.len());
+
+    let res = ctx
+        .col()
+        .find(doc! { "a.b": { "$exists": true } }, None)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(1, res.len());
+    assert_eq!("Str", res[0].get_str("counter").unwrap());
+}
