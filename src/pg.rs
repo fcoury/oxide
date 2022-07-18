@@ -80,6 +80,7 @@ impl PgDb {
         sp: &SqlParam,
         filter: Option<&Document>,
         update: UpdateOper,
+        upsert: bool,
         multi: bool,
     ) -> Result<u64, UpdateError> {
         let mut where_str = if let Some(f) = filter {
@@ -92,7 +93,7 @@ impl PgDb {
             "".to_string()
         };
 
-        let table_name = format!("{} t", sp.sanitize());
+        let table_name = format!("{}", sp.sanitize());
         if !multi {
             // gets the first id that matches
             let sql = format!(
@@ -100,15 +101,17 @@ impl PgDb {
                 table_name, where_str
             );
             let rows = self.raw_query(&sql, &[]).unwrap();
-            if rows.len() < 1 {
+            if !upsert && rows.len() < 1 {
                 return Ok(0);
             }
-            let id: String = rows[0].get(0);
-            let match_id = format!("_jsonb->'_id'->>'$o' = '{}'", id);
-            if where_str == "" {
-                where_str = format!(" WHERE {}", match_id);
-            } else {
-                where_str = format!("{} AND {}", where_str, match_id);
+            if rows.len() > 0 {
+                let id: String = rows[0].get(0);
+                let match_id = format!("_jsonb->'_id'->>'$o' = '{}'", id);
+                if where_str == "" {
+                    where_str = format!(" WHERE {}", match_id);
+                } else {
+                    where_str = format!("{} AND {}", where_str, match_id);
+                }
             }
         };
 
@@ -182,7 +185,21 @@ impl PgDb {
             }
             UpdateOper::Replace(replace) => {
                 let json = Bson::Document(replace).into_psql_json();
-                let sql = format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str);
+                let needs_insert = upsert
+                    && !{
+                        let query = format!(
+                            "SELECT EXISTS(SELECT _jsonb FROM {} {} LIMIT 1)",
+                            table_name, where_str
+                        );
+                        let row = self.client.query_one(&query, &[]).unwrap();
+                        let exists: bool = row.get(0);
+                        exists
+                    };
+                let sql = if needs_insert {
+                    format!("INSERT INTO {} (_jsonb) VALUES ($1)", table_name)
+                } else {
+                    format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str)
+                };
                 return match self.exec(&sql, &[&json]) {
                     Ok(count) => Ok(count),
                     Err(e) => Err(UpdateError::Other(e)),
@@ -430,6 +447,10 @@ impl PgDb {
         }
 
         self.client.query_one(&sql, &[])
+    }
+
+    fn batch_execute(&mut self, sql: &str) -> Result<(), Error> {
+        self.client.batch_execute(&sql)
     }
 }
 

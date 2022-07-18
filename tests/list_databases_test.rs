@@ -4,7 +4,7 @@ mod common;
 
 #[test]
 fn test_list_database() {
-    let ctx = common::setup_with_pg_db("test_list_1");
+    let ctx = common::setup_with_pg_db("test_list_1", true);
 
     // initially only public database is listed
     let res = ctx.mongodb().list_databases(None, None).unwrap();
@@ -23,7 +23,7 @@ fn test_list_database() {
 
 #[test]
 fn test_list_database_name_only() {
-    let ctx = common::setup_with_pg_db("test_list_2");
+    let ctx = common::setup_with_pg_db("test_list_2", true);
 
     let res = ctx.mongodb().list_database_names(None, None).unwrap();
     assert_eq!(res.len(), 1);
@@ -32,7 +32,7 @@ fn test_list_database_name_only() {
 
 #[test]
 fn test_list_database_with_table_with_spaces() {
-    let ctx = common::setup_with_pg_db("test_list_3");
+    let ctx = common::setup_with_pg_db("test_list_3", true);
 
     ctx.db()
         .collection("my col")

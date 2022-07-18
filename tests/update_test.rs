@@ -1,4 +1,4 @@
-use mongodb::bson::doc;
+use mongodb::{bson::doc, options::ReplaceOptions};
 
 mod common;
 
@@ -339,6 +339,25 @@ fn test_update_one_with_replacement_document() {
     let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }, None).unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results[0].clone().unwrap(), doc! { "new_key": "oh_yes" });
+}
+
+#[test]
+fn test_upsert() {
+    let ctx = common::setup();
+    let res = ctx
+        .col()
+        .replace_one(
+            doc! { "x": 1 },
+            doc! { "x": 1, "y": 2 },
+            ReplaceOptions::builder().upsert(true).build(),
+        )
+        .unwrap();
+    let count = res.modified_count;
+    assert_eq!(count, 1);
+
+    let cursor = ctx.col().find(doc! { "x": 1 }, None).unwrap();
+    let results = cursor.collect::<Vec<_>>();
+    assert_eq!(results.len(), 1);
 }
 
 #[test]

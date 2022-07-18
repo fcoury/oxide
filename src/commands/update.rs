@@ -77,6 +77,7 @@ impl Handler for Update {
             let doc = update.as_document().unwrap();
             let q = doc.get_document("q").unwrap();
             let update_doc = parse_update(doc.get_document("u").unwrap());
+            let upsert = doc.get_bool("upsert").unwrap_or(false);
             let multi = doc.get_bool("multi").unwrap_or(false);
 
             if update_doc.is_err() {
@@ -84,7 +85,7 @@ impl Handler for Update {
             }
 
             n += client
-                .update(&sp, Some(q), update_doc.unwrap(), multi)
+                .update(&sp, Some(q), update_doc.unwrap(), upsert, multi)
                 .unwrap();
         }
 
