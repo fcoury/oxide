@@ -31,10 +31,7 @@ impl PostgresJsonDeserializer for Value {
                     );
                 }
                 if o.contains_key("$d") {
-                    return Bson::DateTime(
-                        Utc.timestamp_millis(o["$d"].as_str().unwrap().parse::<i64>().unwrap())
-                            .into(),
-                    );
+                    return Bson::DateTime(Utc.timestamp_millis(o["$d"].as_i64().unwrap()).into());
                 }
                 if o.contains_key("$f") {
                     return Bson::Double(o["$f"].as_f64().unwrap());
@@ -62,5 +59,19 @@ impl PostgresJsonDeserializer for Value {
                 Bson::Document(m)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_date() {
+        let json = r#"{"$d":1546300800000}"#;
+        let bson: serde_json::Value = serde_json::from_str(json).unwrap();
+        let bson = bson.from_psql_json();
+        println!("{:?}", bson);
+        assert_eq!(bson, Bson::DateTime(Utc.timestamp(1546300800, 0).into()));
     }
 }
