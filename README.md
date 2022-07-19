@@ -78,7 +78,7 @@ By default oxide will bind to 127.0.0.1 and port 27017. You can change those set
 
 ```
 > $ ./oxide --help
-oxide 0.1.1
+oxide 0.1.2
 A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage.
 
 USAGE:
