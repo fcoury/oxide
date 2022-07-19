@@ -59,11 +59,18 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
             log::info!("POST /query\n{}", query);
             let mut client = PgDb::new();
             let mut rows = vec![];
-            for row in client.raw_query(query, &[]).unwrap() {
-                let row: serde_json::Value = row.try_get::<&str, serde_json::Value>("_jsonb").unwrap();
-                rows.push(row);
+            let res = client.raw_query(query, &[]);
+            if res.is_err() {
+                let err = res.unwrap_err();
+                log::error!("{}", err);
+                json!({ "error":err.to_string() })
+            } else {
+                for row in res.unwrap() {
+                    let row: serde_json::Value = row.try_get::<&str, serde_json::Value>("_jsonb").unwrap();
+                    rows.push(row);
+                }
+                json!({ "rows": rows })
             }
-            json!({ "rows": rows })
         },
     );
 

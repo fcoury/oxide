@@ -22,9 +22,34 @@ async function get(url) {
 }
 
 function Select(props) {
-  const [value, setValue] = useState(props.value);
+  const value = props.value;
+  const classes = [
+    "form-select",
+    "form-select-sm",
+    "box-border",
+    "appearance-none",
+    "block",
+    "px-2",
+    "py-1",
+    "text-sm",
+    "font-normal",
+    "text-gray-700",
+    "bg-white bg-clip-padding bg-no-repeat",
+    "border border-solid border-gray-300",
+    "rounded",
+    "transition",
+    "ease-in-out",
+    "m-0",
+    "focus:text-gray-700",
+    "focus:bg-white",
+    "focus:border-blue-600",
+    "focus:outline-none",
+  ];
+
+  props.className && props.className.split(" ").forEach((c) => classes.push(c));
   return html`
     <select
+      class=${classes.join(" ")}
       value=${value}
       onInput=${(e) => setValue(e.target.value)}
       onChange=${(e) => props.onChange && props.onChange(e.target.value)}
@@ -40,28 +65,35 @@ function Select(props) {
 
 function App(props) {
   // const [json, setJson] = useState(`{"$or": [{"name": "Felipe"}, {"age": {"$gt": 30}}]}`);
+  const [error, setError] = useState(null);
+  const [valid, setValid] = useState(true);
   const [json, setJson] = useState(`{}`);
   const [where, setWhere] = useState("");
   const [databases, setDatabases] = useState([]);
   const [collections, setCollections] = useState([]);
   const [database, setDatabase] = useState("");
   const [collection, setCollection] = useState("");
-  const [data, setData] = useState([]);
+  const [data, setData] = useState(null);
+  const [sql, setSql] = useState("");
 
   const convert = async (e) => {
-    setJson(JSON.stringify(JSON.parse(json), null, 2));
+    console.log("convert");
+    // setJson(JSON.stringify(JSON.parse(json), null, 2));
     const data = await post("/convert", JSON.parse(json));
+    if (data.error) {
+      setError(data.error);
+      return;
+    }
     setWhere(data.sql);
   };
 
   const makeSql = () => {
     const w = where ? `\nWHERE ${where}` : "";
-    return `SELECT _jsonb\nFROM "${database}"."${collection}"${w}`;
+    setSql(`SELECT _jsonb\nFROM "${database}"."${collection}"${w}`);
   };
 
   const run = async (e) => {
-    const { rows } = await post("/run", { query: makeSql() });
-    console.log("rows", rows);
+    const { rows } = await post("/run", { query: sql });
     setData(rows);
   };
 
@@ -70,18 +102,39 @@ function App(props) {
     if (!databases) return;
     const filteredDatabases = databases.filter((db) => db !== "public");
     setDatabases(filteredDatabases);
-    setDatabase(filteredDatabases[0], () => loadCollections());
+    setDatabase(filteredDatabases[0]);
   };
 
   const loadCollections = async (e) => {
     if (!database) return;
     let { collections } = await get(`/databases/${database}/collections`);
     setCollections(collections);
-    setCollection(collections[0]);
   };
 
-  useEffect(() => convert(), [json]);
+  const debounce = (fn, ms = 0) => {
+    let timeoutId;
+    return function (...args) {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        fn.apply(this, args);
+      }, ms);
+    };
+  };
+
+  const onJsonChanged = debounce((str) => {
+    try {
+      setJson(str);
+      JSON.parse(str);
+      setValid(true);
+    } catch (e) {
+      setValid(false);
+    }
+  }, 250);
+
   useEffect(() => loadCollections(), [database]);
+  useEffect(() => setCollection(collections[0]), [collections]);
+  useEffect(() => makeSql(), [collection, where]);
+  useEffect(() => convert(), [json]);
   useEffect(() => loadDatabases(), []);
 
   const dboptions = databases
@@ -98,27 +151,96 @@ function App(props) {
       }))
     : [];
 
-  const sql = makeSql();
+  let attrs = {};
+  if (!valid) {
+    attrs["disabled"] = true;
+  }
+
+  const handleBlur = (e) => {
+    setJson(JSON.stringify(JSON.parse(json), null, 2));
+  };
+
+  const handleClear = (e) => {
+    setJson("{}");
+    setData(null);
+  };
 
   return html`
-    <div>
-      <div>
+    <div class="container mx-auto h-screen">
+      <div class="box-border py-2 flex space-x-2">
         <${Select}
+          className="w-48"
           options=${dboptions}
-          value=${props.value}
+          value=${database}
           onChange=${setDatabase}
         />
         <${Select}
+          className="w-48"
           options=${coloptions}
-          value=${props.value}
+          value=${collection}
           onChange=${setCollection}
         />
       </div>
-      <${TextArea} value=${json} onChange=${(e) => setJson(e.target.value)} />
-      <div><button onClick=${convert}>Convert</button></div>
-      <${TextArea} value=${sql} readonly />
-      <div><button onClick=${run}>Run</button></div>
-      <pre>${JSON.stringify(data, null, 2)}</pre>
+      <div class="columns-2 h-96">
+        <div class="w-full h-full">
+          <${TextArea}
+            className="w-full h-full box-border form-control
+              block
+              px-3
+              py-1.5
+              text-base
+              font-normal
+              text-gray-700
+              bg-white bg-clip-padding
+              border border-solid border-gray-300
+              rounded
+              transition
+              ease-in-out
+              m-0
+              focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
+            value=${json}
+            onBlur=${handleBlur}
+            onInput=${(e) => onJsonChanged(e.target.value)}
+          />
+        </div>
+        <div class="w-full h-96">
+          <${TextArea}
+            className="w-full h-full box-border form-control
+              block
+              px-3
+              py-1.5
+              text-base
+              font-normal
+              text-gray-700
+              bg-white bg-clip-padding
+              border border-solid border-gray-300
+              rounded
+              transition
+              ease-in-out
+              m-0
+              focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
+            value=${sql}
+            readonly
+          />
+        </div>
+      </div>
+      <div class="flex space-x-2 justify-center mt-10">
+        <button
+          class="inline-block px-6 py-2.5 bg-blue-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
+          onClick=${run}
+          ...${attrs}
+        >
+          Run
+        </button>
+        <button
+          class="inline-block px-6 py-2.5 bg-gray-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
+          onClick=${handleClear}
+        >
+          Clear
+        </button>
+      </div>
+      <div>${data && html`${data.length} record(s)`}</div>
+      <pre>${data && JSON.stringify(data, null, 2)}</pre>
     </div>
   `;
 }
@@ -127,10 +249,10 @@ function TextArea(props) {
   return html`
     <textarea
       ...${props?.readonly ? { disabled: true } : null}
-      onChange=${props.onChange}
+      class=${props?.className}
+      onBlur=${props.onBlur}
+      onInput=${props.onInput}
       value=${props.value}
-      cols="80"
-      rows="10"
     >
       ${props.value}
     </textarea
