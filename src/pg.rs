@@ -151,7 +151,6 @@ impl PgDb {
         };
 
         // apply limit
-        println!("limit: {:?}", limit);
         if let Some(limit) = limit {
             if limit > 0 {
                 where_str = self.add_ids_to_where(sp, limit, where_str.as_str());
