@@ -221,13 +221,35 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String 
 
     for (key, v) in flat_obj {
         let mut parts = key.split(".").collect::<Vec<&str>>();
-        let mut value = OperatorValueType::Json(v);
+        let mut value = OperatorValueType::Json(v.to_owned());
 
         let oper = if parts[parts.len() - 1].starts_with("$") {
             let operator = parts.pop().unwrap();
             match operator {
                 "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => translate_operator(operator),
                 "$exists" => {
+                    let negative = v.is_boolean() && !v.as_bool().unwrap()
+                        || v.is_number() && v.as_i64().unwrap() == 0;
+
+                    if negative {
+                        let mut clauses = vec![];
+                        let mut acc_parts = vec![];
+                        for p in &parts {
+                            let mut fields = acc_parts
+                                .iter()
+                                .map(|f| format!("'{}'", f))
+                                .collect::<Vec<String>>()
+                                .join("->");
+                            if !fields.is_empty() {
+                                fields = format!("->{}", fields);
+                            }
+                            clauses.push(format!("NOT _jsonb{} ? '{}'", fields, p));
+                            acc_parts.push(p.clone());
+                        }
+                        res.push(format!("({})", clauses.join(" OR ")));
+                        continue;
+                    }
+
                     value = OperatorValueType::Field(parts.pop().unwrap().to_string());
                     "?"
                 }
@@ -447,6 +469,14 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } }),
             r#"_jsonb->'a' ? 'b' AND _jsonb->'a'->'c' > '1' AND _jsonb->'a'->'e' = '"Felipe"'"#
+        )
+    }
+
+    #[test]
+    fn test_nested_exists_false() {
+        assert_eq!(
+            parse(doc! { "a": { "b": { "c" :{ "$exists": false } } } }),
+            r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b' OR NOT _jsonb->'a'->'b' ? 'c')"#
         )
     }
 
