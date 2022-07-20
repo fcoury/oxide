@@ -361,6 +361,34 @@ fn test_upsert() {
 }
 
 #[test]
+fn test_upsert_without_id() {
+    let ctx = common::setup();
+    ctx.db()
+        .run_command(
+            doc! {
+                "update": &ctx.collection,
+                "updates": vec![doc! {
+                    "q": {},
+                    "u": {
+                        "name": "Felipe"
+                    },
+                    "upsert": true,
+                }],
+            },
+            None,
+        )
+        .unwrap();
+    let doc = ctx
+        .col()
+        .find(doc! { "name": "Felipe" }, None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert!(doc.contains_key("_id"));
+}
+
+#[test]
 #[ignore = "failing"]
 fn test_large_update() {
     let ctx = common::setup();

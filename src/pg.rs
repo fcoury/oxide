@@ -275,7 +275,10 @@ impl PgDb {
                 }
                 statements
             }
-            UpdateOper::Replace(replace) => {
+            UpdateOper::Replace(mut replace) => {
+                if !replace.contains_key("_id") {
+                    replace.insert("_id", bson::oid::ObjectId::new());
+                }
                 let json = Bson::Document(replace).into_psql_json();
                 let needs_insert = upsert
                     && !{

@@ -31,7 +31,6 @@ fn test_insert_without_id() {
         }]
     }, None).unwrap();
     let doc = ctx.col().find(doc! { "name": "Felipe" }, None).unwrap().next().unwrap().unwrap();
-    println!("{:?}", doc);
     assert!(doc.contains_key("_id"));
 }
 
