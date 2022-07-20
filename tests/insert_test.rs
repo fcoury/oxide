@@ -22,6 +22,19 @@ fn test_basic_insert() {
 }
 
 #[test]
+fn test_insert_without_id() {
+    let ctx = common::setup();
+    ctx.db().run_command(doc! {
+        "insert": &ctx.collection,
+        "documents": vec![doc! {
+            "name": "Felipe"
+        }]
+    }, None).unwrap();
+    let doc = ctx.col().find(doc! { "name": "Felipe" }, None).unwrap().next().unwrap().unwrap();
+    assert!(doc.contains_key("_id"));
+}
+
+#[test]
 fn test_raw_kind2_op_msg_insert() {
     let ctx = common::setup();
 

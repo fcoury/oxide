@@ -17,13 +17,13 @@ impl Handler for Insert {
         let doc = &docs[0];
         let db = doc.get_str("$db").unwrap();
         let collection = doc.get_str("insert").unwrap();
-        let docs = doc.get_array("documents").unwrap();
+        let mut docs: Vec<Document> = doc.get_array("documents").unwrap().iter().map(|d| d.as_document().unwrap().clone()).collect();
 
         let mut client = request.get_client();
         client.create_table_if_not_exists(db, collection).unwrap();
 
         let sp = SqlParam::new(db, collection);
-        let inserted = client.insert_docs(sp, docs).unwrap();
+        let inserted = client.insert_docs(sp, &mut docs).unwrap();
 
         Ok(doc! {
           "n": Bson::Int64(inserted.try_into().unwrap()),

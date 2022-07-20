@@ -275,7 +275,10 @@ impl PgDb {
                 }
                 statements
             }
-            UpdateOper::Replace(replace) => {
+            UpdateOper::Replace(mut replace) => {
+                if !replace.contains_key("_id") {
+                    replace.insert("_id", bson::oid::ObjectId::new());
+                }
                 let json = Bson::Document(replace).into_psql_json();
                 let needs_insert = upsert
                     && !{
@@ -328,12 +331,15 @@ impl PgDb {
         sanitize_string(s.replace("%table%", &table))
     }
 
-    pub fn insert_docs(&mut self, sp: SqlParam, docs: &Vec<Bson>) -> Result<u64, Error> {
+    pub fn insert_docs(&mut self, sp: SqlParam, docs: &mut Vec<Document>) -> Result<u64, Error> {
         let query = self.get_query("INSERT INTO %table% VALUES ($1)", sp);
 
         let mut affected = 0;
         for doc in docs {
-            let bson: Bson = doc.into();
+            if !doc.contains_key("_id") {
+                doc.insert("_id", bson::oid::ObjectId::new());
+            }
+            let bson: Bson = Bson::Document(doc.clone()).into();
             let json = bson.into_psql_json();
             let n = &self.exec(&query, &[&json]).unwrap();
             affected += n;

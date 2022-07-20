@@ -338,7 +338,10 @@ fn test_update_one_with_replacement_document() {
 
     let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }, None).unwrap();
     let results = cursor.collect::<Vec<_>>();
-    assert_eq!(results[0].clone().unwrap(), doc! { "new_key": "oh_yes" });
+    assert_eq!(
+        results[0].clone().unwrap().get_str("new_key").unwrap(),
+        "oh_yes"
+    );
 }
 
 #[test]
@@ -358,6 +361,34 @@ fn test_upsert() {
     let cursor = ctx.col().find(doc! { "x": 1 }, None).unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn test_upsert_without_id() {
+    let ctx = common::setup();
+    ctx.db()
+        .run_command(
+            doc! {
+                "update": &ctx.collection,
+                "updates": vec![doc! {
+                    "q": {},
+                    "u": {
+                        "name": "Felipe"
+                    },
+                    "upsert": true,
+                }],
+            },
+            None,
+        )
+        .unwrap();
+    let doc = ctx
+        .col()
+        .find(doc! { "name": "Felipe" }, None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    assert!(doc.contains_key("_id"));
 }
 
 #[test]
