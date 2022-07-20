@@ -7,6 +7,7 @@ use mongodb_language_model::{
     OperatorExpressionOperator, Value, ValueOperator,
 };
 use serde_json::Map;
+use std::fmt;
 
 pub fn parse(doc: Document) -> String {
     if doc.is_empty() {
@@ -50,13 +51,7 @@ pub fn field_to_jsonb(key: &str) -> String {
 
 fn parse_leaf(leaf: LeafClause) -> String {
     match leaf.value {
-        Value::Leaf(leaf_value) => {
-            let mut res = vec![];
-            for (field, value) in parse_leaf_value(leaf_value, leaf.key) {
-                res.push(format!("{} = {}", field, value))
-            }
-            res.join(" AND ")
-        }
+        Value::Leaf(leaf_value) => parse_leaf_value(leaf_value, leaf.key, None),
         Value::Operators(val_operators) => parse_value_operators(val_operators, leaf.key),
     }
 }
@@ -131,14 +126,23 @@ fn parse_expression_operator(expr_oper: OperatorExpressionOperator, field: Strin
     }
 }
 
-fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
-    let operator = match value_oper.operator.as_str() {
+fn translate_operator(oper: &str) -> &str {
+    match oper {
         "$lt" => "<",
         "$lte" => "<=",
         "$gt" => ">",
         "$gte" => ">=",
         "$ne" => "!=",
         "$eq" => "=",
+        other => other,
+    }
+}
+
+fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
+    let operator = match value_oper.operator.as_str() {
+        "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => {
+            translate_operator(value_oper.operator.as_str())
+        }
         "$exists" => {
             let source = "_jsonb".to_string();
             let value = value_oper.value.value;
@@ -164,11 +168,7 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
         t => unimplemented!("parse_value_operator - operator unimplemented {:?}", t),
     };
 
-    let mut res = vec![];
-    for (field, value) in parse_leaf_value(value_oper.value, field) {
-        res.push(format!("{} {} {}", field, operator, value))
-    }
-    res.join(" AND ")
+    parse_leaf_value(value_oper.value, field, Some(operator))
 }
 
 fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
@@ -197,7 +197,21 @@ pub fn value_to_jsonb(value: String) -> String {
     format!("'{}'", value)
 }
 
-fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Vec<(String, String)> {
+enum OperatorValueType {
+    Json(serde_json::Value),
+    Field(String),
+}
+
+impl fmt::Display for OperatorValueType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OperatorValueType::Json(json) => write!(f, "{}", json),
+            OperatorValueType::Field(field) => write!(f, "{}", field),
+        }
+    }
+}
+
+fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String {
     let mut res = vec![];
     let source_flat_obj = flatten_object(object);
     let mut flat_obj: Map<String, serde_json::Value> = Map::new();
@@ -205,23 +219,38 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Vec<(St
         flat_obj.insert(format!("{}.{}", field, key), value);
     }
 
-    for (key, value) in flat_obj {
-        let field = key
-            .split(".")
-            .collect::<Vec<&str>>()
+    for (key, v) in flat_obj {
+        let mut parts = key.split(".").collect::<Vec<&str>>();
+        let mut value = OperatorValueType::Json(v);
+
+        let oper = if parts[parts.len() - 1].starts_with("$") {
+            let operator = parts.pop().unwrap();
+            match operator {
+                "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => translate_operator(operator),
+                "$exists" => {
+                    value = OperatorValueType::Field(parts.pop().unwrap().to_string());
+                    "?"
+                }
+                t => unimplemented!("parse_object - unimplemented {:?}", t),
+            }
+        } else {
+            "="
+        };
+
+        let field = parts
             .iter()
             .map(|f| format!("'{}'", f))
             .collect::<Vec<String>>()
             .join("->");
         let field = format!("_jsonb->{}", field);
         let value = value_to_jsonb(value.to_string());
-        res.push((field, value));
+        res.push(format!("{} {} {}", field, oper, value));
     }
 
-    res
+    res.join(" AND ")
 }
 
-fn parse_leaf_value(leaf_value: LeafValue, f: String) -> Vec<(String, String)> {
+fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) -> String {
     let json = leaf_value.value;
     let mut field = field_to_jsonb(&f);
 
@@ -236,7 +265,9 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String) -> Vec<(String, String)> {
             field, field, field, field, field
         );
     }
-    vec![(field, value_to_jsonb(json.to_string()))]
+
+    let oper = operator.unwrap_or("=");
+    format!("{} {} {}", field, oper, value_to_jsonb(json.to_string()))
 }
 
 #[cfg(test)]
@@ -408,6 +439,14 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }),
             r#"_jsonb->'a'->'b'->'c' = '1' AND _jsonb->'a'->'b'->'d' = '2' AND _jsonb->'a'->'e' = '2'"#
+        )
+    }
+
+    #[test]
+    fn test_nested_expression() {
+        assert_eq!(
+            parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } }),
+            r#"_jsonb->'a' ? 'b' AND _jsonb->'a'->'c' > '1' AND _jsonb->'a'->'e' = '"Felipe"'"#
         )
     }
 

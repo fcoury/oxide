@@ -188,6 +188,15 @@ fn test_find_with_exists() {
         .collect::<Vec<_>>();
     assert_eq!(1, res.len());
     assert_eq!("Str", res[0].get_str("counter").unwrap());
+
+    let res = ctx
+        .col()
+        .find(doc! { "a": { "b": { "$exists": true } } }, None)
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(1, res.len());
+    assert_eq!("Str", res[0].get_str("counter").unwrap());
 }
 
 #[test]
