@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use bson::{doc, Bson, Document};
 use regex::Regex;
+use serde_json::{Map, Value};
 use std::ffi::CString;
 
 #[derive(Debug, Clone)]
@@ -94,6 +95,22 @@ pub fn collapse_fields(doc: &Document) -> Document {
         }
     }
     collapsed
+}
+
+pub fn flatten_object(obj: &Map<String, Value>) -> Map<String, Value> {
+    let mut collapsed = Map::new();
+    for (key, value) in obj.iter() {
+        if !value.is_object() {
+            collapsed.insert(key.clone(), value.clone());
+            continue;
+        }
+
+        let res = flatten_object(value.as_object().unwrap());
+        for (k, v) in res {
+            collapsed.insert(format!("{}.{}", key, k), v);
+        }
+    }
+    collapsed.clone()
 }
 
 fn get_path(doc: &Document, path: String) -> Option<&Bson> {

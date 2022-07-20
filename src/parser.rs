@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 use crate::serializer::PostgresSerializer;
+use crate::utils::flatten_object;
 use bson::{Bson, Document};
 use mongodb_language_model::{
     Clause, Expression, ExpressionTreeClause, LeafClause, LeafValue, ListOperator, Operator,
     OperatorExpressionOperator, Value, ValueOperator,
 };
+use serde_json::Map;
 
 pub fn parse(doc: Document) -> String {
     if doc.is_empty() {
@@ -49,8 +51,11 @@ pub fn field_to_jsonb(key: &str) -> String {
 fn parse_leaf(leaf: LeafClause) -> String {
     match leaf.value {
         Value::Leaf(leaf_value) => {
-            let (field, value) = parse_leaf_value(leaf_value, leaf.key);
-            format!("{} = {}", field, value)
+            let mut res = vec![];
+            for (field, value) in parse_leaf_value(leaf_value, leaf.key) {
+                res.push(format!("{} = {}", field, value))
+            }
+            res.join(" AND ")
         }
         Value::Operators(val_operators) => parse_value_operators(val_operators, leaf.key),
     }
@@ -158,8 +163,12 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
         }
         t => unimplemented!("parse_value_operator - operator unimplemented {:?}", t),
     };
-    let (field, value) = parse_leaf_value(value_oper.value, field);
-    format!("{} {} {}", field, operator, value)
+
+    let mut res = vec![];
+    for (field, value) in parse_leaf_value(value_oper.value, field) {
+        res.push(format!("{} {} {}", field, operator, value))
+    }
+    res.join(" AND ")
 }
 
 fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
@@ -188,9 +197,38 @@ pub fn value_to_jsonb(value: String) -> String {
     format!("'{}'", value)
 }
 
-fn parse_leaf_value(leaf_value: LeafValue, f: String) -> (String, String) {
+fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Vec<(String, String)> {
+    let mut res = vec![];
+    let source_flat_obj = flatten_object(object);
+    let mut flat_obj: Map<String, serde_json::Value> = Map::new();
+    for (key, value) in source_flat_obj {
+        flat_obj.insert(format!("{}.{}", field, key), value);
+    }
+
+    for (key, value) in flat_obj {
+        let field = key
+            .split(".")
+            .collect::<Vec<&str>>()
+            .iter()
+            .map(|f| format!("'{}'", f))
+            .collect::<Vec<String>>()
+            .join("->");
+        let field = format!("_jsonb->{}", field);
+        let value = value_to_jsonb(value.to_string());
+        res.push((field, value));
+    }
+
+    res
+}
+
+fn parse_leaf_value(leaf_value: LeafValue, f: String) -> Vec<(String, String)> {
     let json = leaf_value.value;
     let mut field = field_to_jsonb(&f);
+
+    if json.is_object() {
+        let obj = json.as_object().unwrap();
+        return parse_object(&f, obj);
+    }
 
     if json.is_number() {
         field = format!(
@@ -198,7 +236,7 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String) -> (String, String) {
             field, field, field, field, field
         );
     }
-    (field, value_to_jsonb(json.to_string()))
+    vec![(field, value_to_jsonb(json.to_string()))]
 }
 
 #[cfg(test)]
@@ -363,6 +401,14 @@ mod tests {
             parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }),
             r#"NOT (_jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
         );
+    }
+
+    #[test]
+    fn test_nested_find() {
+        assert_eq!(
+            parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }),
+            r#"_jsonb->'a'->'b'->'c' = '1' AND _jsonb->'a'->'b'->'d' = '2' AND _jsonb->'a'->'e' = '2'"#
+        )
     }
 
     #[test]
