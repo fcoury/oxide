@@ -1,7 +1,7 @@
-#![allow(dead_code)]
-use crate::commands::{collapse_fields, InvalidUpdateError, UpdateDoc, UpdateOper};
+use crate::commands::{InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
+use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use indoc::indoc;
 use postgres::error::{Error, SqlState};
@@ -14,7 +14,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub struct AlreadyExistsError {
-    target: String,
+    _target: String,
 }
 
 #[derive(Debug)]
@@ -65,7 +65,8 @@ impl PgDb {
         let mut sql = self.get_query(query, sp);
 
         if let Some(f) = filter {
-            let filter = super::parser::parse(f);
+            let filter_doc = expand_fields(&f).unwrap();
+            let filter = super::parser::parse(filter_doc);
             if filter != "" {
                 sql = format!("{} WHERE {}", sql, filter);
             }
@@ -472,7 +473,7 @@ impl PgDb {
                         || sql_state == &SqlState::UNIQUE_VIOLATION
                     {
                         return Err(CreateTableError::AlreadyExists(AlreadyExistsError {
-                            target: sp.to_string(),
+                            _target: sp.to_string(),
                         }));
                     }
                 }
@@ -579,10 +580,6 @@ impl PgDb {
         }
 
         self.client.query_one(&sql, &[])
-    }
-
-    fn batch_execute(&mut self, sql: &str) -> Result<(), Error> {
-        self.client.batch_execute(&sql)
     }
 }
 
