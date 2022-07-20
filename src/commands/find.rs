@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::deserializer::PostgresJsonDeserializer;
 use crate::handler::{CommandExecutionError, Request};
 use crate::{commands::Handler, pg::SqlParam};

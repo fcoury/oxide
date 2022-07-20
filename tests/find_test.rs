@@ -221,3 +221,12 @@ fn find_with_in() {
         .collect::<Vec<_>>();
     assert_eq!(1, res.len());
 }
+
+#[test]
+fn test_with_nested() {
+    let col = insert! {
+        doc! { "a": { "b": { "c": 1 } } }
+    };
+
+    assert_row_count!(col, doc! { "a.b.c": 1 }, 1);
+}

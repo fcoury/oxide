@@ -126,3 +126,30 @@ pub fn setup() -> TestContext {
 pub fn setup_with_drop(drop: bool) -> TestContext {
     setup_with_pg_db("test", drop)
 }
+
+#[macro_export]
+macro_rules! insert {
+    ( $( $x:expr ),* ) => {
+        {
+            let ctx = common::setup();
+            ctx.col()
+                .insert_many(
+                    vec![
+                        $( $x, )*
+                    ],
+                    None,
+                )
+                .unwrap();
+            ctx.col()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! assert_row_count {
+    ( $col:expr, $query:expr, $exp:expr ) => {{
+        let cursor = $col.find($query, None).unwrap();
+        let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+        assert_eq!($exp, rows.len());
+    }};
+}
