@@ -338,7 +338,10 @@ fn test_update_one_with_replacement_document() {
 
     let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }, None).unwrap();
     let results = cursor.collect::<Vec<_>>();
-    assert_eq!(results[0].clone().unwrap(), doc! { "new_key": "oh_yes" });
+    assert_eq!(
+        results[0].clone().unwrap().get_str("new_key").unwrap(),
+        "oh_yes"
+    );
 }
 
 #[test]
