@@ -255,6 +255,38 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String 
                     value = OperatorValueType::Field(parts.pop().unwrap().to_string());
                     "?"
                 }
+                "$in" | "$nin" => {
+                    if !v.is_array() {
+                        // FIXME error this out
+                        todo!("Return an error when exists does't have an array");
+                    }
+
+                    let field = parts
+                        .iter()
+                        .map(|f| format!("'{}'", f))
+                        .collect::<Vec<String>>()
+                        .join("->>");
+                    let field = if parts.len() > 1 {
+                        format!("_jsonb->{}", field)
+                    } else {
+                        format!("_jsonb->>{}", field)
+                    };
+                    let values = v
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
+
+                    let str = format!("{} = ANY('{{{}}}')", field, values);
+
+                    if operator == "$nin" {
+                        return format!("NOT ({})", str);
+                    }
+
+                    return str;
+                }
                 t => unimplemented!("parse_object - unimplemented {:?}", t),
             }
         } else {
@@ -491,7 +523,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "missing $in as an object"]
     fn test_in() {
         assert_eq!(
             parse(doc! { "a": { "$in": [1, 2] } }),
@@ -510,7 +541,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "missing $nin as an object"]
     fn test_nin() {
         assert_eq!(
             parse(doc! { "a": { "$nin": [1, 2] } }),
