@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-use crate::serializer::PostgresSerializer;
 use crate::utils::flatten_object;
+use crate::{serializer::PostgresSerializer, utils::expand_object};
 use bson::{Bson, Document};
 use mongodb_language_model::{
     Clause, Expression, ExpressionTreeClause, LeafClause, LeafValue, ListOperator, Operator,
@@ -14,7 +14,9 @@ pub fn parse(doc: Document) -> String {
         return "".to_string();
     }
     let bson: Bson = doc.into();
-    let json = bson.into_psql_json();
+    let json = serde_json::Value::Object(
+        expand_object(bson.into_psql_json().as_object().unwrap()).unwrap(),
+    );
     let str = serde_json::to_string(&json).unwrap();
     let expression = mongodb_language_model::parse(&str).unwrap();
     log::debug!("{:#?}", expression);
@@ -444,7 +446,7 @@ mod tests {
         );
         assert_eq!(
             parse(doc! { "a.b": { "$exists": 0 } }),
-            r#"NOT (_jsonb->'a' ? 'b')"#
+            r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b')"#
         );
         assert_eq!(
             parse(doc! { "a.b.c": { "$exists": 1 } }),
@@ -452,8 +454,16 @@ mod tests {
         );
         assert_eq!(
             parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }),
-            r#"NOT (_jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
+            r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b' OR NOT _jsonb->'a'->'b' ? 'c' OR NOT _jsonb->'a'->'b'->'c' ? 'd' OR NOT _jsonb->'a'->'b'->'c'->'d' ? 'e' OR NOT _jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
         );
+    }
+
+    #[test]
+    fn test_dot_nested() {
+        assert_eq!(
+            parse(doc! { "config.get.method": "GET" }),
+            r#"_jsonb->'config'->'get'->'method' = '"GET"'"#
+        )
     }
 
     #[test]
@@ -481,6 +491,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "missing $in as an object"]
     fn test_in() {
         assert_eq!(
             parse(doc! { "a": { "$in": [1, 2] } }),
@@ -499,6 +510,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "missing $nin as an object"]
     fn test_nin() {
         assert_eq!(
             parse(doc! { "a": { "$nin": [1, 2] } }),

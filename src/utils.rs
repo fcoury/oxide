@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use bson::{doc, Bson, Document};
 use regex::Regex;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::ffi::CString;
 
 #[derive(Debug, Clone)]
@@ -48,6 +48,23 @@ fn path_to_doc(path: &str, value: &Bson) -> Document {
             doc = doc! {
                 key: doc
             };
+        }
+    }
+
+    doc
+}
+
+fn path_to_obj(path: &str, value: &serde_json::Value) -> Map<String, serde_json::Value> {
+    let parts = path.split('.');
+
+    let mut doc = Map::new();
+    let mut first = true;
+    for key in parts.rev() {
+        if first {
+            doc.insert(key.to_owned(), value.clone());
+            first = false;
+        } else {
+            doc = json!({ key: doc }).as_object().unwrap().clone();
         }
     }
 
@@ -111,6 +128,36 @@ pub fn flatten_object(obj: &Map<String, Value>) -> Map<String, Value> {
         }
     }
     collapsed.clone()
+}
+
+pub fn expand_object(obj: &Map<String, Value>) -> Result<Map<String, Value>, KeyConflictError> {
+    let mut expanded = Map::new();
+    let mut keys: Vec<&str> = vec![];
+    for (key, value) in obj.iter() {
+        if key.contains(".") {
+            let ikey = key.split(".").next().unwrap();
+            if expanded.contains_key(ikey) {
+                let target = keys
+                    .iter()
+                    .find(|k| {
+                        k.to_string() == ikey.to_string() || k.starts_with(&format!("{}.", ikey))
+                    })
+                    .unwrap();
+                return Err(KeyConflictError {
+                    source: key.to_string(),
+                    target: target.to_string(),
+                });
+            }
+            expanded.insert(
+                ikey.to_owned(),
+                path_to_obj(key, value).get(ikey).unwrap().to_owned(),
+            );
+        } else {
+            expanded.insert(key.to_owned(), value.to_owned());
+        }
+        keys.push(&key);
+    }
+    Ok(expanded)
 }
 
 fn get_path(doc: &Document, path: String) -> Option<&Bson> {
