@@ -63,6 +63,36 @@ function Select(props) {
   `;
 }
 
+function Nav({ children }) {
+  return html`
+    <nav
+      class="
+      relative
+      w-full
+      flex flex-wrap
+      items-center
+      justify-between
+      py-4
+      bg-gray-100
+      text-gray-500
+      hover:text-gray-700
+      focus:text-gray-700
+      shadow-lg
+      navbar navbar-expand-lg navbar-light
+      "
+    >
+      <div
+        class="container-fluid w-full flex flex-wrap items-center justify-between px-6"
+      >
+        <ul class="navbar-nav flex flex-col pl-0 list-style-none mr-auto">
+          <li class="nav-item p-2"><b>OxideDB</b> | Query Builder</li>
+        </ul>
+        ${children}
+      </div>
+    </nav>
+  `;
+}
+
 function App(props) {
   // const [json, setJson] = useState(`{"$or": [{"name": "Felipe"}, {"age": {"$gt": 30}}]}`);
   const [error, setError] = useState(null);
@@ -166,81 +196,84 @@ function App(props) {
   };
 
   return html`
-    <div class="container mx-auto h-screen">
-      <div class="box-border py-2 flex space-x-2">
-        <${Select}
-          className="w-48"
-          options=${dboptions}
-          value=${database}
-          onChange=${setDatabase}
-        />
-        <${Select}
-          className="w-48"
-          options=${coloptions}
-          value=${collection}
-          onChange=${setCollection}
-        />
-      </div>
-      <div class="columns-2 h-96">
-        <div class="w-full h-full">
-          <${TextArea}
-            className="w-full h-full box-border form-control
-              block
-              px-3
-              py-1.5
-              text-base
-              font-normal
-              text-gray-700
-              bg-white bg-clip-padding
-              border border-solid border-gray-300
-              rounded
-              transition
-              ease-in-out
-              m-0
-              focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
-            value=${json}
-            onBlur=${handleBlur}
-            onInput=${(e) => onJsonChanged(e.target.value)}
+    <div>
+      <${Nav} />
+      <div class="container mx-auto my-10">
+        <div class="box-border py-2 flex space-x-2">
+          <${Select}
+            className="w-48"
+            options=${dboptions}
+            value=${database}
+            onChange=${setDatabase}
+          />
+          <${Select}
+            className="w-48"
+            options=${coloptions}
+            value=${collection}
+            onChange=${setCollection}
           />
         </div>
-        <div class="w-full h-96">
-          <${TextArea}
-            className="w-full h-full box-border form-control
-              block
-              px-3
-              py-1.5
-              text-base
-              font-normal
-              text-gray-700
-              bg-white bg-clip-padding
-              border border-solid border-gray-300
-              rounded
-              transition
-              ease-in-out
-              m-0
-              focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
-            value=${sql}
-            readonly
-          />
+        <div class="columns-2 h-96">
+          <div class="w-full h-full">
+            <${TextArea}
+              className="w-full h-full box-border form-control
+                block
+                px-3
+                py-1.5
+                text-sm
+                font-mono
+                text-gray-700
+                bg-white bg-clip-padding
+                border border-solid border-gray-300
+                rounded
+                transition
+                ease-in-out
+                m-0
+                focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
+              value=${json}
+              onBlur=${handleBlur}
+              onInput=${(e) => onJsonChanged(e.target.value)}
+            />
+          </div>
+          <div class="w-full h-96">
+            <${TextArea}
+              className="w-full h-full box-border form-control
+                block
+                px-3
+                py-1.5
+                text-sm
+                font-mono
+                text-gray-700
+                bg-white bg-clip-padding
+                border border-solid border-gray-300
+                rounded
+                transition
+                ease-in-out
+                m-0
+                focus:text-gray-700 focus:bg-white focus:border-blue-600 focus:outline-none"
+              value=${sql}
+              readonly
+            />
+          </div>
         </div>
+        <div class="flex space-x-2 justify-center mt-10">
+          <button
+            class="inline-block px-6 py-2.5 bg-blue-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
+            onClick=${run}
+            ...${attrs}
+          >
+            Run
+          </button>
+          <button
+            class="inline-block px-6 py-2.5 bg-gray-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
+            onClick=${handleClear}
+          >
+            Clear
+          </button>
+        </div>
+        <div>${data && html`${data.length} record(s)`}</div>
+        <pre>${data && JSON.stringify(data, null, 2)}</pre>
       </div>
-      <div class="flex space-x-2 justify-center mt-10">
-        <button
-          class="inline-block px-6 py-2.5 bg-blue-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
-          onClick=${run}
-          ...${attrs}
-        >
-          Run
-        </button>
-        <button
-          class="inline-block px-6 py-2.5 bg-gray-600 text-white font-medium text-xs leading-tight uppercase rounded shadow-md hover:bg-blue-700 hover:shadow-lg focus:bg-blue-700 focus:shadow-lg focus:outline-none focus:ring-0 active:bg-blue-800 active:shadow-lg transition duration-150 ease-in-out"
-          onClick=${handleClear}
-        >
-          Clear
-        </button>
-      </div>
-      <div>${data && html`${data.length} record(s)`}</div>
-      <pre>${data && JSON.stringify(data, null, 2)}</pre>
     </div>
   `;
 }
