@@ -538,6 +538,11 @@ mod tests {
             parse(doc! { "a.b": { "$in": ["a", "b"] } }),
             r#"_jsonb->'a'->>'b' = ANY('{"a", "b"}')"#
         );
+
+        assert_eq!(
+            parse(doc! { "a": { "b": { "$in": ["a", "b"] } } }),
+            r#"_jsonb->'a'->>'b' = ANY('{"a", "b"}')"#
+        );
     }
 
     #[test]
@@ -554,6 +559,11 @@ mod tests {
 
         assert_eq!(
             parse(doc! { "a.b": { "$nin": ["a", "b"] } }),
+            r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
+        );
+
+        assert_eq!(
+            parse(doc! { "a": { "b": { "$nin": ["a", "b"] } } }),
             r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
         );
     }
