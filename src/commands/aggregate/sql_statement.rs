@@ -70,6 +70,10 @@ impl SqlStatement {
         format!("GROUP BY {}", self.groups.join(", "))
     }
 
+    pub fn set_table(&mut self, table: SqlParam) {
+        self.from = Some(FromTypes::Table(table));
+    }
+
     pub fn to_string(&self) -> String {
         let from = match &self.from {
             Some(from) => format!("FROM {}", from),
@@ -77,6 +81,10 @@ impl SqlStatement {
         };
 
         format!("SELECT {} {}", self.fields_as_str(), from)
+    }
+
+    pub fn add_subquery(&mut self, subquery: &mut SqlStatement) {
+        self.from = Some(FromTypes::Subquery(Box::new(subquery.clone()), None));
     }
 
     pub fn unwrap(&self) -> String {
