@@ -1,0 +1,16 @@
+#!/bin/bash
+
+set -euo pipefail
+
+LAST_RELEASE=`gh release list | head -1 | awk '{print $1}'`
+cargo build --release
+
+cd target/release
+zip "oxide_${LAST_RELEASE}_arm64-apple-darwin.zip" joindoe
+shasum -a 256 "oxide_${LAST_RELEASE}_arm64-apple-darwin.zip" > "oxide_${LAST_RELEASE}_arm64-apple-darwin.zip.sha256sum"
+
+gh release upload "$LAST_RELEASE" "oxide_${LAST_RELEASE}_arm64-apple-darwin.zip"
+gh release upload "$LAST_RELEASE" "oxide_${LAST_RELEASE}_arm64-apple-darwin.zip.sha256sum"
+cd -
+
+echo Done.
