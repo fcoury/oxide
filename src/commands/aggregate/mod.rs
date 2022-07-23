@@ -33,6 +33,8 @@ impl Handler for Aggregate {
         let mut client = request.get_client();
 
         let sql = build_sql(sp, pipeline).unwrap();
+        log::debug!("SQL: {}", sql);
+
         let res = client.raw_query(&sql, &[]).unwrap();
         let res_doc = doc![
             "cursor": doc! {
@@ -66,13 +68,15 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
     }
 
     let mut sql: Option<SqlStatement> = None;
+    let mut i = 0;
     for mut stage_sql in stages {
         if let Some(mut sql) = sql {
-            stage_sql.add_subquery(&mut sql);
+            stage_sql.add_subquery_with_alias(&mut sql, &format!("t{}", i));
         } else {
             stage_sql.set_table(sp.clone());
         }
         sql = Some(stage_sql);
+        i += 1;
     }
 
     Ok(sql.unwrap().wrap())
@@ -107,7 +111,7 @@ mod tests {
         let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
-            r#"SELECT row_to_json(t) FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT _jsonb FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') GROUP BY _jsonb->'name') AS t"#
+            r#"SELECT row_to_json(t) FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT _jsonb FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS t1 GROUP BY _jsonb->'name') AS t"#
         );
     }
 }

@@ -99,6 +99,13 @@ impl SqlStatement {
         self.from = Some(FromTypes::Subquery(Box::new(subquery.clone()), None));
     }
 
+    pub fn add_subquery_with_alias(&mut self, subquery: &mut SqlStatement, alias: &str) {
+        self.from = Some(FromTypes::Subquery(
+            Box::new(subquery.clone()),
+            Some(alias.to_string()),
+        ));
+    }
+
     pub fn wrap(&self) -> String {
         if self.fields.len() < 2 {
             return self.to_string();
