@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::commands::{
-    BuildInfo, CollStats, ConnectionStatus, Create, CreateIndexes, DbStats, Delete, Drop,
-    DropDatabase, Find, GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster,
+    Aggregate, BuildInfo, CollStats, ConnectionStatus, Create, CreateIndexes, DbStats, Delete,
+    Drop, DropDatabase, Find, GetCmdLineOpts, GetParameter, Handler, Hello, Insert, IsMaster,
     ListCollections, ListDatabases, ListIndexes, Ping, Update, WhatsMyUri,
 };
 use crate::pg::PgDb;
@@ -118,6 +118,8 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
 
     if command == "find" {
         Find::new().handle(request, docs)
+    } else if command == "aggregate" {
+        Aggregate::new().handle(request, docs)
     } else if command == "insert" {
         Insert::new().handle(request, docs)
     } else if command == "update" {

@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::utils::flatten_object;
+use crate::utils::{field_to_jsonb, flatten_object};
 use crate::{serializer::PostgresSerializer, utils::expand_object};
 use bson::{Bson, Document};
 use mongodb_language_model::{
@@ -45,10 +45,6 @@ fn parse_clause(clause: Clause) -> String {
         Clause::Leaf(leaf) => parse_leaf(leaf),
         Clause::ExpressionTree(exp_tree) => parse_expression_tree(exp_tree),
     }
-}
-
-pub fn field_to_jsonb(key: &str) -> String {
-    format!("_jsonb->'{}'", key)
 }
 
 fn parse_leaf(leaf: LeafClause) -> String {

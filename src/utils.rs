@@ -1,5 +1,7 @@
 #![allow(dead_code)]
+use crate::deserializer::PostgresJsonDeserializer;
 use bson::{doc, Bson, Document};
+use postgres::Row;
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::ffi::CString;
@@ -225,4 +227,25 @@ mod tests {
         let collapsed = collapse_fields(&nested);
         assert_eq!(collapsed, doc! { "a": 1, "b.c": 2, "b.d": 3, "b.e.f": 1 });
     }
+}
+
+pub fn pg_rows_to_bson(rows: Vec<Row>) -> Vec<Bson> {
+    let mut res: Vec<Bson> = vec![];
+    for row in rows.iter() {
+        let json_value: serde_json::Value = row.get(0);
+        let bson_value = json_value.from_psql_json();
+        res.push(bson_value);
+    }
+    res
+}
+
+pub fn field_to_jsonb(key: &str) -> String {
+    format!("_jsonb->'{}'", key)
+}
+
+pub fn convert_if_numeric(field: &str) -> String {
+    format!(
+        "(CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END)",
+        field, field, field
+    )
 }
