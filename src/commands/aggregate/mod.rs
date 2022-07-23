@@ -32,19 +32,18 @@ impl Handler for Aggregate {
 
         let mut client = request.get_client();
 
-        let _sql = build_sql(sp, pipeline).unwrap();
-
-        // let mut sql = SqlStatement::builder().table(sp.clone()).build();
-        let res = client.raw_query("", &[]).unwrap();
-
-        return Ok(doc![
+        let sql = build_sql(sp, pipeline).unwrap();
+        let res = client.raw_query(&sql, &[]).unwrap();
+        let res_doc = doc![
             "cursor": doc! {
                 "firstBatch": pg_rows_to_bson(res),
                 "id": Bson::Int64(0),
                 "ns": format!("{}.{}", db, collection),
             },
             "ok": Bson::Double(1.0),
-        ]);
+        ];
+
+        return Ok(res_doc);
     }
 }
 
@@ -66,9 +65,6 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
         stages.push(sql);
     }
 
-    println!("stages = {:#?}", stages);
-
-    // let mut sql = SqlStatement::default();
     let mut sql: Option<SqlStatement> = None;
     for mut stage_sql in stages {
         if let Some(mut sql) = sql {
@@ -79,9 +75,7 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
         sql = Some(stage_sql);
     }
 
-    // sql.set_table(sp);
-    println!("sql tree = {:#?}", sql);
-    Ok(sql.unwrap().to_string())
+    Ok(sql.unwrap().wrap())
 }
 
 #[cfg(test)]
@@ -111,6 +105,9 @@ mod tests {
         let sp = SqlParam::new("schema", "table");
 
         let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
-        println!("sql = {}", sql);
+        assert_eq!(
+            sql,
+            r#"SELECT row_to_json(t) FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT _jsonb FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') GROUP BY _jsonb->'name') AS t"#
+        );
     }
 }

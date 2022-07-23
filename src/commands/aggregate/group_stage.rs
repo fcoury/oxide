@@ -27,8 +27,8 @@ fn process_id(doc: &mut Document) -> SqlStatement {
     if let Some(field) = field.strip_prefix("$") {
         let field = field_to_jsonb(field);
         SqlStatement::builder()
-            .field(format!("{} AS _id", field))
-            .group(format!("{}", field))
+            .field(&format!("{} AS _id", field))
+            .group(&format!("{}", field))
             .build()
     } else {
         todo!("group by field: {}", field);
@@ -54,7 +54,7 @@ fn process_sum(key: &String, value: &Bson) -> SqlStatement {
     };
 
     SqlStatement::builder()
-        .field(format!("SUM({}) AS {}", value, key))
+        .field(&format!("SUM({}) AS {}", value, key))
         .build()
 }
 

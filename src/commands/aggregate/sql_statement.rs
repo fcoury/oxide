@@ -67,7 +67,7 @@ impl SqlStatement {
         if self.groups.is_empty() {
             return "".to_string();
         }
-        format!("GROUP BY {}", self.groups.join(", "))
+        format!(" GROUP BY {}", self.groups.join(", "))
     }
 
     pub fn set_table(&mut self, table: SqlParam) {
@@ -80,16 +80,31 @@ impl SqlStatement {
             None => todo!("table missing"),
         };
 
-        format!("SELECT {} {}", self.fields_as_str(), from)
+        let where_str = if self.filters.len() > 0 {
+            format!(" WHERE {}", self.filters.join(" AND "))
+        } else {
+            "".to_string()
+        };
+
+        format!(
+            "SELECT {} {}{}{}",
+            self.fields_as_str(),
+            from,
+            where_str,
+            self.groups_as_str()
+        )
     }
 
     pub fn add_subquery(&mut self, subquery: &mut SqlStatement) {
         self.from = Some(FromTypes::Subquery(Box::new(subquery.clone()), None));
     }
 
-    pub fn unwrap(&self) -> String {
+    pub fn wrap(&self) -> String {
+        if self.fields.len() < 2 {
+            return self.to_string();
+        }
         SqlStatement::builder()
-            .field("row_to_json(t)".to_string())
+            .field("row_to_json(t)")
             .from_subquery_with_alias(self.clone(), "t")
             .build()
             .to_string()
@@ -109,13 +124,13 @@ impl SqlStatementBuilder {
         SqlStatementBuilder::default()
     }
 
-    pub fn field(mut self, field: String) -> Self {
-        self.fields.push(field);
+    pub fn field(mut self, field: &str) -> Self {
+        self.fields.push(field.to_string());
         self
     }
 
-    pub fn group(mut self, group: String) -> Self {
-        self.groups.push(group);
+    pub fn group(mut self, group: &str) -> Self {
+        self.groups.push(group.to_string());
         self
     }
 
@@ -142,8 +157,8 @@ impl SqlStatementBuilder {
         self
     }
 
-    pub fn filters(mut self, filter: String) -> Self {
-        self.filters.push(filter);
+    pub fn filter(mut self, filter: &str) -> Self {
+        self.filters.push(filter.to_string());
         self
     }
 
@@ -166,20 +181,24 @@ mod tests {
     #[test]
     fn test_from_table() {
         let sql = SqlStatement::builder()
-            .field("_jsonb".to_string())
+            .field("_jsonb")
+            .filter("_jsonb->'count' = 1")
             .from(FromTypes::Table(SqlParam::new("schema", "table")))
             .build();
-        assert_eq!(sql.to_string(), r#"SELECT _jsonb FROM "schema"."table""#);
+        assert_eq!(
+            sql.to_string(),
+            r#"SELECT _jsonb FROM "schema"."table" WHERE _jsonb->'count' = 1"#
+        );
     }
 
     #[test]
     fn test_from_subquery() {
         let subquery = SqlStatement::builder()
-            .field("b".to_string())
+            .field("b")
             .from_table(SqlParam::new("schema", "table"))
             .build();
         let sql = SqlStatement::builder()
-            .field("alias.b".to_string())
+            .field("alias.b")
             .from_subquery(subquery)
             .build();
         assert_eq!(
@@ -191,16 +210,50 @@ mod tests {
     #[test]
     fn test_from_subquery_with_alias() {
         let subquery = SqlStatement::builder()
-            .field("b".to_string())
+            .field("b")
             .from_table(SqlParam::new("schema", "table"))
             .build();
         let sql = SqlStatement::builder()
-            .field("alias.b".to_string())
+            .field("alias.b")
             .from_subquery_with_alias(subquery, "alias")
             .build();
         assert_eq!(
             sql.to_string(),
             r#"SELECT alias.b FROM (SELECT b FROM "schema"."table") AS alias"#
+        );
+    }
+
+    #[test]
+    fn test_from_nested_subquery() {
+        let subquery1 = SqlStatement::builder()
+            .field("c")
+            .from_table(SqlParam::new("schema", "table"))
+            .build();
+        let subquery2 = SqlStatement::builder()
+            .field("b")
+            .from_subquery(subquery1)
+            .build();
+        let sql = SqlStatement::builder()
+            .field("alias.b")
+            .from_subquery(subquery2)
+            .build();
+        assert_eq!(
+            sql.to_string(),
+            r#"SELECT alias.b FROM (SELECT b FROM (SELECT c FROM "schema"."table"))"#
+        );
+    }
+
+    #[test]
+    fn test_groups() {
+        let sql = SqlStatement::builder()
+            .field("state")
+            .field("sum(1) AS count")
+            .group("state")
+            .from(FromTypes::Table(SqlParam::new("schema", "table")))
+            .build();
+        assert_eq!(
+            sql.to_string(),
+            r#"SELECT state, sum(1) AS count FROM "schema"."table" GROUP BY state"#
         );
     }
 }
