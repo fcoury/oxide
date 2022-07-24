@@ -58,6 +58,12 @@ impl SqlStatement {
         self.fields.push(field.to_string());
     }
 
+    pub fn add_fields(&mut self, fields: Vec<String>) {
+        for field in fields {
+            self.add_field(&field);
+        }
+    }
+
     pub fn add_filter(&mut self, filter: &str) {
         self.filters.push(filter.to_string());
     }

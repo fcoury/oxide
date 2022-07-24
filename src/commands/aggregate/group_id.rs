@@ -18,7 +18,7 @@ fn process_id_str(field: String) -> SqlStatement {
         let field = field_to_jsonb(field);
         SqlStatement::builder()
             .field(&format!("{} AS _id", field))
-            .group(&format!("{}", field))
+            .group(&"_id")
             .build()
     } else {
         todo!("group by field: {}", field);

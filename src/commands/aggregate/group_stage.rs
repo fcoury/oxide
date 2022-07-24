@@ -11,38 +11,57 @@ pub fn process_group(doc: &Document) -> SqlStatement {
     }
 
     let doc = collapse_fields(&doc);
-    for (key, value) in doc.iter() {
-        if key.ends_with("$sum") {
-            sql.append(&mut process("sum", "SUM", key, value));
-        } else if key.ends_with("$avg") {
-            sql.append(&mut process("avg", "AVG", key, value));
+
+    for (raw_key, value) in doc.iter() {
+        let mut value: Bson = value.to_owned();
+        let keys = raw_key.split(".").collect::<Vec<&str>>();
+        for key in keys.iter().skip(1).rev() {
+            match *key {
+                "$sum" | "$avg" => {
+                    let oper = key.strip_prefix("$").unwrap();
+                    let sql_func = oper.to_ascii_uppercase();
+                    match value {
+                        Bson::String(str_val) => {
+                            value = Bson::String(process(&sql_func, &str_val));
+                        }
+                        Bson::Int32(i32val) => {
+                            value = Bson::String(process(&sql_func, &i32val.to_string()));
+                        }
+                        t => unimplemented!("missing implementation for {} with type {:?}", key, t),
+                    }
+                }
+                "$multiply" => {
+                    if let Some(values) = value.as_array() {
+                        let items: Vec<String> = values
+                            .iter()
+                            .map(|v| {
+                                convert_if_numeric(&field_to_jsonb(
+                                    v.as_str().unwrap().strip_prefix("$").unwrap(),
+                                ))
+                            })
+                            .collect();
+                        value = Bson::String(format!("{}", items.join(" * ")));
+                    }
+                }
+                key => unimplemented!("missing handling operator: {}", key),
+            }
         }
+
+        sql.add_field(&format!("{} AS {}", value.as_str().unwrap(), keys[0]));
     }
 
     sql
 }
 
-fn process(oper: &str, sql_func: &str, key: &String, value: &Bson) -> SqlStatement {
-    // name of the resulting field - AS xxxx
-    let key = key.strip_suffix(&format!(".${}", oper)).unwrap();
-
-    // what to sum SUM(xxxx)
-    let value = if let Some(str_value) = value.as_str() {
-        // if it's a string starting with $ we take it as a field name
-        if let Some(field_name) = str_value.strip_prefix("$") {
-            convert_if_numeric(&field_to_jsonb(field_name))
-        } else {
-            // FIXME we can't do anything yet for summing other types
-            todo!("unsupported {} value without $: {}", oper, str_value);
-        }
+fn process(sql_func: &str, value: &str) -> String {
+    // if it's a string starting with $ we take it as a field name
+    let value = if let Some(field_name) = value.strip_prefix("$") {
+        convert_if_numeric(&field_to_jsonb(field_name))
     } else {
-        // if it's not a string, we take its contents as is
-        value.to_string()
+        value.to_owned()
     };
 
-    SqlStatement::builder()
-        .field(&format!("{}({}) AS {}", sql_func, value, key))
-        .build()
+    format!("{}({})", sql_func, value)
 }
 
 #[cfg(test)]
@@ -57,7 +76,7 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
         assert_eq!(sql.fields[1], "SUM(1) AS count");
-        assert_eq!(sql.groups[0], "_jsonb->'field'");
+        assert_eq!(sql.groups[0], "_id");
     }
 
     #[test]
@@ -66,7 +85,7 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'other' AS _id");
         assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
-        assert_eq!(sql.groups[0], "_jsonb->'other'");
+        assert_eq!(sql.groups[0], "_id");
     }
 
     #[test]
@@ -75,7 +94,7 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
         assert_eq!(sql.fields[1], "AVG(1) AS count");
-        assert_eq!(sql.groups[0], "_jsonb->'field'");
+        assert_eq!(sql.groups[0], "_id");
     }
 
     #[test]
@@ -84,7 +103,7 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'other' AS _id");
         assert_eq!(sql.fields[1], "AVG((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
-        assert_eq!(sql.groups[0], "_jsonb->'other'");
+        assert_eq!(sql.groups[0], "_id");
     }
 
     #[test]
@@ -101,6 +120,15 @@ mod tests {
             "TO_CHAR(TO_TIMESTAMP((_jsonb->'date'->>'$d')::numeric / 1000), 'YYYY-MM-DD') AS _id"
         );
         assert_eq!(sql.fields[1], "AVG((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
+        assert_eq!(sql.groups[0], "_id");
+    }
+
+    #[test]
+    fn test_process_group_with_sum_of_multiply() {
+        let doc = doc! { "_id": "$field", "total": { "$sum": { "$multiply": ["$a", "$b"] } } };
+        let sql = process_group(&doc);
+        assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
+        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) * (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 }

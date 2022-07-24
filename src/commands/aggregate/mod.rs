@@ -147,7 +147,7 @@ mod tests {
         let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
-            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT * FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS s_group GROUP BY _jsonb->'name') AS s_wrap"#
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT * FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS s_group GROUP BY _id) AS s_wrap"#
         );
     }
 
@@ -177,6 +177,35 @@ mod tests {
         assert_eq!(
             sql,
             r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT TO_CHAR(TO_TIMESTAMP((_jsonb->'date'->>'$d')::numeric / 1000), 'YYYY-MM-DD') AS _id, SUM(1) AS count FROM "schema"."table" GROUP BY _id) AS s_wrap"#
+        );
+    }
+
+    #[test]
+    fn test_build_sql_with_multiply() {
+        let doc = doc! {
+            "pipeline": [
+                doc! {
+                    "$group": {
+                        "_id": "$item",
+                        "total_sum": {
+                            "$sum": {
+                                "$multiply": [
+                                    "$quantity",
+                                    "$price"
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+        };
+
+        let sp = SqlParam::new("schema", "table");
+
+        let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
+        assert_eq!(
+            sql,
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'item' AS _id, SUM((CASE WHEN (_jsonb->'quantity' ? '$f') THEN (_jsonb->'quantity'->>'$f')::numeric ELSE (_jsonb->'quantity')::numeric END) * (CASE WHEN (_jsonb->'price' ? '$f') THEN (_jsonb->'price'->>'$f')::numeric ELSE (_jsonb->'price')::numeric END)) AS total_sum FROM "schema"."table" GROUP BY _id) AS s_wrap"#
         );
     }
 }

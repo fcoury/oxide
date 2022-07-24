@@ -341,3 +341,47 @@ fn test_group_with_sort() {
     assert_eq!(second_date_row.get_i32("qtd_sum").unwrap(), 2);
     assert_eq!(second_date_row.get_f64("price_avg").unwrap(), 14.49);
 }
+
+#[test]
+fn test_group_with_multiply() {
+    let col = insert!(
+        doc! {
+            "store": "main",
+            "qtd": 3,
+            "price": 20.99,
+        },
+        doc! {
+            "store": "main",
+            "qtd": 1,
+            "price": 29.99,
+        },
+        doc! {
+            "store": "branch",
+            "qtd": 2,
+            "price": 14.49,
+        },
+    );
+
+    let pipeline = doc! {
+        "$group": doc! {
+            "_id": "$store",
+            "total": {
+                "$sum": {
+                    "$multiply": ["$qtd", "$price"]
+                },
+            },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let main_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "main")
+        .unwrap();
+    assert_eq!(main_row.get_f64("total").unwrap(), 92.96);
+    let branch_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "branch")
+        .unwrap();
+    assert_eq!(branch_row.get_f64("total").unwrap(), 28.98);
+}
