@@ -279,3 +279,65 @@ fn test_order() {
     assert_eq!(30, first_row.get_i32("age").unwrap());
     assert_eq!(29, second_row.get_i32("age").unwrap());
 }
+
+#[test]
+fn test_group_with_sort() {
+    let dt1 = Utc.ymd(2020, 1, 1).and_hms_milli(10, 0, 1, 444);
+    let dt2 = Utc.ymd(2021, 12, 12).and_hms_milli(10, 42, 19, 0);
+
+    let col = insert!(
+        doc! {
+            "date": bson::DateTime::from_millis(dt1.timestamp_millis()),
+            "qtd": 3,
+            "price": 20.99,
+        },
+        doc! {
+            "date": bson::DateTime::from_millis(dt1.timestamp_millis()),
+            "qtd": 1,
+            "price": 29.99,
+        },
+        doc! {
+            "date": bson::DateTime::from_millis(dt2.timestamp_millis()),
+            "qtd": 2,
+            "price": 14.49,
+        },
+    );
+
+    let pipelines = vec![
+        doc! {
+            "$group": doc! {
+                "_id": {
+                    "$dateToString": {
+                        "format": "%Y",
+                        "date": "$date"
+                    }
+                },
+                "qtd_sum": {
+                    "$sum": "$qtd"
+                },
+                "price_avg": {
+                    "$avg": "$price"
+                },
+            }
+        },
+        doc! {
+            "$sort": {
+                "price_avg": 1
+            }
+        },
+    ];
+
+    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let first_date_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "2020-01-01")
+        .unwrap();
+    assert_eq!(first_date_row.get_i32("qtd_sum").unwrap(), 4);
+    assert_eq!(first_date_row.get_f64("price_avg").unwrap(), 25.49);
+    let second_date_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "2021-12-12")
+        .unwrap();
+    assert_eq!(second_date_row.get_i32("qtd_sum").unwrap(), 2);
+    assert_eq!(second_date_row.get_f64("price_avg").unwrap(), 14.49);
+}

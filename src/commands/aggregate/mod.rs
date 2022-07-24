@@ -83,9 +83,13 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
                 // adds ORDER BY to the last stage so far
                 if let Some(last_stage) = stages.last_mut() {
                     for (field, value) in stage_doc.get_document("$sort").unwrap() {
-                        let field = &field_to_jsonb(field);
+                        let field = if last_stage.0 == "$wrap" {
+                            format!("row_to_json(s_wrap)::jsonb->'{}'", field)
+                        } else {
+                            field_to_jsonb(field)
+                        };
                         let value = value.as_i32().unwrap();
-                        last_stage.1.add_order(field, value > 0);
+                        last_stage.1.add_order(&field, value > 0);
                     }
                 }
             }
