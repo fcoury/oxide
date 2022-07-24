@@ -592,3 +592,68 @@ fn test_simple_exclusive_projection() {
     assert_eq!(3, main_row.get_i32("qtd").unwrap());
     assert_eq!(None, main_row.get("total"));
 }
+
+#[test]
+fn test_match_group_project() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+            "city": "New York",
+            "pick": true,
+        },
+        doc! {
+            "name": "Paul",
+            "age": 29,
+            "city": "Ann Arbor",
+            "pick": true,
+        },
+        doc! {
+            "name": "Ella",
+            "age": 33,
+            "city": "Ann Arbor",
+            "pick": true,
+        },
+        doc! {
+            "name": "Jane",
+            "age": 31,
+            "city": "New York",
+        },
+    );
+
+    let pipelines = vec![
+        doc! {
+            "$match": {
+                "pick": true
+            },
+        },
+        doc! {
+            "$group": {
+                "_id": "$city",
+                "age_sum": {
+                    "$sum": "$age"
+                },
+                "age_avg": {
+                    "$avg": "$age"
+                }
+            }
+        },
+        doc! {
+            "$project": {
+                "_id": 1,
+                "age_avg": 1
+            }
+        },
+    ];
+
+    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    assert_eq!(rows.len(), 2);
+    let new_york_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "New York")
+        .unwrap();
+    assert_eq!(
+        new_york_row.keys().into_iter().collect::<Vec<&String>>(),
+        vec!["_id", "age_avg"]
+    );
+}
