@@ -517,3 +517,78 @@ fn test_group_with_divide() {
         .unwrap();
     assert_eq!(branch_row.get_f64("total_unit_price").unwrap(), 14.49);
 }
+
+#[test]
+fn test_simple_additive_projection() {
+    let col = insert!(
+        doc! {
+            "store": "main",
+            "total": 8.97,
+            "qtd": 3,
+        },
+        doc! {
+            "store": "branch 1",
+            "total": 37.58,
+            "qtd": 2,
+        },
+        doc! {
+            "store": "branch 2",
+            "total": 14.49,
+            "qtd": 1,
+        },
+    );
+
+    let pipeline = doc! {
+        "$project": doc! {
+            "store": 1,
+            "total": 1,
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let main_row = rows
+        .iter()
+        .find(|r| r.get_str("store").unwrap() == "main")
+        .unwrap();
+    assert!(main_row.get("_id").is_some());
+    assert_eq!("main", main_row.get_str("store").unwrap());
+    assert_eq!(8.97, main_row.get_f64("total").unwrap());
+    assert_eq!(None, main_row.get("qtd"));
+}
+
+#[test]
+fn test_simple_exclusive_projection() {
+    let col = insert!(
+        doc! {
+            "store": "main",
+            "total": 8.97,
+            "qtd": 3,
+        },
+        doc! {
+            "store": "branch 1",
+            "total": 37.58,
+            "qtd": 2,
+        },
+        doc! {
+            "store": "branch 2",
+            "total": 14.49,
+            "qtd": 1,
+        },
+    );
+
+    let pipeline = doc! {
+        "$project": doc! {
+            "total": 0,
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let main_row = rows
+        .iter()
+        .find(|r| r.get_str("store").unwrap() == "main")
+        .unwrap();
+    assert!(main_row.get("_id").is_some());
+    assert_eq!("main", main_row.get_str("store").unwrap());
+    assert_eq!(3, main_row.get_i32("qtd").unwrap());
+    assert_eq!(None, main_row.get("total"));
+}

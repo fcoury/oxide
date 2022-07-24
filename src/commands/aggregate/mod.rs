@@ -6,11 +6,13 @@ use crate::utils::{field_to_jsonb, pg_rows_to_bson};
 use bson::{doc, Bson, Document};
 use group_stage::process_group;
 use match_stage::process_match;
+use project_stage::process_project;
 use sql_statement::SqlStatement;
 
 mod group_id;
 mod group_stage;
 mod match_stage;
+mod project_stage;
 mod sql_statement;
 
 pub struct Aggregate {}
@@ -93,6 +95,14 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
                     }
                 }
             }
+            "$project" => match process_project(stage_doc.get_document("$project").unwrap()) {
+                Ok(sql) => {
+                    stages.push((name.to_string(), sql));
+                }
+                Err(e) => {
+                    return Err(CommandExecutionError::new(e.message));
+                }
+            },
             _ => {
                 return Err(CommandExecutionError::new(format!(
                     "Unrecognized pipeline stage name: '{}'",
