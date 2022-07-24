@@ -30,7 +30,12 @@ pub fn process_group(doc: &Document) -> SqlStatement {
                         t => unimplemented!("missing implementation for {} with type {:?}", key, t),
                     }
                 }
-                "$multiply" => {
+                "$multiply" | "$subtract" => {
+                    let oper = match *key {
+                        "$multiply" => "*",
+                        "$subtract" => "-",
+                        _ => unreachable!(),
+                    };
                     if let Some(values) = value.as_array() {
                         let items: Vec<String> = values
                             .iter()
@@ -40,7 +45,7 @@ pub fn process_group(doc: &Document) -> SqlStatement {
                                 ))
                             })
                             .collect();
-                        value = Bson::String(format!("{}", items.join(" * ")));
+                        value = Bson::String(format!("{}", items.join(&format!(" {} ", oper))));
                     }
                 }
                 key => unimplemented!("missing handling operator: {}", key),
@@ -129,6 +134,15 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
         assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) * (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.groups[0], "_id");
+    }
+
+    #[test]
+    fn test_process_group_with_sum_of_subtract() {
+        let doc = doc! { "_id": "$field", "total": { "$sum": { "$subtract": ["$a", "$b"] } } };
+        let sql = process_group(&doc);
+        assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
+        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) - (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 }
