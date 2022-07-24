@@ -98,7 +98,7 @@ pub fn handle(
     };
     match route(&request) {
         Ok(doc) => {
-            log::debug!("Sending response: {:#?}", doc);
+            log::trace!("Sending response: {:#?}", doc);
             let response = Response {
                 id,
                 op_code: &op_code,
@@ -114,7 +114,7 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
     let command = docs[0].keys().next().unwrap();
 
     log::debug!("OP_MSG command: {}", command);
-    log::debug!("Received document: {:#?}", docs);
+    log::trace!("Received document: {:#?}", docs);
 
     if command == "find" {
         Find::new().handle(request, docs)

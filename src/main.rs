@@ -28,15 +28,21 @@ struct Args {
     /// PostgreSQL connection URL
     #[clap(short = 'u', long)]
     postgres_url: Option<String>,
+
+    /// Show debugging information
+    #[clap(short, long)]
+    debug: bool,
 }
 
 fn main() {
     dotenv::dotenv().ok();
-    env_logger::init_from_env(
-        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
-    );
 
     let args = Args::parse();
+    let log_level = if args.debug { "oxide=debug" } else { "info" };
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, log_level),
+    );
+
     let ip_addr = args
         .listen_addr
         .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string()));

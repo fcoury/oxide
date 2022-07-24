@@ -19,7 +19,7 @@ pub fn parse(doc: Document) -> String {
     );
     let str = serde_json::to_string(&json).unwrap();
     let expression = mongodb_language_model::parse(&str).unwrap();
-    log::debug!("{:#?}", expression);
+    log::trace!("{:#?}", expression);
     parse_expression(expression)
 }
 
