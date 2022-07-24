@@ -5,12 +5,12 @@ use bson::Document;
 use super::sql_statement::SqlStatement;
 
 pub fn process_match(doc: &Document) -> SqlStatement {
-    let mut sql = SqlStatement::builder().field("_jsonb").build();
+    let mut sql = SqlStatement::builder().build();
 
     let filter_doc = expand_fields(&doc).unwrap();
     let filter = parse(filter_doc);
     if filter != "" {
-        sql.add_filter(filter);
+        sql.add_filter(&filter);
     }
 
     sql

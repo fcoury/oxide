@@ -132,3 +132,54 @@ fn test_match_group() {
     assert_eq!(30, ny_row.get_i32("age_sum").unwrap());
     assert_eq!(29 + 33, ann_arbor_row.get_i32("age_sum").unwrap());
 }
+
+#[test]
+fn test_group_match() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+            "city": "New York",
+        },
+        doc! {
+            "name": "Paul",
+            "age": 29,
+            "city": "Ann Arbor",
+        },
+        doc! {
+            "name": "Ella",
+            "age": 33,
+            "city": "Ann Arbor",
+        },
+        doc! {
+            "name": "Jane",
+            "age": 31,
+            "city": "New York",
+        },
+    );
+
+    let pipelines = vec![
+        doc! {
+            "$group": {
+                "_id": "$city",
+                "age_sum": {
+                    "$sum": "$age"
+                }
+            },
+        },
+        doc! {
+            "$match": {
+                "age_sum": {
+                    "$gt": 61
+                }
+            }
+        },
+    ];
+
+    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let ann_arbor_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "Ann Arbor")
+        .unwrap();
+    assert_eq!(29 + 33, ann_arbor_row.get_i32("age_sum").unwrap());
+}

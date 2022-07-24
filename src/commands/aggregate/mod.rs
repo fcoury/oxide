@@ -50,13 +50,25 @@ impl Handler for Aggregate {
 }
 
 fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecutionError> {
-    let mut stages = vec![];
+    let mut stages: Vec<(String, SqlStatement)> = vec![];
     for stage in pipeline {
         let stage_doc = stage.as_document().unwrap();
         let name = stage_doc.keys().next().unwrap();
-        let sql = match name.as_str() {
-            "$match" => process_match(stage_doc.get_document("$match").unwrap()),
-            "$group" => process_group(stage_doc.get_document("$group").unwrap()),
+        match name.as_str() {
+            "$match" => {
+                let sql = process_match(stage_doc.get_document("$match").unwrap());
+                stages.push((name.to_string(), sql));
+            }
+            "$group" => {
+                stages.push((
+                    name.to_string(),
+                    process_group(stage_doc.get_document("$group").unwrap()),
+                ));
+                let wrap_sql = SqlStatement::builder()
+                    .field("row_to_json(s_wrap)::jsonb AS _jsonb")
+                    .build();
+                stages.push(("$wrap".to_string(), wrap_sql));
+            }
             _ => {
                 return Err(CommandExecutionError::new(format!(
                     "Unrecognized pipeline stage name: '{}'",
@@ -64,22 +76,22 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
                 )))
             }
         };
-        stages.push(sql);
     }
 
     let mut sql: Option<SqlStatement> = None;
-    let mut i = 0;
-    for mut stage_sql in stages {
-        if let Some(mut sql) = sql {
-            stage_sql.add_subquery_with_alias(&mut sql, &format!("t{}", i));
-        } else {
-            stage_sql.set_table(sp.clone());
+    for (name, mut stage_sql) in stages {
+        if stage_sql.from.is_none() {
+            if let Some(mut sql) = sql {
+                let alias = format!("s_{}", name.strip_prefix("$").unwrap());
+                stage_sql.add_subquery_with_alias(&mut sql, &alias);
+            } else {
+                stage_sql.set_table(sp.clone());
+            }
         }
         sql = Some(stage_sql);
-        i += 1;
     }
 
-    Ok(sql.unwrap().wrap())
+    Ok(sql.unwrap().to_string())
 }
 
 #[cfg(test)]
@@ -111,7 +123,7 @@ mod tests {
         let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
-            r#"SELECT row_to_json(t) FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT _jsonb FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS t1 GROUP BY _jsonb->'name') AS t"#
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT * FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS s_group GROUP BY _jsonb->'name') AS s_wrap"#
         );
     }
 }

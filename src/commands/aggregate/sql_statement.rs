@@ -52,8 +52,12 @@ impl SqlStatement {
         self.filters.append(&mut other.filters);
     }
 
-    pub fn add_filter(&mut self, filter: String) {
-        self.filters.push(filter);
+    pub fn add_filter(&mut self, filter: &str) {
+        self.filters.push(filter.to_string());
+    }
+
+    pub fn add_field(&mut self, field: &str) {
+        self.fields.push(field.to_string());
     }
 
     pub fn fields_as_str(&self) -> String {
@@ -77,7 +81,8 @@ impl SqlStatement {
     pub fn to_string(&self) -> String {
         let from = match &self.from {
             Some(from) => format!("FROM {}", from),
-            None => todo!("table missing"),
+            // None => todo!("table missing"),
+            None => "".to_string(),
         };
 
         let where_str = if self.filters.len() > 0 {
@@ -106,12 +111,22 @@ impl SqlStatement {
         ));
     }
 
+    pub fn as_wrapped(&self, sp: &SqlParam) -> SqlStatement {
+        let mut new_subquery = self.clone();
+        new_subquery.set_table(sp.clone());
+
+        SqlStatement::builder()
+            .field("row_to_json(t)::jsonb AS _jsonb")
+            .from_subquery_with_alias(new_subquery, "t")
+            .build()
+    }
+
     pub fn wrap(&self) -> String {
         if self.fields.len() < 2 {
             return self.to_string();
         }
         SqlStatement::builder()
-            .field("row_to_json(t)")
+            .field("row_to_json(t)::jsonb AS _jsonb")
             .from_subquery_with_alias(self.clone(), "t")
             .build()
             .to_string()
