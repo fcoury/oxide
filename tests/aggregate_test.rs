@@ -473,3 +473,47 @@ fn test_group_with_add() {
         .unwrap();
     assert_eq!(branch_row.get_f64("total").unwrap(), 15.98);
 }
+
+#[test]
+fn test_group_with_divide() {
+    let col = insert!(
+        doc! {
+            "store": "main",
+            "total": 8.97,
+            "qtd": 3,
+        },
+        doc! {
+            "store": "main",
+            "total": 37.58,
+            "qtd": 2,
+        },
+        doc! {
+            "store": "branch",
+            "total": 14.49,
+            "qtd": 1,
+        },
+    );
+
+    let pipeline = doc! {
+        "$group": doc! {
+            "_id": "$store",
+            "total_unit_price": {
+                "$sum": {
+                    "$divide": ["$total", "$qtd"]
+                },
+            },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let main_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "main")
+        .unwrap();
+    assert_eq!(main_row.get_f64("total_unit_price").unwrap(), 21.78);
+    let branch_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "branch")
+        .unwrap();
+    assert_eq!(branch_row.get_f64("total_unit_price").unwrap(), 14.49);
+}
