@@ -2,7 +2,7 @@
 use crate::commands::Handler;
 use crate::handler::{CommandExecutionError, Request};
 use crate::pg::SqlParam;
-use crate::utils::pg_rows_to_bson;
+use crate::utils::{field_to_jsonb, pg_rows_to_bson};
 use bson::{doc, Bson, Document};
 use group_stage::process_group;
 use match_stage::process_match;
@@ -57,18 +57,37 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
         let name = stage_doc.keys().next().unwrap();
         match name.as_str() {
             "$match" => {
+                // adds the result of the match
                 let sql = process_match(stage_doc.get_document("$match").unwrap());
                 stages.push((name.to_string(), sql));
             }
             "$group" => {
+                // adds the group stage
                 stages.push((
                     name.to_string(),
                     process_group(stage_doc.get_document("$group").unwrap()),
                 ));
+
+                // and wraps it into a jsonb object
                 let wrap_sql = SqlStatement::builder()
                     .field("row_to_json(s_wrap)::jsonb AS _jsonb")
                     .build();
                 stages.push(("$wrap".to_string(), wrap_sql));
+            }
+            "$sort" => {
+                // if there are no stages, add one
+                if stages.len() < 1 {
+                    stages.push((name.to_string(), SqlStatement::new()));
+                }
+
+                // adds ORDER BY to the last stage so far
+                if let Some(last_stage) = stages.last_mut() {
+                    for (field, value) in stage_doc.get_document("$sort").unwrap() {
+                        let field = &field_to_jsonb(field);
+                        let value = value.as_i32().unwrap();
+                        last_stage.1.add_order(field, value > 0);
+                    }
+                }
             }
             _ => {
                 return Err(CommandExecutionError::new(format!(

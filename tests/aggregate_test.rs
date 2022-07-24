@@ -239,3 +239,43 @@ fn test_group_with_date() {
     assert_eq!(second_date_row.get_i32("qtd_sum").unwrap(), 2);
     assert_eq!(second_date_row.get_f64("price_avg").unwrap(), 14.49);
 }
+
+#[test]
+fn test_order() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+            "city": "New York",
+        },
+        doc! {
+            "name": "Paul",
+            "age": 29,
+            "city": "Ann Arbor",
+        }
+    );
+
+    let pipeline = doc! {
+        "$sort": doc! {
+            "age": 1
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let first_row = rows.get(0).unwrap();
+    let second_row = rows.get(1).unwrap();
+    assert_eq!(29, first_row.get_i32("age").unwrap());
+    assert_eq!(30, second_row.get_i32("age").unwrap());
+
+    let pipeline = doc! {
+        "$sort": doc! {
+            "age": -1
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let first_row = rows.get(0).unwrap();
+    let second_row = rows.get(1).unwrap();
+    assert_eq!(30, first_row.get_i32("age").unwrap());
+    assert_eq!(29, second_row.get_i32("age").unwrap());
+}

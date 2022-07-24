@@ -29,6 +29,7 @@ pub struct SqlStatement {
     pub groups: Vec<String>,
     pub filters: Vec<String>,
     pub from: Option<FromTypes>,
+    pub orders: Vec<String>,
 }
 
 impl Display for SqlStatement {
@@ -50,14 +51,20 @@ impl SqlStatement {
         self.fields.append(&mut other.fields);
         self.groups.append(&mut other.groups);
         self.filters.append(&mut other.filters);
+        self.orders.append(&mut other.orders);
+    }
+
+    pub fn add_field(&mut self, field: &str) {
+        self.fields.push(field.to_string());
     }
 
     pub fn add_filter(&mut self, filter: &str) {
         self.filters.push(filter.to_string());
     }
 
-    pub fn add_field(&mut self, field: &str) {
-        self.fields.push(field.to_string());
+    pub fn add_order(&mut self, order: &str, asc: bool) {
+        let order = format!("{} {}", order, if asc { "ASC" } else { "DESC" });
+        self.orders.push(order.to_string());
     }
 
     pub fn fields_as_str(&self) -> String {
@@ -72,6 +79,13 @@ impl SqlStatement {
             return "".to_string();
         }
         format!(" GROUP BY {}", self.groups.join(", "))
+    }
+
+    pub fn order_as_str(&self) -> String {
+        if self.orders.is_empty() {
+            return "".to_string();
+        }
+        format!(" ORDER BY {}", self.orders.join(", "))
     }
 
     pub fn set_table(&mut self, table: SqlParam) {
@@ -92,11 +106,12 @@ impl SqlStatement {
         };
 
         format!(
-            "SELECT {} {}{}{}",
+            "SELECT {} {}{}{}{}",
             self.fields_as_str(),
             from,
             where_str,
-            self.groups_as_str()
+            self.groups_as_str(),
+            self.order_as_str(),
         )
     }
 
@@ -110,27 +125,6 @@ impl SqlStatement {
             Some(alias.to_string()),
         ));
     }
-
-    pub fn as_wrapped(&self, sp: &SqlParam) -> SqlStatement {
-        let mut new_subquery = self.clone();
-        new_subquery.set_table(sp.clone());
-
-        SqlStatement::builder()
-            .field("row_to_json(t)::jsonb AS _jsonb")
-            .from_subquery_with_alias(new_subquery, "t")
-            .build()
-    }
-
-    pub fn wrap(&self) -> String {
-        if self.fields.len() < 2 {
-            return self.to_string();
-        }
-        SqlStatement::builder()
-            .field("row_to_json(t)::jsonb AS _jsonb")
-            .from_subquery_with_alias(self.clone(), "t")
-            .build()
-            .to_string()
-    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -139,6 +133,7 @@ pub struct SqlStatementBuilder {
     groups: Vec<String>,
     filters: Vec<String>,
     from: Option<FromTypes>,
+    orders: Vec<String>,
 }
 
 impl SqlStatementBuilder {
@@ -158,6 +153,12 @@ impl SqlStatementBuilder {
 
     pub fn from(mut self, from: FromTypes) -> Self {
         self.from = Some(from);
+        self
+    }
+
+    pub fn order(mut self, order: &str, asc: bool) -> Self {
+        let order = format!("{} {}", order, if asc { "ASC" } else { "DESC" });
+        self.orders.push(order.to_string());
         self
     }
 
@@ -190,6 +191,7 @@ impl SqlStatementBuilder {
             groups: self.groups,
             filters: self.filters,
             from: self.from,
+            orders: self.orders,
         }
     }
 }
