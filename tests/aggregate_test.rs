@@ -429,3 +429,47 @@ fn test_group_with_subtract() {
         .unwrap();
     assert_eq!(branch_row.get_f64("total").unwrap(), 13.00);
 }
+
+#[test]
+fn test_group_with_add() {
+    let col = insert!(
+        doc! {
+            "store": "main",
+            "cost": 20.99,
+            "markup": 1.99,
+        },
+        doc! {
+            "store": "main",
+            "cost": 29.99,
+            "markup": 0.99,
+        },
+        doc! {
+            "store": "branch",
+            "cost": 14.49,
+            "markup": 1.49,
+        },
+    );
+
+    let pipeline = doc! {
+        "$group": doc! {
+            "_id": "$store",
+            "total": {
+                "$sum": {
+                    "$add": ["$cost", "$markup"]
+                },
+            },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let main_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "main")
+        .unwrap();
+    assert_eq!(main_row.get_f64("total").unwrap(), 53.96);
+    let branch_row = rows
+        .iter()
+        .find(|r| r.get_str("_id").unwrap() == "branch")
+        .unwrap();
+    assert_eq!(branch_row.get_f64("total").unwrap(), 15.98);
+}

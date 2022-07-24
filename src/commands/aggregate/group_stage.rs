@@ -30,8 +30,9 @@ pub fn process_group(doc: &Document) -> SqlStatement {
                         t => unimplemented!("missing implementation for {} with type {:?}", key, t),
                     }
                 }
-                "$multiply" | "$subtract" => {
+                "$add" | "$multiply" | "$subtract" => {
                     let oper = match *key {
+                        "$add" => "+",
                         "$multiply" => "*",
                         "$subtract" => "-",
                         _ => unreachable!(),
@@ -134,6 +135,15 @@ mod tests {
         let sql = process_group(&doc);
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
         assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) * (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.groups[0], "_id");
+    }
+
+    #[test]
+    fn test_process_group_with_sum_of_add() {
+        let doc = doc! { "_id": "$field", "total": { "$sum": { "$add": ["$a", "$b"] } } };
+        let sql = process_group(&doc);
+        assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
+        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) + (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 
