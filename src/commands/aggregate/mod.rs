@@ -8,6 +8,7 @@ use group_stage::process_group;
 use match_stage::process_match;
 use sql_statement::SqlStatement;
 
+mod group_id;
 mod group_stage;
 mod match_stage;
 mod sql_statement;
@@ -124,6 +125,35 @@ mod tests {
         assert_eq!(
             sql,
             r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT * FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS s_group GROUP BY _jsonb->'name') AS s_wrap"#
+        );
+    }
+
+    #[test]
+    fn test_build_sql_with_date() {
+        let doc = doc! {
+            "pipeline": [
+                doc! {
+                    "$group": {
+                        "_id": {
+                            "$dateToString": {
+                                "format": "%Y",
+                                "date": "$date"
+                            }
+                        },
+                        "count": {
+                            "$sum": 1
+                        }
+                    }
+                }
+            ]
+        };
+
+        let sp = SqlParam::new("schema", "table");
+
+        let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
+        assert_eq!(
+            sql,
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT TO_CHAR(TO_TIMESTAMP((_jsonb->'date'->>'$d')::numeric / 1000), 'YYYY-MM-DD') AS _id, SUM(1) AS count FROM "schema"."table" GROUP BY _id) AS s_wrap"#
         );
     }
 }
