@@ -248,3 +248,19 @@ fn test_with_nested() {
 
     assert_row_count!(col, doc! { "a.b.c": 1 }, 1);
 }
+
+#[test]
+fn test_with_multiple_fields() {
+    let col = insert!(
+        doc! { "counter": 1, "a": 1 },
+        doc! { "counter": "Str", "a": { "b": false } },
+        doc! { "counter": 3, "d": 0 },
+    );
+
+    let cursor = col.find(doc! { "counter": 1, "a": 1 }, None).unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    let rows: Result<Vec<Document>, mongodb::error::Error> = rows.into_iter().collect();
+    let rows: Vec<Document> = rows.unwrap();
+    assert_eq!(1, rows[0].get_i32("counter").unwrap());
+    assert_eq!(1, rows[0].get_i32("a").unwrap());
+}

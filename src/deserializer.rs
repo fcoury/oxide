@@ -15,7 +15,13 @@ impl PostgresJsonDeserializer for Value {
                 if s.contains(".") {
                     Bson::Double(n.as_f64().unwrap())
                 } else {
-                    Bson::Int32(n.as_i64().unwrap().try_into().unwrap())
+                    if let Some(n) = n.as_i64() {
+                        Bson::Int32(n.try_into().unwrap())
+                    } else if let Some(n) = n.as_f64() {
+                        Bson::Double(n)
+                    } else {
+                        panic!("Unsupported number type while attempting to deserialize Value::Number for {}", n);
+                    }
                 }
             }
             serde_json::Value::Bool(b) => Bson::Boolean(b.to_owned()),

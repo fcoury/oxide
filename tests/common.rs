@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use mongodb::bson::Document;
+use mongodb::sync::Cursor;
 use oxide::pg::PgDb;
 use oxide::server::Server;
 use r2d2::Pool;
@@ -127,9 +128,15 @@ pub fn setup_with_drop(drop: bool) -> TestContext {
     setup_with_pg_db("test", drop)
 }
 
+pub fn get_rows(cursor: Cursor<Document>) -> Vec<Document> {
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    let rows: Result<Vec<Document>, mongodb::error::Error> = rows.into_iter().collect();
+    rows.unwrap()
+}
+
 #[macro_export]
 macro_rules! insert {
-    ( $( $x:expr ),* ) => {
+    ( $( $x:expr ),+ $(,)? ) => {
         {
             let ctx = common::setup();
             ctx.col()
@@ -151,5 +158,34 @@ macro_rules! assert_row_count {
         let cursor = $col.find($query, None).unwrap();
         let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
         assert_eq!($exp, rows.len());
+    }};
+}
+
+#[macro_export]
+macro_rules! assert_unique_row_value {
+    ( $cursor:expr, $field:expr, $value:expr ) => {{
+        use mongodb::bson::Document;
+        use std::any::Any;
+
+        let rows: Vec<Result<Document, mongodb::error::Error>> = $cursor.collect();
+        if rows.len() < 1 {
+            assert!(false, "No rows found: {:?}", rows);
+        }
+        if rows.len() > 1 {
+            assert!(false, "More than one row found: {:?}", rows);
+        }
+        let rows: Result<Vec<Document>, mongodb::error::Error> = rows.into_iter().collect();
+
+        if let Err(r) = rows {
+            return assert!(false, "Error: {:?}", r);
+        }
+
+        let row = &rows.unwrap()[0];
+        if let Some(f) = (&$value as &dyn Any).downcast_ref::<i32>() {
+            let value = row.get_i32($field).unwrap();
+            assert_eq!(f, &value);
+        } else {
+            unimplemented!("can't handle type for {:?}", &$value);
+        }
     }};
 }

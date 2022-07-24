@@ -1,6 +1,7 @@
 use crate::handler::{CommandExecutionError, Request};
 use bson::Document;
 
+mod aggregate;
 mod build_info;
 mod coll_stats;
 mod connection_status;
@@ -23,6 +24,7 @@ mod ping;
 mod update;
 mod whats_my_uri;
 
+pub use self::aggregate::Aggregate;
 pub use self::build_info::BuildInfo;
 pub use self::coll_stats::CollStats;
 pub use self::connection_status::ConnectionStatus;
