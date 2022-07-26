@@ -47,8 +47,16 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
             log::info!("POST /convert\n{:?}", req_json);
             let doc = ser::to_document(&req_json).unwrap();
             let sp = SqlParam::new(doc.get_str("database").unwrap(), doc.get_str("collection").unwrap());
-            let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
-            json!({ "sql": sql })
+            let res = build_sql(&sp, doc.get_array("pipeline").unwrap());
+            if res.is_err() {
+                let err = res.unwrap_err();
+                log::error!("{}", err);
+                json!({ "error":err.to_string() })
+            } else {
+                let sql = res.unwrap();
+                json!({ "sql": sql })
+            }
+
         },
     );
 
