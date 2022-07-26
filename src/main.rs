@@ -77,7 +77,7 @@ fn main() {
             postgres_url,
         }) => {
             ui::start(
-                &listen_addr.unwrap_or("127.0.0.1".to_string()),
+                &listen_addr.unwrap_or("localhost".to_string()),
                 port.unwrap_or(8087),
                 postgres_url,
             );

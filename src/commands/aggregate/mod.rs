@@ -35,7 +35,7 @@ impl Handler for Aggregate {
 
         let mut client = request.get_client();
 
-        let sql = build_sql(sp, pipeline).unwrap();
+        let sql = build_sql(&sp, pipeline).unwrap();
         log::debug!("SQL: {}", sql);
 
         let res = client.raw_query(&sql, &[]).unwrap();
@@ -52,7 +52,7 @@ impl Handler for Aggregate {
     }
 }
 
-fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecutionError> {
+pub fn build_sql(sp: &SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecutionError> {
     let mut stages: Vec<(String, SqlStatement)> = vec![];
     for stage in pipeline {
         let stage_doc = stage.as_document().unwrap();

@@ -1,5 +1,5 @@
-use crate::parser::parse;
-use crate::pg::PgDb;
+use crate::commands::build_sql;
+use crate::pg::{PgDb, SqlParam};
 use bson::ser;
 use nickel::{HttpRouter, JsonBody, MediaType, Nickel, Options};
 use rust_embed::RustEmbed;
@@ -46,7 +46,8 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
             let req_json = req.json_as::<Value>().unwrap();
             log::info!("POST /convert\n{:?}", req_json);
             let doc = ser::to_document(&req_json).unwrap();
-            let sql = parse(doc);
+            let sp = SqlParam::new(doc.get_str("database").unwrap(), doc.get_str("collection").unwrap());
+            let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
             json!({ "sql": sql })
         },
     );
