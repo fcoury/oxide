@@ -27,6 +27,9 @@ pub fn process_group(doc: &Document) -> SqlStatement {
                         Bson::Int32(i32val) => {
                             value = Bson::String(process(&sql_func, &i32val.to_string()));
                         }
+                        Bson::Int64(i64val) => {
+                            value = Bson::String(process(&sql_func, &i64val.to_string()));
+                        }
                         t => unimplemented!("missing implementation for {} with type {:?}", key, t),
                     }
                 }
