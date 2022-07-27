@@ -31,7 +31,7 @@ pub fn process_project(doc: &Document) -> Result<SqlStatement, InvalidProjection
             .map(|(key, _)| format!("'{}'", key))
             .collect::<Vec<String>>()
             .join(" - ");
-        sql.add_field(&format!("_jsonb - {}", fields));
+        sql.add_field(&format!("_jsonb - {} AS _jsonb", fields));
     }
 
     Ok(sql)
