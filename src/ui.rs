@@ -5,7 +5,6 @@ use nickel::{HttpRouter, JsonBody, MediaType, Nickel, Options};
 use rust_embed::RustEmbed;
 use serde_json::{json, Value};
 use std::env;
-use std::ffi::OsStr;
 use std::path::Path;
 
 #[derive(RustEmbed)]
@@ -41,10 +40,10 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     );
 
     server.post(
-        "/convert",
+        "/api/convert",
         middleware! { |req, _res|
             let req_json = req.json_as::<Value>().unwrap();
-            log::info!("POST /convert\n{:?}", req_json);
+            log::info!("POST /api/convert\n{:?}", req_json);
             let doc = ser::to_document(&req_json).unwrap();
             let sp = SqlParam::new(doc.get_str("database").unwrap(), doc.get_str("collection").unwrap());
             let res = build_sql(&sp, doc.get_array("pipeline").unwrap());
@@ -61,11 +60,11 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     );
 
     server.post(
-        "/run",
+        "/api/run",
         middleware! { |req, _res|
             let req_json = req.json_as::<Value>().unwrap();
             let query = req_json["query"].as_str().unwrap();
-            log::info!("POST /query\n{}", query);
+            log::info!("POST /api/query\n{}", query);
             let mut client = PgDb::new();
             let mut rows = vec![];
             let res = client.raw_query(query, &[]);
@@ -84,9 +83,9 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     );
 
     server.get(
-        "/databases",
+        "/api/databases",
         middleware! { |_req, _res|
-            log::info!("GET /databases");
+            log::info!("GET /api/databases");
             let mut client = PgDb::new();
             let databases = client.get_schemas();
             json!({ "databases": databases })
@@ -95,10 +94,10 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     );
 
     server.get(
-        "/databases/:database/collections",
+        "/api/databases/:database/collections",
         middleware! { |req, _res|
             let database = req.param("database").unwrap();
-            log::info!("GET /collections\ndatabase = {}", database);
+            log::info!("GET /api/collections\ndatabase = {}", database);
             let mut client = PgDb::new();
             let collections = client.get_tables(database);
             json!({ "collections": collections })
@@ -107,38 +106,27 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
     );
 
     server.utilize(router! {
-        get "**" => |req, mut res| {
-            let file = req.path_without_query().unwrap().trim_start_matches("/");
+        get "/**" => |req, mut res| {
+            let uri = req.path_without_query().unwrap();
+            let file = uri.trim_start_matches("/");
             log::info!("GET /{} (static)", file);
 
-            let html = Asset::get(file);
-            match html {
-                Some(html) => {
-                    let html_str = std::str::from_utf8(html.data.as_ref()).unwrap();
-                    let media_type = match Path::new(file).extension() {
-                        Some(ext) => {
-                            if ext == OsStr::new("html") {
-                                MediaType::Html
-                            } else if ext == OsStr::new("css") {
-                                MediaType::Css
-                            } else if ext == OsStr::new("js") {
-                                MediaType::Js
-                            } else {
-                                MediaType::Txt
-                            }
-                        }
-                        None => MediaType::Txt,
-                    };
-                    res.set(media_type);
-                    format!("{}", html_str)
-                }
-                None => {
-                    format!("{}", "404")
-                }
-            }
+            let media_type = mime_from_filename(file).unwrap_or(MediaType::Html);
+            res.set(media_type);
+
+            let contents = Asset::get(file);
+            contents.unwrap().data.as_ref()
         }
     });
 
     log::info!("Web UI started at http://{}:{}...", listen_addr, port);
     server.listen(format!("{}:{}", listen_addr, port)).unwrap();
+}
+
+fn mime_from_filename<P: AsRef<Path>>(path: P) -> Option<MediaType> {
+    path.as_ref()
+        .extension()
+        .and_then(|os| os.to_str())
+        // Lookup mime from file extension
+        .and_then(|s| s.parse().ok())
 }
