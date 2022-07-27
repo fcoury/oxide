@@ -216,7 +216,7 @@ mod tests {
         let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
-            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'item' AS _id, SUM((CASE WHEN (_jsonb->'quantity' ? '$f') THEN (_jsonb->'quantity'->>'$f')::numeric ELSE (_jsonb->'quantity')::numeric END) * (CASE WHEN (_jsonb->'price' ? '$f') THEN (_jsonb->'price'->>'$f')::numeric ELSE (_jsonb->'price')::numeric END)) AS total_sum FROM "schema"."table" GROUP BY _id) AS s_wrap"#
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'item' AS _id, SUM(CASE WHEN (_jsonb->'quantity' ? '$f') THEN (_jsonb->'quantity'->>'$f')::numeric ELSE (_jsonb->'quantity')::numeric END * CASE WHEN (_jsonb->'price' ? '$f') THEN (_jsonb->'price'->>'$f')::numeric ELSE (_jsonb->'price')::numeric END) AS total_sum FROM "schema"."table" GROUP BY _id) AS s_wrap"#
         );
     }
 }

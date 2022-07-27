@@ -245,7 +245,7 @@ pub fn field_to_jsonb(key: &str) -> String {
 
 pub fn convert_if_numeric(field: &str) -> String {
     format!(
-        "(CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END)",
+        "CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END",
         field, field, field
     )
 }

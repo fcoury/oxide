@@ -142,7 +142,7 @@ mod tests {
         let doc = doc! { "_id": "$other", "qty": { "$sum": "$qty" } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'other' AS _id");
-        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
+        assert_eq!(sql.fields[1], "SUM(CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END) AS qty");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -160,7 +160,7 @@ mod tests {
         let doc = doc! { "_id": "$other", "qty": { "$avg": "$qty" } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'other' AS _id");
-        assert_eq!(sql.fields[1], "AVG((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
+        assert_eq!(sql.fields[1], "AVG(CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END) AS qty");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -177,7 +177,7 @@ mod tests {
             sql.fields[0],
             "TO_CHAR(TO_TIMESTAMP((_jsonb->'date'->>'$d')::numeric / 1000), 'YYYY-MM-DD') AS _id"
         );
-        assert_eq!(sql.fields[1], "AVG((CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END)) AS qty");
+        assert_eq!(sql.fields[1], "AVG(CASE WHEN (_jsonb->'qty' ? '$f') THEN (_jsonb->'qty'->>'$f')::numeric ELSE (_jsonb->'qty')::numeric END) AS qty");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -186,7 +186,7 @@ mod tests {
         let doc = doc! { "_id": "$field", "total": { "$sum": { "$multiply": ["$a", "$b"] } } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
-        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) * (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.fields[1], "SUM(CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END * CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -195,7 +195,7 @@ mod tests {
         let doc = doc! { "_id": "$field", "total": { "$sum": { "$add": ["$a", "$b"] } } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
-        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) + (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.fields[1], "SUM(CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END + CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -204,7 +204,7 @@ mod tests {
         let doc = doc! { "_id": "$field", "total": { "$sum": { "$subtract": ["$a", "$b"] } } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
-        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) - (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.fields[1], "SUM(CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END - CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 
@@ -213,7 +213,7 @@ mod tests {
         let doc = doc! { "_id": "$field", "total": { "$sum": { "$divide": ["$a", "$b"] } } };
         let sql = process_group(&doc).unwrap();
         assert_eq!(sql.fields[0], "_jsonb->'field' AS _id");
-        assert_eq!(sql.fields[1], "SUM((CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END) / (CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END)) AS total");
+        assert_eq!(sql.fields[1], "SUM(CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END / CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END) AS total");
         assert_eq!(sql.groups[0], "_id");
     }
 }
