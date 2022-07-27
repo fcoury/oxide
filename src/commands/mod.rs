@@ -24,6 +24,7 @@ mod ping;
 mod update;
 mod whats_my_uri;
 
+pub use self::aggregate::build_sql;
 pub use self::aggregate::Aggregate;
 pub use self::build_info::BuildInfo;
 pub use self::coll_stats::CollStats;

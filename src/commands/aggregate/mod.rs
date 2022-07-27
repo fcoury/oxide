@@ -35,7 +35,7 @@ impl Handler for Aggregate {
 
         let mut client = request.get_client();
 
-        let sql = build_sql(sp, pipeline).unwrap();
+        let sql = build_sql(&sp, pipeline).unwrap();
         log::debug!("SQL: {}", sql);
 
         let res = client.raw_query(&sql, &[]).unwrap();
@@ -52,7 +52,7 @@ impl Handler for Aggregate {
     }
 }
 
-fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecutionError> {
+pub fn build_sql(sp: &SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecutionError> {
     let mut stages: Vec<(String, SqlStatement)> = vec![];
     for stage in pipeline {
         let stage_doc = stage.as_document().unwrap();
@@ -65,10 +65,10 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
             }
             "$group" => {
                 // adds the group stage
-                stages.push((
-                    name.to_string(),
-                    process_group(stage_doc.get_document("$group").unwrap()),
-                ));
+                match process_group(stage_doc.get_document("$group").unwrap()) {
+                    Ok(sql) => stages.push((name.to_string(), sql)),
+                    Err(err) => return Err(CommandExecutionError::new(err.message)),
+                }
 
                 // and wraps it into a jsonb object
                 let wrap_sql = SqlStatement::builder()
@@ -90,8 +90,12 @@ fn build_sql(sp: SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandExecut
                         } else {
                             field_to_jsonb(field)
                         };
-                        let value = value.as_i32().unwrap();
-                        last_stage.1.add_order(&field, value > 0);
+                        let asc = match value {
+                            Bson::Int32(i) => *i > 0,
+                            Bson::Int64(i) => *i > 0,
+                            t => unimplemented!("Missing $sort handling for {:?}", t),
+                        };
+                        last_stage.1.add_order(&field, asc);
                     }
                 }
             }
@@ -153,8 +157,7 @@ mod tests {
         };
 
         let sp = SqlParam::new("schema", "table");
-
-        let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
+        let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
             r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'name' AS _id, SUM(1) AS count FROM (SELECT * FROM "schema"."table" WHERE _jsonb->'name' = '"Alice"') AS s_group GROUP BY _id) AS s_wrap"#
@@ -182,8 +185,7 @@ mod tests {
         };
 
         let sp = SqlParam::new("schema", "table");
-
-        let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
+        let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
             r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT TO_CHAR(TO_TIMESTAMP((_jsonb->'date'->>'$d')::numeric / 1000), 'YYYY-MM-DD') AS _id, SUM(1) AS count FROM "schema"."table" GROUP BY _id) AS s_wrap"#
@@ -211,11 +213,10 @@ mod tests {
         };
 
         let sp = SqlParam::new("schema", "table");
-
-        let sql = build_sql(sp, doc.get_array("pipeline").unwrap()).unwrap();
+        let sql = build_sql(&sp, doc.get_array("pipeline").unwrap()).unwrap();
         assert_eq!(
             sql,
-            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'item' AS _id, SUM((CASE WHEN (_jsonb->'quantity' ? '$f') THEN (_jsonb->'quantity'->>'$f')::numeric ELSE (_jsonb->'quantity')::numeric END) * (CASE WHEN (_jsonb->'price' ? '$f') THEN (_jsonb->'price'->>'$f')::numeric ELSE (_jsonb->'price')::numeric END)) AS total_sum FROM "schema"."table" GROUP BY _id) AS s_wrap"#
+            r#"SELECT row_to_json(s_wrap)::jsonb AS _jsonb FROM (SELECT _jsonb->'item' AS _id, SUM(CASE WHEN (_jsonb->'quantity' ? '$f') THEN (_jsonb->'quantity'->>'$f')::numeric ELSE (_jsonb->'quantity')::numeric END * CASE WHEN (_jsonb->'price' ? '$f') THEN (_jsonb->'price'->>'$f')::numeric ELSE (_jsonb->'price')::numeric END) AS total_sum FROM "schema"."table" GROUP BY _id) AS s_wrap"#
         );
     }
 }

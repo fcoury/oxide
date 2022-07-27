@@ -9,4 +9,5 @@ if [ ! -f "`which cargo-watch`" ]; then
     cargo install cargo-watch
   fi
 fi
-cargo watch -x 'run'
+echo "run -- $@"
+cargo watch -x "run -- $@"

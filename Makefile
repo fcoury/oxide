@@ -9,3 +9,6 @@ start:
 test:
 	# cargo nextest run
 	cargo test
+
+web:
+	./scripts/start.sh web
