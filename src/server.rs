@@ -36,7 +36,12 @@ impl Server {
     }
 
     pub fn start(&self) {
-        log::info!("Connecting to PostgreSQL database...");
+        let uri = &self.pg_url;
+        let sanitized_uri = format!(
+            "postgres://*****:*****@{}",
+            uri.split("@").collect::<Vec<_>>()[1]
+        );
+        log::info!("Connecting to {}...", sanitized_uri);
         let manager = PostgresConnectionManager::new(self.pg_url.parse().unwrap(), NoTls);
         if let Ok(pool) = r2d2::Pool::new(manager) {
             self.start_with_pool(pool);

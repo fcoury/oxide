@@ -35,7 +35,7 @@ pub struct PgDb {
 
 impl PgDb {
     pub fn new() -> Self {
-        PgDb::new_with_uri(env::var("DATABASE_URL").unwrap())
+        PgDb::new_with_uri(&env::var("DATABASE_URL").unwrap())
     }
 
     pub fn new_from_pool(pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
@@ -43,7 +43,7 @@ impl PgDb {
         PgDb { client }
     }
 
-    pub fn new_with_uri(uri: String) -> Self {
+    pub fn new_with_uri(uri: &str) -> Self {
         let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
         let pool = r2d2::Pool::new(manager).unwrap();
         let client = pool.get().unwrap();

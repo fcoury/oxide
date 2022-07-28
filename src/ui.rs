@@ -26,6 +26,7 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
                 For more information use --help.
             "});
     }
+    let pg_url = pg_url.unwrap();
 
     let index_html = Asset::get("index.html").unwrap();
     let index_data = std::str::from_utf8(index_html.data.as_ref());
@@ -59,13 +60,14 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         },
     );
 
+    let uri = pg_url.clone();
     server.post(
         "/api/run",
         middleware! { |req, _res|
             let req_json = req.json_as::<Value>().unwrap();
             let query = req_json["query"].as_str().unwrap();
             log::info!("POST /api/query\n{}", query);
-            let mut client = PgDb::new();
+            let mut client = PgDb::new_with_uri(&uri);
             let mut rows = vec![];
             let res = client.raw_query(query, &[]);
             if res.is_err() {
@@ -82,23 +84,25 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         },
     );
 
+    let uri = pg_url.clone();
     server.get(
         "/api/databases",
         middleware! { |_req, _res|
             log::info!("GET /api/databases");
-            let mut client = PgDb::new();
+            let mut client = PgDb::new_with_uri(&uri);
             let databases = client.get_schemas();
             json!({ "databases": databases })
 
         },
     );
 
+    let uri = pg_url.clone();
     server.get(
         "/api/databases/:database/collections",
         middleware! { |req, _res|
             let database = req.param("database").unwrap();
             log::info!("GET /api/collections\ndatabase = {}", database);
-            let mut client = PgDb::new();
+            let mut client = PgDb::new_with_uri(&uri);
             let collections = client.get_tables(database);
             json!({ "collections": collections })
 

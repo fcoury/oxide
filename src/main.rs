@@ -74,7 +74,11 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let log_level = if cli.debug { "oxide=debug" } else { "info" };
+    let log_level = if cli.debug {
+        "oxide=debug"
+    } else {
+        "oxide=info"
+    };
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, log_level),
     );
