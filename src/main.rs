@@ -2,6 +2,7 @@ use clap::{AppSettings, Parser, Subcommand};
 use indoc::indoc;
 use server::Server;
 use std::env;
+use std::thread;
 
 #[macro_use]
 extern crate nickel;
@@ -55,6 +56,14 @@ struct Cli {
     #[clap(short = 'u', long)]
     postgres_url: Option<String>,
 
+    /// Starts web interface
+    #[clap(short, long)]
+    web: bool,
+
+    /// Web binding address
+    #[clap(long)]
+    web_addr: Option<String>,
+
     /// Show debugging information
     #[clap(short, long)]
     debug: bool,
@@ -83,11 +92,23 @@ fn main() {
             );
         }
         None => {
-            start(cli.listen_addr, cli.port, cli.postgres_url);
+            start(
+                cli.listen_addr,
+                cli.port,
+                cli.postgres_url,
+                cli.web,
+                cli.web_addr,
+            );
         }
     }
 
-    fn start(listen_addr: Option<String>, port: Option<u16>, postgres_url: Option<String>) {
+    fn start(
+        listen_addr: Option<String>,
+        port: Option<u16>,
+        postgres_url: Option<String>,
+        web: bool,
+        web_addr: Option<String>,
+    ) {
         let ip_addr = listen_addr
             .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string()));
         let port = port.unwrap_or(
@@ -101,6 +122,19 @@ fn main() {
             pg_url = env::var("DATABASE_URL").ok();
         }
         if let Some(pg_url) = pg_url {
+            if web || web_addr.is_some() {
+                let pg_url_clone = pg_url.clone();
+                let parts = web_addr.unwrap_or(
+                    env::var("OXIDE_WEB_ADDR").unwrap_or_else(|_| "localhost:8087".to_string()),
+                );
+                let parts_vec = parts.split(':').collect::<Vec<_>>();
+                let web_addr = parts_vec[0].to_string();
+                let port = parts_vec[1].parse::<u16>().unwrap_or(8087);
+                thread::spawn(move || {
+                    ui::start(&web_addr, port, Some(pg_url_clone));
+                });
+            }
+
             Server::new_with_pgurl(ip_addr, port, pg_url).start();
         } else {
             log::error!(indoc! {"
