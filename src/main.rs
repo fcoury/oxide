@@ -110,7 +110,7 @@ fn main() {
         web_addr: Option<String>,
     ) {
         let ip_addr = listen_addr
-            .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "127.0.0.1".to_string()));
+            .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string()));
         let port = port.unwrap_or(
             env::var("OXIDE_PORT")
                 .unwrap_or("27017".to_string())
@@ -125,7 +125,7 @@ fn main() {
             if web || web_addr.is_some() {
                 let pg_url_clone = pg_url.clone();
                 let parts = web_addr.unwrap_or(
-                    env::var("OXIDE_WEB_ADDR").unwrap_or_else(|_| "localhost:8087".to_string()),
+                    env::var("OXIDE_WEB_ADDR").unwrap_or_else(|_| "0.0.0.0:8087".to_string()),
                 );
                 let parts_vec = parts.split(':').collect::<Vec<_>>();
                 let web_addr = parts_vec[0].to_string();
