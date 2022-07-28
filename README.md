@@ -26,6 +26,10 @@ You can check it out here: [mongodb-language-model-rust](https://github.com/fcou
 At this moment, it's being developed as a personal project, but contributors are highly welcomed. If that something you'd
 be interested on, be more than welcome to contact me.
 
+## Web interface
+
+![Screenshot](docs/assets/screenshot.png)
+
 ## Quickstart
 
 Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) and run it. You will need to point it to a running PostgreSQL for Oxide to use as its backend.
@@ -91,6 +95,15 @@ OPTIONS:
     -p, --port <PORT>                    Listening port, defaults to 27017
     -u, --postgres-url <POSTGRES_URL>    PostgreSQL connection URL
     -V, --version                        Print version information
+```
+
+### Running with Docker
+
+Assuming you're running a local PostgreSQL instance, you can run OxideDB with Docker with the command below.
+
+```
+docker build -t oxide .
+docker run -d -p 27017:27017 -p 8087:8087 -e DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/test --name oxide oxide
 ```
 
 ### Running from source
