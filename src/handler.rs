@@ -73,6 +73,8 @@ pub struct CommandExecutionError {
     pub message: String,
 }
 
+impl std::error::Error for CommandExecutionError {}
+
 impl std::fmt::Display for CommandExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.message)

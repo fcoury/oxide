@@ -60,8 +60,10 @@ pub fn build_sql(sp: &SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandE
         match name.as_str() {
             "$match" => {
                 // adds the result of the match
-                let sql = process_match(stage_doc.get_document("$match").unwrap());
-                stages.push((name.to_string(), sql));
+                match process_match(stage_doc.get_document("$match").unwrap()) {
+                    Ok(sql) => stages.push((name.to_string(), sql)),
+                    Err(err) => return Err(CommandExecutionError::new(err.to_string())),
+                }
             }
             "$group" => {
                 // adds the group stage

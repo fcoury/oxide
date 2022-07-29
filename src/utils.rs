@@ -12,6 +12,18 @@ pub struct KeyConflictError {
     pub target: String,
 }
 
+impl std::error::Error for KeyConflictError {}
+
+impl std::fmt::Display for KeyConflictError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Conflicting keys '{}' and '{}'",
+            self.source, self.target
+        )
+    }
+}
+
 pub fn to_cstring(buffer: Vec<u8>) -> String {
     let str = unsafe { CString::from_vec_unchecked(buffer) }
         .to_string_lossy()

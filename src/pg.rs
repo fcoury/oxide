@@ -3,6 +3,7 @@ use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
+use eyre::{eyre, Result, WrapErr};
 use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
@@ -10,12 +11,21 @@ use r2d2::PooledConnection;
 use r2d2_postgres::PostgresConnectionManager;
 use sql_lexer::sanitize_string;
 use std::env;
+use std::error::Error as StdError;
 use std::fmt;
 
 #[derive(Debug)]
 pub struct AlreadyExistsError {
     _target: String,
 }
+
+impl std::fmt::Display for AlreadyExistsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Table {} already exists", self._target)
+    }
+}
+
+impl StdError for AlreadyExistsError {}
 
 #[derive(Debug)]
 pub enum CreateTableError {
@@ -50,9 +60,11 @@ impl PgDb {
         PgDb { client }
     }
 
-    pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64, Error> {
+    pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
         log::debug!("SQL: {} - {:#?}", query, params);
-        self.client.execute(query, params)
+        self.client
+            .execute(query, params)
+            .wrap_err_with(|| format!("Error executing '{}'", query))
     }
 
     pub fn query(
@@ -61,12 +73,12 @@ impl PgDb {
         sp: SqlParam,
         filter: Option<Document>,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Vec<Row>, Error> {
+    ) -> Result<Vec<Row>> {
         let mut sql = self.get_query(query, sp);
 
         if let Some(f) = filter {
             let filter_doc = expand_fields(&f).unwrap();
-            let filter = super::parser::parse(filter_doc);
+            let filter = super::parser::parse(filter_doc)?;
             if filter != "" {
                 sql = format!("{} WHERE {}", sql, filter);
             }
@@ -81,10 +93,10 @@ impl PgDb {
         sp: &SqlParam,
         limit: i32,
         filter: Option<&Document>,
-    ) -> Option<Vec<String>> {
+    ) -> Result<Option<Vec<String>>> {
         let where_str = match filter {
             Some(f) => {
-                let filter = super::parser::parse(f.clone());
+                let filter = super::parser::parse(f.clone())?;
                 if filter != "" {
                     format!("WHERE {}", filter)
                 } else {
@@ -107,14 +119,14 @@ impl PgDb {
             .map(|r| r.get(0))
             .collect::<Vec<String>>();
         if ids.is_empty() {
-            None
+            Ok(None)
         } else {
-            Some(ids)
+            Ok(Some(ids))
         }
     }
 
-    fn add_ids_to_where(&mut self, sp: &SqlParam, limit: i32, where_str: &str) -> String {
-        let ids = self.get_matching_ids(sp, limit, None);
+    fn add_ids_to_where(&mut self, sp: &SqlParam, limit: i32, where_str: &str) -> Result<String> {
+        let ids = self.get_matching_ids(sp, limit, None)?;
         if ids.is_some() {
             let in_ids = format!(
                 "({})",
@@ -126,12 +138,12 @@ impl PgDb {
             );
             let where_id = format!("_jsonb->'_id'->>'$o' IN {}", in_ids);
             if where_str == "" {
-                format!("WHERE {}", where_id)
+                Ok(format!("WHERE {}", where_id))
             } else {
-                format!("{} AND {}", where_str, where_id)
+                Ok(format!("{} AND {}", where_str, where_id))
             }
         } else {
-            where_str.to_string()
+            Ok(where_str.to_string())
         }
     }
 
@@ -140,12 +152,12 @@ impl PgDb {
         sp: &SqlParam,
         filter: Option<&Document>,
         limit: Option<i32>,
-    ) -> Result<u64, UpdateError> {
+    ) -> Result<u64> {
         let mut where_str = if let Some(f) = filter {
             if f.keys().count() < 1 {
                 "".to_string()
             } else {
-                format!(" WHERE {}", super::parser::parse(f.clone()))
+                format!(" WHERE {}", super::parser::parse(f.clone())?)
             }
         } else {
             "".to_string()
@@ -154,18 +166,13 @@ impl PgDb {
         // apply limit
         if let Some(limit) = limit {
             if limit > 0 {
-                where_str = self.add_ids_to_where(sp, limit, where_str.as_str());
+                where_str = self.add_ids_to_where(sp, limit, where_str.as_str())?;
             }
         }
 
         let sql = format!("DELETE FROM {}{}", sp.to_string(), where_str);
-        match self.exec(&sql, &[]) {
-            Ok(n) => Ok(n),
-            Err(e) => {
-                log::error!("Error trying to update: {:?}", e);
-                return Err(UpdateError::Other(e));
-            }
-        }
+        self.exec(&sql, &[])
+            .wrap_err_with(|| format!("Error deleting from {}", sp))
     }
 
     pub fn update(
@@ -175,12 +182,12 @@ impl PgDb {
         update: UpdateOper,
         upsert: bool,
         multi: bool,
-    ) -> Result<u64, UpdateError> {
+    ) -> Result<u64> {
         let mut where_str = if let Some(f) = filter {
             if f.keys().count() < 1 {
                 "".to_string()
             } else {
-                format!(" WHERE {}", super::parser::parse(f.clone()))
+                format!(" WHERE {}", super::parser::parse(f.clone())?)
             }
         } else {
             "".to_string()
@@ -296,10 +303,7 @@ impl PgDb {
                 } else {
                     format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str)
                 };
-                return match self.exec(&sql, &[&json]) {
-                    Ok(count) => Ok(count),
-                    Err(e) => Err(UpdateError::Other(e)),
-                };
+                return Ok(self.exec(&sql, &[&json])?);
             }
         };
 
@@ -307,24 +311,16 @@ impl PgDb {
         // #16 - https://github.com/fcoury/oxide/issues/16
         let mut total = 0;
         for sql in statements {
-            match self.exec(&sql, &[]) {
-                Ok(n) => total += n,
-                Err(e) => {
-                    log::error!("Error trying to update: {:?}", e);
-                    return Err(UpdateError::Other(e));
-                }
-            }
+            total += self.exec(&sql, &[])?;
         }
         Ok(total)
     }
 
-    pub fn raw_query(
-        &mut self,
-        query: &str,
-        params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Vec<Row>, Error> {
+    pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {
         log::debug!("SQL: {} - {:#?}", query, params);
-        self.client.query(query, params)
+        self.client
+            .query(query, params)
+            .wrap_err_with(|| format!("Error executing query: {}", query))
     }
 
     fn get_query(&self, s: &str, sp: SqlParam) -> String {
@@ -332,7 +328,7 @@ impl PgDb {
         sanitize_string(s.replace("%table%", &table))
     }
 
-    pub fn insert_docs(&mut self, sp: SqlParam, docs: &mut Vec<Document>) -> Result<u64, Error> {
+    pub fn insert_docs(&mut self, sp: SqlParam, docs: &mut Vec<Document>) -> Result<u64> {
         let query = self.get_query("INSERT INTO %table% VALUES ($1)", sp);
 
         let mut affected = 0;
@@ -348,7 +344,7 @@ impl PgDb {
         Ok(affected)
     }
 
-    pub fn table_exists(&mut self, db: &str, collection: &str) -> Result<bool, Error> {
+    pub fn table_exists(&mut self, db: &str, collection: &str) -> Result<bool> {
         let query = format!("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = '{}' AND tablename = '{}')", db, collection);
         let rows = self.client.query(&query, &[]).unwrap();
         let row = rows.get(0).unwrap();
@@ -360,7 +356,7 @@ impl PgDb {
         &mut self,
         sql: String,
         params: &[&(dyn ToSql + Sync)],
-    ) -> Result<Vec<String>, Error> {
+    ) -> Result<Vec<String>> {
         let mut strings = Vec::new();
         let rows = self.raw_query(&sql, params).unwrap();
         for row in rows.iter() {
@@ -396,7 +392,7 @@ impl PgDb {
         .unwrap()
     }
 
-    pub fn get_table_indexes(&mut self, schema: &str, table: &str) -> Result<Vec<Row>, Error> {
+    pub fn get_table_indexes(&mut self, schema: &str, table: &str) -> Result<Vec<Row>> {
         self.raw_query(
             "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2",
             &[
@@ -419,7 +415,7 @@ impl PgDb {
         row.get(0)
     }
 
-    pub fn create_db_if_not_exists(&mut self, db: &str) -> Result<u64, Error> {
+    pub fn create_db_if_not_exists(&mut self, db: &str) -> Result<u64> {
         let query = format!("CREATE DATABASE {}", db);
         let res = self.client.execute(&query, &[]);
         if let Err(err) = res {
@@ -430,12 +426,12 @@ impl PgDb {
                     return Ok(0);
                 }
             }
-            return Err(err);
+            return Err(eyre! {err});
         }
-        res
+        Ok(res?)
     }
 
-    pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64, Error> {
+    pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64> {
         let sql = format!(
             r#"CREATE SCHEMA IF NOT EXISTS "{}""#,
             sanitize_string(schema.to_string())
@@ -443,7 +439,7 @@ impl PgDb {
 
         let mut attempt = 0;
         loop {
-            match self.exec(&sql, &[]) {
+            match self.client.execute(&sql, &[]) {
                 Ok(u64) => return Ok(u64),
                 Err(err) => {
                     if let Some(sql_state) = err.code() {
@@ -451,12 +447,12 @@ impl PgDb {
                         if sql_state != &SqlState::DUPLICATE_DATABASE
                             && sql_state != &SqlState::UNIQUE_VIOLATION
                         {
-                            return Err(err);
+                            return Err(eyre! {err});
                         }
                     }
                     attempt += 1;
                     if attempt > 3 {
-                        return Err(err);
+                        return Err(eyre! {err});
                     }
                 }
             }
@@ -465,7 +461,7 @@ impl PgDb {
 
     pub fn create_table(&mut self, sp: SqlParam) -> Result<u64, CreateTableError> {
         let query = format!("CREATE TABLE {} (_jsonb jsonb)", sp.clone());
-        match self.exec(&query, &[]) {
+        match self.client.execute(&query, &[]) {
             Ok(u64) => Ok(u64),
             Err(err) => {
                 if let Some(sql_state) = err.code() {
@@ -482,7 +478,7 @@ impl PgDb {
         }
     }
 
-    pub fn create_table_if_not_exists(&mut self, schema: &str, table: &str) -> Result<u64, Error> {
+    pub fn create_table_if_not_exists(&mut self, schema: &str, table: &str) -> Result<u64> {
         let name = SqlParam::new(schema, table).sanitize();
         let sql = format!("CREATE TABLE IF NOT EXISTS {} (_jsonb jsonb)", name);
 
@@ -490,7 +486,7 @@ impl PgDb {
 
         let mut attempt = 0;
         loop {
-            match self.exec(&sql, &[]) {
+            match self.client.execute(&sql, &[]) {
                 Ok(u64) => return Ok(u64),
                 Err(err) => {
                     if let Some(sql_state) = err.code() {
@@ -498,19 +494,19 @@ impl PgDb {
                         if sql_state != &SqlState::DUPLICATE_DATABASE
                             && sql_state != &SqlState::UNIQUE_VIOLATION
                         {
-                            return Err(err);
+                            return Err(eyre! {err});
                         }
                     }
                     attempt += 1;
                     if attempt > 3 {
-                        return Err(err);
+                        return Err(eyre! {err});
                     }
                 }
             }
         }
     }
 
-    pub fn create_index(&mut self, sp: &SqlParam, index: &Document) -> Result<u64, Error> {
+    pub fn create_index(&mut self, sp: &SqlParam, index: &Document) -> Result<u64> {
         let fields: Vec<String> = index
             .get_document("key")
             .unwrap()
@@ -534,23 +530,23 @@ impl PgDb {
         self.exec(&sql, &[])
     }
 
-    pub fn drop_db(&mut self, schema: &str) -> Result<u64, Error> {
+    pub fn drop_db(&mut self, schema: &str) -> Result<u64> {
         let sql = format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", schema);
         self.exec(&sql, &[])
     }
 
-    pub fn drop_schema(&mut self, schema: &str) -> Result<u64, Error> {
+    pub fn drop_schema(&mut self, schema: &str) -> Result<u64> {
         let sql = format!("DROP SCHEMA IF EXISTS {} CASCADE", schema);
         self.exec(&sql, &[])
     }
 
-    pub fn drop_table(&mut self, sp: &SqlParam) -> Result<u64, Error> {
+    pub fn drop_table(&mut self, sp: &SqlParam) -> Result<u64> {
         let name = sp.sanitize();
         let sql = format!("DROP TABLE IF EXISTS {}", name);
         self.exec(&sql, &[])
     }
 
-    pub fn schema_stats(&mut self, schema: &str, collection: Option<&str>) -> Result<Row, Error> {
+    pub fn schema_stats(&mut self, schema: &str, collection: Option<&str>) -> Result<Row> {
         let mut sql = format!(
             r#"
             SELECT COUNT(distinct t.table_name)::integer                                                          AS TableCount,
@@ -579,7 +575,9 @@ impl PgDb {
             );
         }
 
-        self.client.query_one(&sql, &[])
+        self.client
+            .query_one(&sql, &[])
+            .wrap_err_with(|| eyre!("Failed to get schema stats for {}", schema))
     }
 }
 
@@ -606,7 +604,7 @@ impl SqlParam {
         )
     }
 
-    pub fn exists(&self, client: &mut PgDb) -> Result<bool, Error> {
+    pub fn exists(&self, client: &mut PgDb) -> Result<bool> {
         client.table_exists(&self.db, &self.collection)
     }
 
