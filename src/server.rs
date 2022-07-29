@@ -53,7 +53,7 @@ impl Server {
     pub fn start_with_pool(&self, pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) {
         let addr = format!("{}:{}", self.listen_addr, self.port);
         let listener = TcpListener::bind(&addr).unwrap();
-        let pool = ThreadPool::new(10);
+        let pool = ThreadPool::new(100);
         let generator = RequestId::init();
 
         log::info!("OxideDB listening on {}...", addr);
