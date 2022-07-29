@@ -3,7 +3,7 @@ use crate::parser::value_to_jsonb;
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
-use eyre::{eyre, Result, WrapErr};
+use eyre::{eyre, Result};
 use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
@@ -62,9 +62,10 @@ impl PgDb {
 
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
         log::debug!("SQL: {} - {:#?}", query, params);
-        self.client
-            .execute(query, params)
-            .wrap_err_with(|| format!("Error executing '{}'", query))
+        match self.client.execute(query, params) {
+            Ok(rows) => Ok(rows),
+            Err(e) => Err(eyre! {e}),
+        }
     }
 
     pub fn query(
@@ -172,7 +173,6 @@ impl PgDb {
 
         let sql = format!("DELETE FROM {}{}", sp.to_string(), where_str);
         self.exec(&sql, &[])
-            .wrap_err_with(|| format!("Error deleting from {}", sp))
     }
 
     pub fn update(
@@ -318,9 +318,10 @@ impl PgDb {
 
     pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {
         log::debug!("SQL: {} - {:#?}", query, params);
-        self.client
-            .query(query, params)
-            .wrap_err_with(|| format!("Error executing query: {}", query))
+        match self.client.query(query, params) {
+            Ok(rows) => Ok(rows),
+            Err(e) => Err(eyre! {e}),
+        }
     }
 
     fn get_query(&self, s: &str, sp: SqlParam) -> String {
@@ -575,9 +576,10 @@ impl PgDb {
             );
         }
 
-        self.client
-            .query_one(&sql, &[])
-            .wrap_err_with(|| eyre!("Failed to get schema stats for {}", schema))
+        match self.client.query_one(&sql, &[]) {
+            Ok(row) => Ok(row),
+            Err(err) => Err(eyre!("Error retrieving schema stats: {}", err)),
+        }
     }
 }
 

@@ -38,17 +38,21 @@ impl Handler for Aggregate {
         let sql = build_sql(&sp, pipeline).unwrap();
         log::debug!("SQL: {}", sql);
 
-        let res = client.raw_query(&sql, &[]).unwrap();
-        let res_doc = doc![
-            "cursor": doc! {
-                "firstBatch": pg_rows_to_bson(res),
-                "id": Bson::Int64(0),
-                "ns": format!("{}.{}", db, collection),
-            },
-            "ok": Bson::Double(1.0),
-        ];
+        match client.raw_query(&sql, &[]) {
+            Ok(rows) => {
+                let res_doc = doc![
+                    "cursor": doc! {
+                        "firstBatch": pg_rows_to_bson(rows),
+                        "id": Bson::Int64(0),
+                        "ns": format!("{}.{}", db, collection),
+                    },
+                    "ok": Bson::Double(1.0),
+                ];
 
-        return Ok(res_doc);
+                return Ok(res_doc);
+            }
+            Err(e) => Err(CommandExecutionError::new(e.to_string())),
+        }
     }
 }
 
@@ -69,7 +73,7 @@ pub fn build_sql(sp: &SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandE
                 // adds the group stage
                 match process_group(stage_doc.get_document("$group").unwrap()) {
                     Ok(sql) => stages.push((name.to_string(), sql)),
-                    Err(err) => return Err(CommandExecutionError::new(err.message)),
+                    Err(err) => return Err(CommandExecutionError::new(err.to_string())),
                 }
 
                 // and wraps it into a jsonb object
