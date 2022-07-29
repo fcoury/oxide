@@ -13,6 +13,8 @@ document store, without any sharding features
 On the other hand, if your use-case leverages MongoDB as a distributed database, then unfortunately this project might
 not be for you. At least right now supporting multi-sharding and scale-out deployments is not part of the roadmap.
 
+![Web UI](docs/assets/screenshot.png)
+
 ## Current status
 
 The project was heavily inspired by [FerretDB](https://ferretdb.io) and is on its early days. The main difference is that
@@ -26,26 +28,19 @@ You can check it out here: [mongodb-language-model-rust](https://github.com/fcou
 At this moment, it's being developed as a personal project, but contributors are highly welcomed. If that something you'd
 be interested on, be more than welcome to contact me.
 
-## Web interface
+## Online demo
 
-![Screenshot](docs/assets/screenshot.png)
+There's an online demo of the Web Interface live at https://demo.oxidedb.com/.
 
 ## Quickstart
 
 Download the [latest binary](https://github.com/fcoury/oxide/releases/latest) and run it. You will need to point it to a running PostgreSQL for Oxide to use as its backend.
 
 ```
-> $ ./oxide
-[2022-07-13T02:56:15Z ERROR oxide] No PostgreSQL URL specified.
-    Use --postgres-url <url> or env var DATABASE_URL to set the connection URL and try again.
-    For more information use --help.
-
 > $ ./oxide --postgres-url "postgres://postgres:postgres@localhost:5432/test"
-[2022-07-13T02:57:46Z INFO  oxide::server] Connecting to PostgreSQL database...
+[2022-07-13T02:57:46Z INFO  oxide::server] Connecting to postgres://*****:*****@localhost:5432/test...
 [2022-07-13T02:57:46Z INFO  oxide::server] OxideDB listening on 127.0.0.1:27017...
 ```
-
-You can also set the `DATABASE_URL` environment variable or even use a `.env` file.
 
 And with the database configuration set, you can use any [MongoDB](https://www.mongodb.com) client to connect to OxideDB, like [mongosh](https://www.mongodb.com/docs/mongodb-shell/):
 
@@ -77,6 +72,26 @@ test> db.col.insertMany([{ name: "Felipe" }, { name: "Fernanda" }]);
 test> db.col.find({ "name": "Fernanda" })
 [ { _id: ObjectId("62ce3536d10f489bc82520c6"), name: 'Fernanda' } ]
 ```
+
+## Quick intro
+
+[![Intro to OxideDB](docs/assets/video.png)](https://youtu.be/kAtjBVmB1GA)
+
+## Web interface
+
+If you want to perform quick queries on your database, you can use the built in web interface, just start oxide with the `--web` flag:
+
+```
+> $ ./oxide --postgres-url postgres://postgres:postgres@localhost:5432/oxide
+[2022-07-29T00:20:11Z INFO  oxide::server] Connecting to postgres://*****:*****@localhost:5432/oxide...
+[2022-07-29T00:20:11Z INFO  oxide::server] OxideDB listening on 0.0.0.0:27017...
+```
+
+Now just navigate to http://localhost:5432 and you'll be able to perform quick queries.
+
+## Running options
+
+You can also set the `DATABASE_URL` environment variable or even use a `.env` file.
 
 By default oxide will bind to 127.0.0.1 and port 27017. You can change those settings using the following parameters:
 
@@ -114,3 +129,10 @@ cd oxide
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
 make start
 ```
+
+## Web interface
+
+![Screenshot](docs/assets/screenshot.png)
+
+If you want to perform quick queries on your database, you can use the built in web interface.
+
