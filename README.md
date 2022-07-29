@@ -75,7 +75,7 @@ test> db.col.find({ "name": "Fernanda" })
 
 ## Quick intro
 
-[![Intro to OxideDB](docs/assets/video.png)](https://youtu.be/kAtjBVmB1GA)
+[![Intro to OxideDB](docs/assets/video.png)](https://youtu.be/8TkcGV0TkgM)
 
 ## Web interface
 
