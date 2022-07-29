@@ -30,7 +30,7 @@ be interested on, be more than welcome to contact me.
 
 ## Online demo
 
-There's an online demo of the Web Interface live at https://demo.oxidedb.com/.
+There's an online [demo of the Web Interface live hosted at Railway.app](https://demo.oxidedb.com/).
 
 ## Quickstart
 
@@ -129,10 +129,3 @@ cd oxide
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/test"
 make start
 ```
-
-## Web interface
-
-![Screenshot](docs/assets/screenshot.png)
-
-If you want to perform quick queries on your database, you can use the built in web interface.
-
