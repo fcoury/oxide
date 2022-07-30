@@ -2,6 +2,7 @@
 use crate::utils::{field_to_jsonb, flatten_object};
 use crate::{serializer::PostgresSerializer, utils::expand_object};
 use bson::{Bson, Document};
+use eyre::{eyre, Result};
 use mongodb_language_model::{
     Clause, Expression, ExpressionTreeClause, LeafClause, LeafValue, ListOperator, Operator,
     OperatorExpressionOperator, Value, ValueOperator,
@@ -9,60 +10,93 @@ use mongodb_language_model::{
 use serde_json::Map;
 use std::fmt;
 
-pub fn parse(doc: Document) -> String {
+#[derive(Debug)]
+struct UnimplementedError {
+    pub kind: String,
+    pub target: String,
+}
+
+impl UnimplementedError {
+    pub fn new(kind: &str, target: &str) -> Self {
+        Self {
+            kind: kind.to_string(),
+            target: target.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for UnimplementedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{} unimplemented: {}", self.kind, self.target)
+    }
+}
+
+impl std::error::Error for UnimplementedError {}
+
+pub fn parse(doc: Document) -> Result<String> {
     if doc.is_empty() {
-        return "".to_string();
+        return Ok("".to_string());
     }
     let bson: Bson = doc.into();
     let json = serde_json::Value::Object(
         expand_object(bson.into_psql_json().as_object().unwrap()).unwrap(),
     );
-    let str = serde_json::to_string(&json).unwrap();
-    let expression = mongodb_language_model::parse(&str).unwrap();
+    let str = serde_json::to_string(&json)?;
+    let expression = mongodb_language_model::parse(&str)?;
     log::trace!("{:#?}", expression);
     parse_expression(expression)
 }
 
-fn parse_expression(expression: Expression) -> String {
+fn parse_expression(expression: Expression) -> Result<String> {
     parse_clauses(expression.clauses)
 }
 
-fn parse_clauses(clauses: Vec<Clause>) -> String {
-    let sql: Vec<String> = clauses
-        .into_iter()
-        .map(|clause| parse_clause(clause))
-        .collect();
+fn parse_clauses(clauses: Vec<Clause>) -> Result<String> {
+    let mut sql = vec![];
+    for clause in clauses {
+        let result = parse_clause(clause);
+        if let Ok(clause) = result {
+            sql.push(clause);
+        } else {
+            return result;
+        }
+    }
 
     if sql.len() > 1 {
-        format!("({})", sql.join(" AND "))
+        Ok(format!("({})", sql.join(" AND ")))
     } else {
-        sql[0].to_string()
+        Ok(sql[0].to_string())
     }
 }
 
-fn parse_clause(clause: Clause) -> String {
+fn parse_clause(clause: Clause) -> Result<String> {
     match clause {
         Clause::Leaf(leaf) => parse_leaf(leaf),
         Clause::ExpressionTree(exp_tree) => parse_expression_tree(exp_tree),
     }
 }
 
-fn parse_leaf(leaf: LeafClause) -> String {
+fn parse_leaf(leaf: LeafClause) -> Result<String> {
     match leaf.value {
         Value::Leaf(leaf_value) => parse_leaf_value(leaf_value, leaf.key, None),
         Value::Operators(val_operators) => parse_value_operators(val_operators, leaf.key),
     }
 }
 
-fn parse_value_operators(val_operators: Vec<Operator>, field: String) -> String {
-    let values: Vec<String> = val_operators
+fn parse_value_operators(val_operators: Vec<Operator>, field: String) -> Result<String> {
+    let values: Result<Vec<String>> = val_operators
         .into_iter()
         .map(|operator| parse_operator(operator, field.clone()))
         .collect();
-    values.join("")
+
+    if let Ok(values) = values {
+        Ok(values.join(""))
+    } else {
+        Err(values.unwrap_err())
+    }
 }
 
-fn parse_operator(oper: Operator, field: String) -> String {
+fn parse_operator(oper: Operator, field: String) -> Result<String> {
     match oper {
         Operator::Value(value_oper) => parse_value_operator(value_oper, field.clone()),
         Operator::ExpressionOperator(expr_oper) => parse_expression_operator(expr_oper, field),
@@ -70,7 +104,7 @@ fn parse_operator(oper: Operator, field: String) -> String {
     }
 }
 
-fn parse_list_operator(list_oper: ListOperator, field: String) -> String {
+fn parse_list_operator(list_oper: ListOperator, field: String) -> Result<String> {
     match list_oper.operator.as_str() {
         "$in" | "$nin" => {
             let values: Vec<serde_json::Value> = list_oper
@@ -102,25 +136,37 @@ fn parse_list_operator(list_oper: ListOperator, field: String) -> String {
             );
 
             if list_oper.operator.as_str() == "$in" {
-                clause
+                Ok(clause)
             } else {
-                format!("NOT ({})", clause)
+                Ok(format!("NOT ({})", clause))
             }
         }
-        t => unimplemented!("parse_list_operator - unimplemented {:?}", t),
+        t => return Err(eyre!("list operator in parse_list_operator: {}", t)),
     }
 }
 
-fn parse_expression_operator(expr_oper: OperatorExpressionOperator, field: String) -> String {
-    let operators: Vec<String> = expr_oper
+fn parse_expression_operator(
+    expr_oper: OperatorExpressionOperator,
+    field: String,
+) -> Result<String> {
+    let operators: Result<Vec<String>> = expr_oper
         .operators
         .into_iter()
         .map(|operator| parse_operator(operator, field.clone()))
         .collect();
-    let operators_str = operators.join("");
-    match expr_oper.operator.as_str() {
-        "$not" => format!("NOT ({})", operators_str),
-        t => unimplemented!("parse_expression_operator - unimplemented operator {:?}", t),
+    if let Ok(operators) = operators {
+        let operators_str = operators.join("");
+        match expr_oper.operator.as_str() {
+            "$not" => Ok(format!("NOT ({})", operators_str)),
+            t => {
+                return Err(eyre!(
+                    "parse_expression_operator - unimplemented operator {:?}",
+                    t
+                ))
+            }
+        }
+    } else {
+        return Err(operators.unwrap_err());
     }
 }
 
@@ -136,7 +182,7 @@ fn translate_operator(oper: &str) -> &str {
     }
 }
 
-fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
+fn parse_value_operator(value_oper: ValueOperator, field: String) -> Result<String> {
     let operator = match value_oper.operator.as_str() {
         "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => {
             translate_operator(value_oper.operator.as_str())
@@ -158,9 +204,9 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
             if (value.is_boolean() && !value.as_bool().unwrap())
                 || value.is_number() && value.as_i64().unwrap() == 0
             {
-                return format!("NOT ({})", stmt);
+                return Ok(format!("NOT ({})", stmt));
             } else {
-                return stmt;
+                return Ok(stmt);
             }
         }
         t => unimplemented!("parse_value_operator - operator unimplemented {:?}", t),
@@ -169,25 +215,30 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> String {
     parse_leaf_value(value_oper.value, field, Some(operator))
 }
 
-fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> String {
+fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> Result<String> {
     let operator = match exp_tree.operator.as_str() {
         "$and" => "AND",
         "$or" => "OR",
         // FIXME handle $nor expression
         // #17 - https://github.com/fcoury/oxide/issues/17
         // "$nor" => "NOR", FIXME
-        t => unimplemented!("parse_expression_tree operator unimplemented = {:?}", t),
+        t => {
+            return Err(eyre!(
+                "parse_expression_tree operator unimplemented = {:?}",
+                t
+            ))
+        }
     };
     let sql: Vec<String> = exp_tree
         .expressions
         .into_iter()
-        .map(|exp| parse_expression(exp))
+        .map(|exp| parse_expression(exp).unwrap())
         .collect();
 
     if sql.len() > 1 {
-        format!("({})", sql.join(&format!(" {} ", operator)))
+        Ok(format!("({})", sql.join(&format!(" {} ", operator))))
     } else {
-        sql[0].to_string()
+        Ok(sql[0].to_string())
     }
 }
 
@@ -209,7 +260,7 @@ impl fmt::Display for OperatorValueType {
     }
 }
 
-fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String {
+fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<String> {
     let mut res = vec![];
     let source_flat_obj = flatten_object(object);
     let mut flat_obj: Map<String, serde_json::Value> = Map::new();
@@ -278,12 +329,12 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String 
                     let str = format!("{} = ANY('{{{}}}')", field, values);
 
                     if operator == "$nin" {
-                        return format!("NOT ({})", str);
+                        return Ok(format!("NOT ({})", str));
                     }
 
-                    return str;
+                    return Ok(str);
                 }
-                t => unimplemented!("parse_object - unimplemented {:?}", t),
+                t => unimplemented!("parse_object - unimplemented {:?} in ${:?}", t, object),
             }
         } else {
             "="
@@ -299,10 +350,10 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> String 
         res.push(format!("{} {} {}", field, oper, value));
     }
 
-    res.join(" AND ")
+    Ok(res.join(" AND "))
 }
 
-fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) -> String {
+fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) -> Result<String> {
     let json = leaf_value.value;
     let mut field = field_to_jsonb(&f);
 
@@ -319,7 +370,12 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) ->
     }
 
     let oper = operator.unwrap_or("=");
-    format!("{} {} {}", field, oper, value_to_jsonb(json.to_string()))
+    Ok(format!(
+        "{} {} {}",
+        field,
+        oper,
+        value_to_jsonb(json.to_string())
+    ))
 }
 
 #[cfg(test)]
@@ -330,13 +386,13 @@ mod tests {
     #[test]
     fn test_empty() {
         let doc = doc! {};
-        assert_eq!("", parse(doc));
+        assert_eq!("", parse(doc).unwrap());
     }
 
     #[test]
     fn test_simple_str() {
         let doc = doc! {"name": "test"};
-        assert_eq!(r#"_jsonb->'name' = '"test"'"#, parse(doc))
+        assert_eq!(r#"_jsonb->'name' = '"test"'"#, parse(doc).unwrap())
     }
 
     #[test]
@@ -344,7 +400,7 @@ mod tests {
         let doc = doc! {"age": 12};
         assert_eq!(
             r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END = '12'"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -353,7 +409,7 @@ mod tests {
         let doc = doc! {"age": Bson::Double(1.2)};
         assert_eq!(
             r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END = '1.2'"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -362,7 +418,7 @@ mod tests {
         let doc = doc! {"a": "name", "b": 212};
         assert_eq!(
             r#"(_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END = '212')"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -373,7 +429,7 @@ mod tests {
         ]};
         assert_eq!(
             r#"(_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END = '212')"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -384,7 +440,7 @@ mod tests {
         ]};
         assert_eq!(
             r#"((jsonb_typeof(_jsonb->'a') = 'number' OR jsonb_typeof(_jsonb->'a'->'$f') = 'number') AND CASE WHEN (_jsonb->'a' ? '$f') THEN (_jsonb->'a'->>'$f')::numeric ELSE (_jsonb->'a')::numeric END = '1' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END = '2' AND (jsonb_typeof(_jsonb->'c') = 'number' OR jsonb_typeof(_jsonb->'c'->'$f') = 'number') AND CASE WHEN (_jsonb->'c' ? '$f') THEN (_jsonb->'c'->>'$f')::numeric ELSE (_jsonb->'c')::numeric END = '3')"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -396,7 +452,7 @@ mod tests {
         ]};
         assert_eq!(
             r#"((_jsonb->'a' = '"name"' AND (jsonb_typeof(_jsonb->'b') = 'number' OR jsonb_typeof(_jsonb->'b'->'$f') = 'number') AND CASE WHEN (_jsonb->'b' ? '$f') THEN (_jsonb->'b'->>'$f')::numeric ELSE (_jsonb->'b')::numeric END = '212') OR (_jsonb->'c' = '"name"' AND (jsonb_typeof(_jsonb->'d') = 'number' OR jsonb_typeof(_jsonb->'d'->'$f') = 'number') AND CASE WHEN (_jsonb->'d' ? '$f') THEN (_jsonb->'d'->>'$f')::numeric ELSE (_jsonb->'d')::numeric END = '212'))"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -405,7 +461,7 @@ mod tests {
         let doc = doc! {"age": {"$gt": 12}};
         assert_eq!(
             r#"(jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END > '12'"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -414,7 +470,7 @@ mod tests {
         let doc = doc! { "age": {"$not": {"$gt": 12 } } };
         assert_eq!(
             r#"NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END > '12')"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -423,7 +479,7 @@ mod tests {
         let doc = doc! { "x": 1, "age": {"$not": {"$gt": 12} }, "y": 2 };
         assert_eq!(
             r#"((jsonb_typeof(_jsonb->'x') = 'number' OR jsonb_typeof(_jsonb->'x'->'$f') = 'number') AND CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END = '1' AND NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END > '12') AND (jsonb_typeof(_jsonb->'y') = 'number' OR jsonb_typeof(_jsonb->'y'->'$f') = 'number') AND CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END = '2')"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -433,7 +489,7 @@ mod tests {
             doc! { "age": {"$not": {"$gt": 12} }, "$or": vec! [ doc!{ "y": 2 }, doc!{ "x": 1 } ]};
         assert_eq!(
             r#"(NOT ((jsonb_typeof(_jsonb->'age') = 'number' OR jsonb_typeof(_jsonb->'age'->'$f') = 'number') AND CASE WHEN (_jsonb->'age' ? '$f') THEN (_jsonb->'age'->>'$f')::numeric ELSE (_jsonb->'age')::numeric END > '12') AND ((jsonb_typeof(_jsonb->'y') = 'number' OR jsonb_typeof(_jsonb->'y'->'$f') = 'number') AND CASE WHEN (_jsonb->'y' ? '$f') THEN (_jsonb->'y'->>'$f')::numeric ELSE (_jsonb->'y')::numeric END = '2' OR (jsonb_typeof(_jsonb->'x') = 'number' OR jsonb_typeof(_jsonb->'x'->'$f') = 'number') AND CASE WHEN (_jsonb->'x' ? '$f') THEN (_jsonb->'x'->>'$f')::numeric ELSE (_jsonb->'x')::numeric END = '1'))"#,
-            parse(doc)
+            parse(doc).unwrap()
         )
     }
 
@@ -443,7 +499,7 @@ mod tests {
             "type": false,
         };
 
-        assert_eq!(r#"_jsonb->'type' = 'false'"#, parse(doc),);
+        assert_eq!(r#"_jsonb->'type' = 'false'"#, parse(doc).unwrap(),);
     }
 
     #[test]
@@ -457,31 +513,34 @@ mod tests {
             ]
         };
 
-        let res = parse(doc);
+        let res = parse(doc).unwrap();
         println!("  res = {}", res);
     }
 
     #[test]
     fn test_exists() {
-        assert_eq!(parse(doc! { "a": { "$exists": true } }), r#"_jsonb ? 'a'"#);
         assert_eq!(
-            parse(doc! { "a": { "$exists": false } }),
+            parse(doc! { "a": { "$exists": true } }).unwrap(),
+            r#"_jsonb ? 'a'"#
+        );
+        assert_eq!(
+            parse(doc! { "a": { "$exists": false } }).unwrap(),
             r#"NOT (_jsonb ? 'a')"#
         );
         assert_eq!(
-            parse(doc! { "a.b": { "$exists": 1 } }),
+            parse(doc! { "a.b": { "$exists": 1 } }).unwrap(),
             r#"_jsonb->'a' ? 'b'"#
         );
         assert_eq!(
-            parse(doc! { "a.b": { "$exists": 0 } }),
+            parse(doc! { "a.b": { "$exists": 0 } }).unwrap(),
             r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b')"#
         );
         assert_eq!(
-            parse(doc! { "a.b.c": { "$exists": 1 } }),
+            parse(doc! { "a.b.c": { "$exists": 1 } }).unwrap(),
             r#"_jsonb->'a'->'b' ? 'c'"#
         );
         assert_eq!(
-            parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }),
+            parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }).unwrap(),
             r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b' OR NOT _jsonb->'a'->'b' ? 'c' OR NOT _jsonb->'a'->'b'->'c' ? 'd' OR NOT _jsonb->'a'->'b'->'c'->'d' ? 'e' OR NOT _jsonb->'a'->'b'->'c'->'d'->'e' ? 'f')"#
         );
     }
@@ -489,7 +548,7 @@ mod tests {
     #[test]
     fn test_dot_nested() {
         assert_eq!(
-            parse(doc! { "config.get.method": "GET" }),
+            parse(doc! { "config.get.method": "GET" }).unwrap(),
             r#"_jsonb->'config'->'get'->'method' = '"GET"'"#
         )
     }
@@ -497,7 +556,7 @@ mod tests {
     #[test]
     fn test_nested_find() {
         assert_eq!(
-            parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }),
+            parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }).unwrap(),
             r#"_jsonb->'a'->'b'->'c' = '1' AND _jsonb->'a'->'b'->'d' = '2' AND _jsonb->'a'->'e' = '2'"#
         )
     }
@@ -505,7 +564,8 @@ mod tests {
     #[test]
     fn test_nested_expression() {
         assert_eq!(
-            parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } }),
+            parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } })
+                .unwrap(),
             r#"_jsonb->'a' ? 'b' AND _jsonb->'a'->'c' > '1' AND _jsonb->'a'->'e' = '"Felipe"'"#
         )
     }
@@ -513,7 +573,7 @@ mod tests {
     #[test]
     fn test_nested_exists_false() {
         assert_eq!(
-            parse(doc! { "a": { "b": { "c" :{ "$exists": false } } } }),
+            parse(doc! { "a": { "b": { "c" :{ "$exists": false } } } }).unwrap(),
             r#"(NOT _jsonb ? 'a' OR NOT _jsonb->'a' ? 'b' OR NOT _jsonb->'a'->'b' ? 'c')"#
         )
     }
@@ -521,22 +581,22 @@ mod tests {
     #[test]
     fn test_in() {
         assert_eq!(
-            parse(doc! { "a": { "$in": [1, 2] } }),
+            parse(doc! { "a": { "$in": [1, 2] } }).unwrap(),
             r#"_jsonb->>'a' = ANY('{1, 2}')"#
         );
 
         assert_eq!(
-            parse(doc! { "a": { "$in": ["a", "b"] } }),
+            parse(doc! { "a": { "$in": ["a", "b"] } }).unwrap(),
             r#"_jsonb->>'a' = ANY('{"a", "b"}')"#
         );
 
         assert_eq!(
-            parse(doc! { "a.b": { "$in": ["a", "b"] } }),
+            parse(doc! { "a.b": { "$in": ["a", "b"] } }).unwrap(),
             r#"_jsonb->'a'->>'b' = ANY('{"a", "b"}')"#
         );
 
         assert_eq!(
-            parse(doc! { "a": { "b": { "$in": ["a", "b"] } } }),
+            parse(doc! { "a": { "b": { "$in": ["a", "b"] } } }).unwrap(),
             r#"_jsonb->'a'->>'b' = ANY('{"a", "b"}')"#
         );
     }
@@ -544,22 +604,22 @@ mod tests {
     #[test]
     fn test_nin() {
         assert_eq!(
-            parse(doc! { "a": { "$nin": [1, 2] } }),
+            parse(doc! { "a": { "$nin": [1, 2] } }).unwrap(),
             r#"NOT (_jsonb->>'a' = ANY('{1, 2}'))"#
         );
 
         assert_eq!(
-            parse(doc! { "a": { "$nin": ["a", "b"] } }),
+            parse(doc! { "a": { "$nin": ["a", "b"] } }).unwrap(),
             r#"NOT (_jsonb->>'a' = ANY('{"a", "b"}'))"#
         );
 
         assert_eq!(
-            parse(doc! { "a.b": { "$nin": ["a", "b"] } }),
+            parse(doc! { "a.b": { "$nin": ["a", "b"] } }).unwrap(),
             r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
         );
 
         assert_eq!(
-            parse(doc! { "a": { "b": { "$nin": ["a", "b"] } } }),
+            parse(doc! { "a": { "b": { "$nin": ["a", "b"] } } }).unwrap(),
             r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
         );
     }

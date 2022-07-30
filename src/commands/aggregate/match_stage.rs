@@ -1,19 +1,20 @@
 use crate::parser::parse;
 use crate::utils::expand_fields;
 use bson::Document;
+use eyre::Result;
 
 use super::sql_statement::SqlStatement;
 
-pub fn process_match(doc: &Document) -> SqlStatement {
+pub fn process_match(doc: &Document) -> Result<SqlStatement> {
     let mut sql = SqlStatement::builder().build();
 
-    let filter_doc = expand_fields(&doc).unwrap();
-    let filter = parse(filter_doc);
+    let filter_doc = expand_fields(&doc)?;
+    let filter = parse(filter_doc)?;
     if filter != "" {
         sql.add_filter(&filter);
     }
 
-    sql
+    Ok(sql)
 }
 
 #[cfg(test)]
@@ -25,7 +26,7 @@ mod tests {
     #[test]
     fn test_process_match() {
         let doc = doc! { "age": { "$gt": 20 } };
-        let sql = process_match(&doc);
+        let sql = process_match(&doc).unwrap();
 
         assert_eq!(
             sql.filters[0],

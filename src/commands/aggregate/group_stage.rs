@@ -7,12 +7,12 @@ pub struct InvalidGroupError {
     pub message: String,
 }
 
-pub fn process_group(doc: &Document) -> Result<SqlStatement, InvalidGroupError> {
+pub fn process_group(doc: &Document) -> eyre::Result<SqlStatement> {
     let mut doc = doc.clone();
     let mut sql = SqlStatement::new();
 
     if doc.contains_key("_id") {
-        sql.append(&mut process_id(&mut doc));
+        sql.append(&mut process_id(&mut doc)?);
     }
 
     let doc = collapse_fields(&doc);
@@ -36,12 +36,10 @@ pub fn process_group(doc: &Document) -> Result<SqlStatement, InvalidGroupError> 
                             value = Bson::String(process(&sql_func, &i64val.to_string()));
                         }
                         _ => {
-                            return Err(InvalidGroupError {
-                                message: format!(
-                                    "Cannot currently use {} on non-numeric field",
-                                    oper
-                                ),
-                            });
+                            return Err(eyre::eyre!(
+                                "Cannot currently use {} on non-numeric field",
+                                oper
+                            ));
                         }
                     }
                 }
@@ -52,12 +50,10 @@ pub fn process_group(doc: &Document) -> Result<SqlStatement, InvalidGroupError> 
                         "$subtract" => "-",
                         "$divide" => "/",
                         _ => {
-                            return Err(InvalidGroupError {
-                                message: format!(
-                                    "Operation invalid or not yet implemented: {}",
-                                    key
-                                ),
-                            });
+                            return Err(eyre::eyre!(
+                                "Operation invalid or not yet implemented: {}",
+                                key
+                            ));
                         }
                     };
                     if let Some(values) = value.as_array() {
@@ -65,46 +61,50 @@ pub fn process_group(doc: &Document) -> Result<SqlStatement, InvalidGroupError> 
                         let items = parse_math_oper_params(values)?;
                         value = Bson::String(format!("{}", items.join(&format!(" {} ", oper))));
                     } else {
-                        return Err(InvalidGroupError {
-                            message: format!(
-                                "Cannot {} can only take an array, got {:?}",
-                                oper, value
-                            ),
-                        });
+                        return Err(eyre::eyre!(
+                            "Cannot {} can only take an array, got {:?}",
+                            oper,
+                            value
+                        ));
                     }
                 }
                 _ => {
-                    return Err(InvalidGroupError {
-                        message: format!("Operation missing or not implemented: {}", key),
-                    });
+                    return Err(eyre::eyre!("Operation missing or not implemented: {}", key));
                 }
             }
         }
-
-        sql.add_field(&format!("{} AS {}", value.as_str().unwrap(), keys[0]));
+        match value {
+            Bson::String(str_val) => {
+                sql.add_field(&format!("{} AS {}", str_val, keys[0]));
+            }
+            _ => {
+                return Err(eyre::eyre!(
+                    r#"The field '{}' must be an accumulator object. Try wrapping it on an object like {{ "field": {{ "{}": {} }} }}."#,
+                    raw_key,
+                    raw_key,
+                    value
+                ));
+            }
+        }
     }
 
     Ok(sql)
 }
 
-fn parse_math_oper_params(attributes: &bson::Array) -> Result<Vec<String>, InvalidGroupError> {
+fn parse_math_oper_params(attributes: &bson::Array) -> eyre::Result<Vec<String>> {
     let mut items: Vec<String> = vec![];
     for attr in attributes.into_iter() {
         match attr {
             Bson::String(str_val) => {
                 if !str_val.starts_with("$") {
-                    return Err(InvalidGroupError {
-                        message: format!("Prefixing fields with $ is mandatory. Use ${} if you want to use a field as attribute.", str_val),
-                    });
+                    return Err(eyre::eyre!("Prefixing fields with $ is mandatory. Use ${} if you want to use a field as attribute.", str_val));
                 }
                 items.push(convert_if_numeric(&field_to_jsonb(
                     str_val.strip_prefix("$").unwrap(),
                 )));
             }
             _ => {
-                return Err(InvalidGroupError {
-                    message: format!("Cannot use {:?} as a parameter", attr),
-                });
+                return Err(eyre::eyre!("Cannot use {:?} as a parameter", attr));
             }
         }
     }
