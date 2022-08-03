@@ -24,7 +24,7 @@ pub fn process_project(doc: &Document) -> Result<SqlStatement, InvalidProjection
             .filter(|k| k != "_id")
             .collect::<Vec<_>>();
 
-        if include_id {
+        if !has_id || include_id {
             fields.insert(0, "_id".to_string());
         }
 
