@@ -594,6 +594,32 @@ fn test_simple_exclusive_projection() {
 }
 
 #[test]
+fn test_match_date() {
+    let col = insert!(
+        doc! {
+            "date": bson::DateTime::builder().year(1998).month(2).day(12).build().unwrap(),
+            "value": 1,
+        },
+        doc! {
+            "date": bson::DateTime::builder().year(1999).month(2).day(13).build().unwrap(),
+            "value": 2,
+        },
+    );
+
+    let pipeline = doc! {
+        "$match": doc! {
+            "date": {
+                "$gte": bson::DateTime::builder().year(1999).month(2).day(13).build().unwrap(),
+            },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    assert_eq!(1, rows.len());
+    assert_eq!(2, rows[0].get_i32("value").unwrap());
+}
+
+#[test]
 fn test_match_group_project() {
     let col = insert!(
         doc! {

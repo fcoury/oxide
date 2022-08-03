@@ -359,7 +359,18 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) ->
 
     if json.is_object() {
         let obj = json.as_object().unwrap();
-        return parse_object(&f, obj);
+
+        if obj.contains_key("$d") {
+            let oper = operator.unwrap_or("=");
+            return Ok(format!(
+                "{}->'$d' {} {}",
+                field,
+                oper,
+                value_to_jsonb(obj["$d"].to_string())
+            ));
+        } else {
+            return parse_object(&f, obj);
+        }
     }
 
     if json.is_number() {
@@ -622,5 +633,13 @@ mod tests {
             parse(doc! { "a": { "b": { "$nin": ["a", "b"] } } }).unwrap(),
             r#"NOT (_jsonb->'a'->>'b' = ANY('{"a", "b"}'))"#
         );
+    }
+
+    #[test]
+    fn test_date() {
+        assert_eq!(
+            parse(doc! { "a": { "$gt": { "$d": Bson::Int64(1659448486285) } } }).unwrap(),
+            r#"_jsonb->'a'->'$d' > '1659448486285'"#
+        )
     }
 }
