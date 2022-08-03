@@ -6,7 +6,7 @@ version = "0.1.4"
 
 [dependencies]
 autoincrement = {version = "1", features = ["derive", "async"]}
-bson = {version = "2.3.0", features = ["chrono-0_4"]}
+bson = {version = "2.4.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
 chrono = "0.4"
 clap = {version = "3.2.8", features = ["derive"]}
