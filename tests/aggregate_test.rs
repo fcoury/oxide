@@ -709,3 +709,30 @@ fn test_project_id_exclusion() {
         vec!["name", "city", "pick"]
     );
 }
+
+#[test]
+fn test_project_literal() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "name": 1,
+            "city": 1,
+            "pick": 1,
+            "literal_num": { "$literal": 1 },
+            "literal_bool": { "$literal": true },
+            "literal_str": { "$literal": "value" },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(row.get("literal_num").unwrap().as_i32().unwrap(), 1);
+    assert_eq!(row.get("literal_bool").unwrap().as_bool().unwrap(), true);
+    assert_eq!(row.get("literal_str").unwrap().as_str().unwrap(), "value");
+}
