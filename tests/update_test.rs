@@ -182,7 +182,7 @@ fn test_update_with_inc_double_fields() {
 #[test]
 #[ignore]
 fn test_update_inc_with_nested_fields() {
-    todo!("nested fields are exanded but we don't consider those when building the update clause");
+    todo!("nested fields are expanded but we don't consider those when building the update clause");
 }
 
 #[test]
