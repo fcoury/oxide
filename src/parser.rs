@@ -305,7 +305,7 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
                 "$in" | "$nin" => {
                     if !v.is_array() {
                         // FIXME error this out
-                        todo!("Return an error when exists does't have an array");
+                        todo!("Return an error when exists doesn't have an array");
                     }
 
                     let field = parts
