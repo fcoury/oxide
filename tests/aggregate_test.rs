@@ -683,3 +683,29 @@ fn test_match_group_project() {
         vec!["_id", "age_avg"]
     );
 }
+
+#[test]
+fn test_project_id_exclusion() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "_id": 0,
+            "name": 1,
+            "city": 1,
+            "pick": 1,
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(
+        row.keys().into_iter().collect::<Vec<&String>>(),
+        vec!["name", "city", "pick"]
+    );
+}
