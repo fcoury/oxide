@@ -43,7 +43,20 @@ pub fn process_inclusion(doc: &Document) -> Result<Vec<String>, InvalidProjectio
                 None => res.push(format!("{}, {}", field, value.to_string())),
             }
         } else {
-            res.push(format!("'{}', _jsonb->'{}'", key, key));
+            match value {
+                Bson::String(field) => {
+                    if field.starts_with("$") {
+                        res.push(format!(
+                            "'{}', _jsonb->'{}'",
+                            key,
+                            field.strip_prefix("$").unwrap()
+                        ));
+                    } else {
+                        res.push(format!("'{}', '{}'", key, field));
+                    }
+                }
+                _ => res.push(format!("'{}', _jsonb->'{}'", key, key)),
+            }
         }
     }
 
@@ -83,12 +96,15 @@ pub fn process_project(doc: &Document) -> Result<SqlStatement, InvalidProjection
 }
 
 fn val_as_bool(key: String, value: &Bson) -> Result<Bson, InvalidProjectionError> {
+    // handling special operators
     let last = key.split(".").last().unwrap();
 
+    // $literal
     if last == "$literal" {
         return Ok(Bson::Boolean(true));
     }
 
+    // unsupported operators
     if last.starts_with("$") {
         return Err(InvalidProjectionError {
             message: format!(r#"Unrecognized expression "{}""#, last),
@@ -99,6 +115,7 @@ fn val_as_bool(key: String, value: &Bson) -> Result<Bson, InvalidProjectionError
         Bson::Int32(v) => Ok(Bson::Boolean(*v != 0)),
         Bson::Int64(v) => Ok(Bson::Boolean(*v != 0)),
         Bson::Double(v) => Ok(Bson::Boolean(*v != 0.0)),
+        Bson::String(_) => Ok(Bson::Boolean(true)),
         Bson::Document(v) => {
             let keys: Vec<&String> = v.keys().collect();
             if keys.len() > 1 {
@@ -289,6 +306,21 @@ mod tests {
         assert_eq!(fields[1], "'num', 1");
         assert_eq!(fields[2], "'bool', true");
         assert_eq!(fields[3], "'str', 'value'");
+    }
+
+    #[test]
+    fn test_process_inclusion_with_rename() {
+        let doc = doc! {
+            "field": "$from_field",
+            "num": "$number",
+            "non_field": "str value",
+        };
+        let flat = collapse_fields(&doc);
+        let fields = process_inclusion(&flat).unwrap();
+        assert_eq!(fields[0], "'_id', _jsonb->'_id'");
+        assert_eq!(fields[1], "'field', _jsonb->'from_field'");
+        assert_eq!(fields[2], "'num', _jsonb->'number'");
+        assert_eq!(fields[3], "'non_field', 'str value'");
     }
 
     #[test]
