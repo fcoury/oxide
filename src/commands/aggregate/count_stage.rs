@@ -12,7 +12,7 @@ pub fn process_count(count_field: &str) -> Result<SqlStatement> {
 
     let sql = SqlStatement::builder()
         .field(&format!(
-            "json_build_object('{}', COUNT(*)) AS _jsonb",
+            "json_build_object('{}', COUNT(*))::jsonb AS _jsonb",
             count_field
         ))
         .build();
@@ -29,7 +29,7 @@ mod tests {
 
         assert_eq!(
             sql.fields[0],
-            r#"json_build_object('total', COUNT(*)) AS _jsonb"#
+            r#"json_build_object('total', COUNT(*))::jsonb AS _jsonb"#
         );
     }
 
