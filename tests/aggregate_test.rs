@@ -844,3 +844,47 @@ fn test_count_match() {
     let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
     assert_eq!(rows.len(), 0);
 }
+
+#[test]
+fn test_skip() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+        },
+        doc! {
+            "name": "Jake",
+            "age": 28,
+        },
+    );
+
+    let pipeline = doc! {
+        "$skip": 1
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_str("name").unwrap(), "Jake");
+}
+
+#[test]
+fn test_limit() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+        },
+        doc! {
+            "name": "Jake",
+            "age": 28,
+        },
+    );
+
+    let pipeline = doc! {
+        "$limit": 1
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_str("name").unwrap(), "John");
+}
