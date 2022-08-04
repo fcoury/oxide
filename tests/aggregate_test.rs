@@ -736,3 +736,30 @@ fn test_project_literal() {
     assert_eq!(row.get("literal_bool").unwrap().as_bool().unwrap(), true);
     assert_eq!(row.get("literal_str").unwrap().as_str().unwrap(), "value");
 }
+
+#[test]
+fn test_project_rename() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "eyes": "brown",
+        "hair": "black",
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "nome": "$name",
+            "cidade": "$city",
+            "atributos.cabelo": "$hair",
+            "atributos.olhos": "$eyes",
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    let atributos = row.get_document("atributos").unwrap();
+    assert_eq!(row.get_str("nome").unwrap(), "John");
+    assert_eq!(atributos.get_str("cabelo").unwrap(), "black");
+    assert_eq!(atributos.get_str("olhos").unwrap(), "brown");
+}

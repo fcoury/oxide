@@ -1,6 +1,5 @@
-use bson::{Bson, Document};
-
-use crate::utils::collapse_fields;
+use crate::utils::{collapse_fields, expand_doc};
+use bson::{doc, Bson, Document};
 
 use super::sql_statement::SqlStatement;
 
@@ -9,58 +8,72 @@ pub struct InvalidProjectionError {
     pub message: String,
 }
 
-pub fn process_inclusion(doc: &Document) -> Result<Vec<String>, InvalidProjectionError> {
-    let mut res = vec![];
-
-    let mut doc = doc.clone();
-
-    if doc.contains_key("_id") {
-        let include = val_as_bool("_id".to_string(), &doc.get("_id").unwrap());
-        match include {
-            Ok(Bson::Boolean(true)) => (),
-            Ok(Bson::Boolean(false)) => {
-                doc.remove("_id");
-            },
-            Ok(v) => unimplemented!("Unexpected result of val_as_boolean evaluating _id inclusion on process_inclusion: {:?}", v),
-            Err(v) => return Err(v),
-        }
-    } else {
-        res.push("'_id', _jsonb->'_id'".to_string());
+pub fn handle_oper(doc: &Document) -> Result<Option<String>, InvalidProjectionError> {
+    let keys = doc.keys();
+    let opers: Vec<&String> = keys.filter(|k| k.starts_with("$")).collect();
+    if opers.len() < 1 {
+        return Ok(None);
     }
-
-    for (key, value) in doc.iter() {
-        let parts = key.split(".");
-        let count = parts.clone().count();
-        let last = parts.clone().last().unwrap();
-        if last == "$literal" {
-            let field = parts
-                .take(count - 1)
-                .map(|f| format!("'{}'", f))
-                .collect::<Vec<_>>()
-                .join("->");
-            match value.as_str() {
-                Some(v) => res.push(format!("{}, '{}'", field, v)),
-                None => res.push(format!("{}, {}", field, value.to_string())),
-            }
-        } else {
+    let oper = opers[0];
+    match oper.as_str() {
+        "$literal" => {
+            let value = doc.get(oper).unwrap();
             match value {
-                Bson::String(field) => {
-                    if field.starts_with("$") {
-                        res.push(format!(
-                            "'{}', _jsonb->'{}'",
-                            key,
-                            field.strip_prefix("$").unwrap()
-                        ));
-                    } else {
-                        res.push(format!("'{}', '{}'", key, field));
-                    }
-                }
-                _ => res.push(format!("'{}', _jsonb->'{}'", key, key)),
+                Bson::String(str) => Ok(Some(format!("'{}'", str))),
+                _ => Ok(Some(value.to_string())),
             }
         }
+        _ => Err(InvalidProjectionError {
+            message: format!("Unsupported operator: {}", oper),
+        }),
     }
+}
 
-    Ok(res)
+pub fn handle_field(key: String, value: &Bson) -> Option<String> {
+    match value {
+        Bson::String(str) => match str.strip_prefix("$") {
+            Some(str) => Some(format!("'{}', _jsonb->'{}'", key, str)),
+            None => Some(format!("'{}', '{}'", key, str)),
+        },
+        Bson::Int32(_) => Some(format!("'{}', _jsonb->'{}'", key, key)),
+        _ => Some(format!("'{}', {}", key, value.to_string())),
+    }
+}
+
+pub fn doc_to_json_build_object(doc: &Document) -> Result<String, InvalidProjectionError> {
+    let mut fields = vec![];
+    for (key, value) in expand_doc(doc) {
+        match value {
+            Bson::Document(doc) => {
+                // finds operations
+                match handle_oper(&doc) {
+                    Ok(value) => {
+                        match value {
+                            // is an operation, got the value back
+                            Some(value) => fields.push(format!("'{}', {}", key, value)),
+
+                            // no operation, let's parse as document
+                            None => {
+                                // if no operation, just insert the field
+                                let doc = doc_to_json_build_object(&doc)?;
+                                fields.push(format!("'{}', {}", key, doc))
+                            }
+                        }
+                    }
+                    Err(v) => return Err(v),
+                }
+            }
+            _ => match handle_field(key.clone(), &value) {
+                Some(str) => fields.push(str),
+                None => {
+                    return Err(InvalidProjectionError {
+                        message: format!("Unsupported value for key {}: {}", key, value),
+                    })
+                }
+            },
+        }
+    }
+    Ok(format!("json_build_object({})", fields.join(", ")))
 }
 
 pub fn process_project(doc: &Document) -> Result<SqlStatement, InvalidProjectionError> {
@@ -68,12 +81,32 @@ pub fn process_project(doc: &Document) -> Result<SqlStatement, InvalidProjection
 
     let mut sql = SqlStatement::new();
 
-    if is_inclusion(doc)? {
-        let fields = process_inclusion(doc)?;
-        sql.add_field(&format!(
-            "json_build_object({}) AS _jsonb",
-            fields.join(", ")
-        ));
+    let mut doc = doc.clone();
+    if is_inclusion(&doc)? {
+        match doc.get("_id") {
+            Some(id) => {
+                let keep_id = val_as_bool("_id".to_string(), id)
+                    .unwrap()
+                    .as_bool()
+                    .unwrap();
+                if !keep_id {
+                    doc.remove("_id");
+                }
+                sql.add_field(&format!("{} AS _jsonb", &doc_to_json_build_object(&doc)?));
+            }
+            None => {
+                let mut new_doc = doc! {
+                    "_id": 1
+                };
+                for (key, value) in doc {
+                    new_doc.insert(key.clone(), value.clone());
+                }
+                sql.add_field(&format!(
+                    "{} AS _jsonb",
+                    &doc_to_json_build_object(&new_doc)?
+                ));
+            }
+        }
     } else {
         let has_id = doc.contains_key("_id");
         let include_id = has_id
@@ -283,12 +316,11 @@ mod tests {
             "str": { "$literal": "value" },
         };
         let flat = collapse_fields(&doc);
-        let fields = process_inclusion(&flat).unwrap();
-        assert_eq!(fields[0], "'_id', _jsonb->'_id'");
-        assert_eq!(fields[1], "'pick', _jsonb->'pick'");
-        assert_eq!(fields[2], "'num', 1");
-        assert_eq!(fields[3], "'bool', true");
-        assert_eq!(fields[4], "'str', 'value'");
+        let fields = doc_to_json_build_object(&flat).unwrap();
+        assert_eq!(
+            fields,
+            "json_build_object('pick', _jsonb->'pick', 'num', 1, 'bool', true, 'str', 'value')"
+        );
     }
 
     #[test]
@@ -301,11 +333,11 @@ mod tests {
             "str": { "$literal": "value" },
         };
         let flat = collapse_fields(&doc);
-        let fields = process_inclusion(&flat).unwrap();
-        assert_eq!(fields[0], "'pick', _jsonb->'pick'");
-        assert_eq!(fields[1], "'num', 1");
-        assert_eq!(fields[2], "'bool', true");
-        assert_eq!(fields[3], "'str', 'value'");
+        let fields = process_project(&flat).unwrap();
+        assert_eq!(
+            fields.to_string(),
+            "SELECT json_build_object('pick', _jsonb->'pick', 'num', 1, 'bool', true, 'str', 'value') AS _jsonb "
+        );
     }
 
     #[test]
@@ -316,11 +348,27 @@ mod tests {
             "non_field": "str value",
         };
         let flat = collapse_fields(&doc);
-        let fields = process_inclusion(&flat).unwrap();
-        assert_eq!(fields[0], "'_id', _jsonb->'_id'");
-        assert_eq!(fields[1], "'field', _jsonb->'from_field'");
-        assert_eq!(fields[2], "'num', _jsonb->'number'");
-        assert_eq!(fields[3], "'non_field', 'str value'");
+        let fields = doc_to_json_build_object(&flat).unwrap();
+        assert_eq!(
+            fields,
+            "json_build_object('field', _jsonb->'from_field', 'num', _jsonb->'number', 'non_field', 'str value')"
+        );
+    }
+
+    #[test]
+    fn test_process_inclusion_with_nested_rename() {
+        let doc = doc! {
+            "field.one": "$from_field",
+            "field.two": "$number",
+            "field.three.$literal": "$number",
+            "non_field": "str value",
+        };
+        let flat = collapse_fields(&doc);
+        let fields = doc_to_json_build_object(&flat).unwrap();
+        assert_eq!(
+            fields,
+            "json_build_object('field', json_build_object('one', _jsonb->'from_field', 'two', _jsonb->'number', 'three', '$number'), 'non_field', 'str value')"
+        );
     }
 
     #[test]
@@ -333,5 +381,44 @@ mod tests {
         };
         let sql = process_project(&doc).unwrap();
         assert_eq!(sql.to_string(), "SELECT json_build_object('_id', _jsonb->'_id', 'pick', _jsonb->'pick', 'num', 1, 'bool', true, 'str', 'value') AS _jsonb ");
+    }
+
+    #[test]
+    fn test_rename() {
+        let doc = doc! {
+            "complete_name": "$name",
+            "place": "$city",
+            "attr.hair_color": "$hair",
+            "attr.eyes_color": "$eyes",
+        };
+        let sql = process_project(&doc).unwrap();
+        assert_eq!(sql.to_string(), "SELECT json_build_object('_id', _jsonb->'_id', 'complete_name', _jsonb->'name', 'place', _jsonb->'city', 'attr', json_build_object('hair_color', _jsonb->'hair', 'eyes_color', _jsonb->'eyes')) AS _jsonb ");
+    }
+
+    #[test]
+    pub fn test_doc_to_json_object() {
+        let doc = doc! {
+            "include": 1,
+            "complete_name": "$name",
+            "place": "$city",
+            "attr.hair_color": "$hair",
+            "attr.eyes_color": "$eyes",
+            "name.$literal": "Felipe",
+            "age.$literal": 30,
+        };
+        let str = doc_to_json_build_object(&doc).unwrap();
+        assert_eq!(str, "json_build_object('include', _jsonb->'include', 'complete_name', _jsonb->'name', 'place', _jsonb->'city', 'attr', json_build_object('hair_color', _jsonb->'hair', 'eyes_color', _jsonb->'eyes'), 'name', 'Felipe', 'age', 30)");
+    }
+
+    #[test]
+    pub fn test_handle_oper() {
+        assert_eq!("1", handle_oper(&doc! { "$literal": 1 }).unwrap().unwrap());
+        assert_eq!(
+            "'Felipe'",
+            handle_oper(&doc! { "$literal": "Felipe" })
+                .unwrap()
+                .unwrap()
+        );
+        assert_eq!(None, handle_oper(&doc! { "name": 1 }).unwrap());
     }
 }
