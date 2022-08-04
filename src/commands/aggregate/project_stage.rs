@@ -40,6 +40,21 @@ pub fn handle_field(key: String, value: &Bson) -> Option<String> {
     }
 }
 
+pub fn arr_to_json_build_array(arr: &Vec<Bson>) -> Result<String, InvalidProjectionError> {
+    let fields: Vec<String> = arr
+        .iter()
+        .map(|v| match v {
+            Bson::String(str) => match str.strip_prefix("$") {
+                Some(str) => format!("_jsonb->'{}'", str),
+                None => format!("'{}'", str),
+            },
+            Bson::Int32(i) => format!("{}", i),
+            _ => format!("{}", v.to_string()),
+        })
+        .collect();
+    Ok(format!("json_build_array({})", fields.join(", ")))
+}
+
 pub fn doc_to_json_build_object(doc: &Document) -> Result<String, InvalidProjectionError> {
     let mut fields = vec![];
     for (key, value) in expand_doc(doc) {
@@ -62,6 +77,9 @@ pub fn doc_to_json_build_object(doc: &Document) -> Result<String, InvalidProject
                     }
                     Err(v) => return Err(v),
                 }
+            }
+            Bson::Array(arr) => {
+                fields.push(format!("'{}', {}", key, arr_to_json_build_array(&arr)?));
             }
             _ => match handle_field(key.clone(), &value) {
                 Some(str) => fields.push(str),
@@ -149,6 +167,7 @@ fn val_as_bool(key: String, value: &Bson) -> Result<Bson, InvalidProjectionError
         Bson::Int64(v) => Ok(Bson::Boolean(*v != 0)),
         Bson::Double(v) => Ok(Bson::Boolean(*v != 0.0)),
         Bson::String(_) => Ok(Bson::Boolean(true)),
+        Bson::Array(_) => Ok(Bson::Boolean(true)),
         Bson::Document(v) => {
             let keys: Vec<&String> = v.keys().collect();
             if keys.len() > 1 {
@@ -420,5 +439,39 @@ mod tests {
                 .unwrap()
         );
         assert_eq!(None, handle_oper(&doc! { "name": 1 }).unwrap());
+    }
+
+    #[test]
+    pub fn test_process_project_with_array() {
+        let doc = doc! {
+            "_id": 0,
+            "myArray": ["$x", "$y"],
+        };
+        let sql = process_project(&doc).unwrap();
+        assert_eq!(
+            sql.to_string(),
+            "SELECT json_build_object('myArray', json_build_array(_jsonb->'x', _jsonb->'y')) AS _jsonb "
+        );
+    }
+
+    #[test]
+    pub fn test_arr_to_json_build_array_with_fields() {
+        let arr = vec![
+            Bson::String("$x".to_string()),
+            Bson::String("$y".to_string()),
+        ];
+        let str = arr_to_json_build_array(&arr).unwrap();
+        assert_eq!(str, "json_build_array(_jsonb->'x', _jsonb->'y')");
+    }
+
+    #[test]
+    pub fn test_arr_to_json_build_array_with_literal() {
+        let arr = vec![
+            Bson::Int32(1),
+            Bson::Int32(2),
+            Bson::String("Felipe".to_string()),
+        ];
+        let str = arr_to_json_build_array(&arr).unwrap();
+        assert_eq!(str, "json_build_array(1, 2, 'Felipe')");
     }
 }
