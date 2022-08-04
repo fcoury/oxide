@@ -805,3 +805,42 @@ fn test_count_stage() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_i32("count").unwrap(), 1);
 }
+
+#[test]
+fn test_count_match() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipelines = vec![
+        doc! {
+            "$count": "count",
+        },
+        doc! {
+            "$match": doc! {
+                "count": { "$gt": 0 }
+            }
+        },
+    ];
+
+    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_i32("count").unwrap(), 1);
+
+    let pipelines = vec![
+        doc! {
+            "$count": "count",
+        },
+        doc! {
+            "$match": doc! {
+                "count": { "$gt": 1 }
+            }
+        },
+    ];
+
+    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    assert_eq!(rows.len(), 0);
+}
