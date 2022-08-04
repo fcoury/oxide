@@ -683,3 +683,107 @@ fn test_match_group_project() {
         vec!["_id", "age_avg"]
     );
 }
+
+#[test]
+fn test_project_id_exclusion() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "_id": 0,
+            "name": 1,
+            "city": 1,
+            "pick": 1,
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(
+        row.keys().into_iter().collect::<Vec<&String>>(),
+        vec!["name", "city", "pick"]
+    );
+}
+
+#[test]
+fn test_project_literal() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "name": 1,
+            "city": 1,
+            "pick": 1,
+            "literal_num": { "$literal": 1 },
+            "literal_bool": { "$literal": true },
+            "literal_str": { "$literal": "value" },
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(row.get("literal_num").unwrap().as_i32().unwrap(), 1);
+    assert_eq!(row.get("literal_bool").unwrap().as_bool().unwrap(), true);
+    assert_eq!(row.get("literal_str").unwrap().as_str().unwrap(), "value");
+}
+
+#[test]
+fn test_project_rename() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "eyes": "brown",
+        "hair": "black",
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "nome": "$name",
+            "cidade": "$city",
+            "atributos.cabelo": "$hair",
+            "atributos.olhos": "$eyes",
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    let atributos = row.get_document("atributos").unwrap();
+    assert_eq!(row.get_str("nome").unwrap(), "John");
+    assert_eq!(atributos.get_str("cabelo").unwrap(), "black");
+    assert_eq!(atributos.get_str("olhos").unwrap(), "brown");
+}
+
+#[test]
+fn test_project_array() {
+    let col = insert!(doc! {
+        "x": 1,
+        "y": 2,
+    });
+
+    let pipeline = doc! {
+        "$project": {
+            "myArray": ["$y", "$x", "Felipe", 3, "$notfound"],
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let row = rows[0].clone();
+    let my_array = row.get_array("myArray").unwrap();
+    assert_eq!(my_array.len(), 5);
+    assert_eq!(my_array[0].as_i32().unwrap(), 2);
+    assert_eq!(my_array[1].as_i32().unwrap(), 1);
+    assert_eq!(my_array[2].as_str().unwrap(), "Felipe");
+    assert_eq!(my_array[3].as_i32().unwrap(), 3);
+    assert_eq!(my_array[4].as_null().unwrap(), ());
+}

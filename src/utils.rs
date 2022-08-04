@@ -128,6 +128,36 @@ pub fn collapse_fields(doc: &Document) -> Document {
     collapsed
 }
 
+pub fn expand_doc(in_doc: &Document) -> Document {
+    let mut doc = doc! {};
+    for (key, value) in in_doc.iter() {
+        if key.contains(".") {
+            let mut parts = key.splitn(2, ".");
+            let k = parts.next().unwrap();
+            let rest = parts.next().unwrap();
+
+            let mut tmp_doc = match doc.get(k) {
+                Some(d) => match d.as_document() {
+                    Some(d) => d.clone(),
+                    None => {
+                        let mut final_doc = doc! {};
+                        final_doc.insert(k, d);
+                        final_doc.clone()
+                    }
+                },
+                None => doc! {},
+            };
+
+            tmp_doc.insert(rest, value.clone());
+
+            doc.insert(k, expand_doc(&tmp_doc));
+        } else {
+            doc.insert(key, value);
+        }
+    }
+    doc
+}
+
 pub fn flatten_object(obj: &Map<String, Value>) -> Map<String, Value> {
     let mut collapsed = Map::new();
     for (key, value) in obj.iter() {
@@ -260,4 +290,36 @@ pub fn convert_if_numeric(field: &str) -> String {
         "CASE WHEN ({} ? '$f') THEN ({}->>'$f')::numeric ELSE ({})::numeric END",
         field, field, field
     )
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_expand_fields() {
+        let doc = doc! {
+            "a.b.c.d": 1,
+            "a.b.d": 2,
+            "a.b.c.f": 3,
+            "b": 4,
+        };
+
+        let expanded = expand_doc(&doc);
+        assert_eq!(
+            expanded,
+            doc! {
+                "a": {
+                    "b": {
+                        "c": {
+                            "d": 1,
+                            "f": 3
+                        },
+                        "d": 2
+                    }
+                },
+                "b": 4,
+            }
+        );
+    }
 }
