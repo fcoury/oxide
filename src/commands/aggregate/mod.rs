@@ -129,6 +129,34 @@ pub fn build_sql(sp: &SqlParam, pipeline: &Vec<Bson>) -> Result<String, CommandE
                     return Err(CommandExecutionError::new(e.to_string()));
                 }
             },
+            "$skip" => {
+                // if there are no stages, add one
+                if stages.len() < 1 {
+                    stages.push((name.to_string(), SqlStatement::new()));
+                }
+
+                // adds offset to the last stage so far
+                if let Some(last_stage) = stages.last_mut() {
+                    // FIXME: the documentation states i64 but we're using i32 here
+                    //        https://www.mongodb.com/docs/manual/reference/operator/aggregation/skip/
+                    last_stage.1.offset =
+                        Some(stage_doc.get_i32("$skip").unwrap().try_into().unwrap());
+                }
+            }
+            "$limit" => {
+                // if there are no stages, add one
+                if stages.len() < 1 {
+                    stages.push((name.to_string(), SqlStatement::new()));
+                }
+
+                // adds offset to the last stage so far
+                if let Some(last_stage) = stages.last_mut() {
+                    // FIXME: the documentation states i64 but we're using i32 here
+                    //        https://www.mongodb.com/docs/manual/reference/operator/aggregation/skip/
+                    last_stage.1.limit =
+                        Some(stage_doc.get_i32("$limit").unwrap().try_into().unwrap());
+                }
+            }
             _ => {
                 return Err(CommandExecutionError::new(format!(
                     "Unrecognized pipeline stage name: '{}'",

@@ -30,6 +30,8 @@ pub struct SqlStatement {
     pub filters: Vec<String>,
     pub from: Option<FromTypes>,
     pub orders: Vec<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 impl Display for SqlStatement {
@@ -94,6 +96,20 @@ impl SqlStatement {
         format!(" ORDER BY {}", self.orders.join(", "))
     }
 
+    pub fn offset_as_str(&self) -> String {
+        if self.offset.is_none() {
+            return "".to_string();
+        }
+        format!(" OFFSET {}", self.offset.unwrap())
+    }
+
+    pub fn limit_as_str(&self) -> String {
+        if self.limit.is_none() {
+            return "".to_string();
+        }
+        format!(" LIMIT {}", self.limit.unwrap())
+    }
+
     pub fn set_table(&mut self, table: SqlParam) {
         self.from = Some(FromTypes::Table(table));
     }
@@ -112,12 +128,14 @@ impl SqlStatement {
         };
 
         format!(
-            "SELECT {} {}{}{}{}",
+            "SELECT {} {}{}{}{}{}{}",
             self.fields_as_str(),
             from,
             where_str,
             self.groups_as_str(),
             self.order_as_str(),
+            self.limit_as_str(),
+            self.offset_as_str(),
         )
     }
 
@@ -140,6 +158,8 @@ pub struct SqlStatementBuilder {
     filters: Vec<String>,
     from: Option<FromTypes>,
     orders: Vec<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 impl SqlStatementBuilder {
@@ -159,6 +179,16 @@ impl SqlStatementBuilder {
 
     pub fn from(mut self, from: FromTypes) -> Self {
         self.from = Some(from);
+        self
+    }
+
+    pub fn limit(mut self, limit: i64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn offset(mut self, offset: i64) -> Self {
+        self.offset = Some(offset);
         self
     }
 
@@ -198,6 +228,8 @@ impl SqlStatementBuilder {
             filters: self.filters,
             from: self.from,
             orders: self.orders,
+            limit: self.limit,
+            offset: self.offset,
         }
     }
 }
@@ -284,6 +316,31 @@ mod tests {
         assert_eq!(
             sql.to_string(),
             r#"SELECT state, sum(1) AS count FROM "schema"."table" GROUP BY state"#
+        );
+    }
+
+    #[test]
+    fn test_limit_and_offset() {
+        let sql = SqlStatement::builder()
+            .from(FromTypes::Table(SqlParam::new("schema", "table")))
+            .limit(2)
+            .offset(10)
+            .build();
+        assert_eq!(
+            sql.to_string(),
+            r#"SELECT * FROM "schema"."table" LIMIT 2 OFFSET 10"#
+        );
+    }
+
+    #[test]
+    fn test_offset() {
+        let sql = SqlStatement::builder()
+            .from(FromTypes::Table(SqlParam::new("schema", "table")))
+            .offset(10)
+            .build();
+        assert_eq!(
+            sql.to_string(),
+            r#"SELECT * FROM "schema"."table" OFFSET 10"#
         );
     }
 }
