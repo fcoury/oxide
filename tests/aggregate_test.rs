@@ -787,3 +787,21 @@ fn test_project_array() {
     assert_eq!(my_array[3].as_i32().unwrap(), 3);
     assert_eq!(my_array[4].as_null().unwrap(), ());
 }
+
+#[test]
+fn test_count_stage() {
+    let col = insert!(doc! {
+        "name": "John",
+        "age": 30,
+        "city": "New York",
+        "pick": true,
+    });
+
+    let pipeline = doc! {
+        "$count": "count"
+    };
+
+    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_i32("count").unwrap(), 1);
+}
