@@ -1,5 +1,4 @@
-use crate::commands::{InvalidUpdateError, UpdateDoc, UpdateOper};
-use crate::parser::value_to_jsonb;
+use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
