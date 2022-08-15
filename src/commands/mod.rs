@@ -47,10 +47,7 @@ pub use self::list_collections::ListCollections;
 pub use self::list_databases::ListDatabases;
 pub use self::list_indexes::ListIndexes;
 pub use self::ping::Ping;
-pub use self::update::InvalidUpdateError;
 pub use self::update::Update;
-pub use self::update::UpdateDoc;
-pub use self::update::UpdateOper;
 pub use self::whats_my_uri::WhatsMyUri;
 
 pub trait Handler {

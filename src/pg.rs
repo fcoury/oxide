@@ -1,3 +1,4 @@
+use crate::deserializer::PostgresJsonDeserializer;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
@@ -29,6 +30,12 @@ impl StdError for AlreadyExistsError {}
 pub enum CreateTableError {
     AlreadyExists(AlreadyExistsError),
     Other(Error),
+}
+
+#[derive(Debug)]
+pub enum UpdateResult {
+    Count(u64),
+    Document(Document),
 }
 
 #[derive(Debug)]
@@ -180,7 +187,8 @@ impl PgDb {
         update: UpdateOper,
         upsert: bool,
         multi: bool,
-    ) -> Result<u64> {
+        returning: bool,
+    ) -> Result<UpdateResult> {
         let mut where_str = if let Some(f) = filter {
             if f.keys().count() < 1 {
                 "".to_string()
@@ -191,6 +199,8 @@ impl PgDb {
             "".to_string()
         };
 
+        let return_str = if returning { " RETURNING _jsonb" } else { "" };
+
         let table_name = format!("{}", sp.sanitize());
         if !multi {
             // gets the first id that matches
@@ -200,7 +210,7 @@ impl PgDb {
             );
             let rows = self.raw_query(&sql, &[]).unwrap();
             if !upsert && rows.len() < 1 {
-                return Ok(0);
+                return Ok(UpdateResult::Count(0));
             }
             if rows.len() > 0 {
                 let id: String = rows[0].get(0);
@@ -218,10 +228,11 @@ impl PgDb {
                 .iter()
                 .map(|u| {
                     format!(
-                        "UPDATE {} SET {}{}",
+                        "UPDATE {} SET {}{}{}",
                         table_name,
                         update_from_operation(u),
-                        where_str
+                        where_str,
+                        return_str
                     )
                 })
                 .collect::<Vec<String>>(),
@@ -241,21 +252,46 @@ impl PgDb {
                         exists
                     };
                 let sql = if needs_insert {
-                    format!("INSERT INTO {} (_jsonb) VALUES ($1)", table_name)
+                    format!(
+                        "INSERT INTO {} (_jsonb) VALUES ($1){}",
+                        table_name, return_str
+                    )
                 } else {
-                    format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str)
+                    format!(
+                        "UPDATE {} SET _jsonb = $1 {}{}",
+                        table_name, where_str, return_str
+                    )
                 };
-                return Ok(self.exec(&sql, &[&json])?);
+
+                return if returning {
+                    let res = self.raw_query(&sql, &[&json])?;
+                    println!("{:?}", res);
+                    // Ok(UpdateResult::Document(res))
+                    todo!("Not ready yet")
+                } else {
+                    let res = self.exec(&sql, &[&json])?;
+                    Ok(UpdateResult::Count(res))
+                };
             }
         };
 
-        // FIXME start a transaction here
-        // #16 - https://github.com/fcoury/oxide/issues/16
-        let mut total = 0;
-        for sql in statements {
-            total += self.exec(&sql, &[])?;
+        if returning {
+            let sql = statements[0].clone();
+            let res = self.raw_query(&sql, &[])?;
+            let row = res.get(0).unwrap();
+            let json: serde_json::Value = row.get(0);
+            let doc = json.from_psql_json();
+
+            Ok(UpdateResult::Document(doc.as_document().unwrap().clone()))
+        } else {
+            // FIXME start a transaction here
+            // #16 - https://github.com/fcoury/oxide/issues/16
+            let mut total = 0;
+            for sql in statements {
+                total += self.exec(&sql, &[])?;
+            }
+            Ok(UpdateResult::Count(total))
         }
-        Ok(total)
     }
 
     pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {
@@ -602,6 +638,18 @@ fn update_from_operation(update: &UpdateDoc) -> String {
     }
 }
 
+pub fn get_where(filter: Option<&Document>) -> Option<String> {
+    if let Some(f) = filter {
+        if f.keys().count() < 1 {
+            None
+        } else {
+            Some(super::parser::parse(f.clone()).unwrap())
+        }
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +683,17 @@ mod tests {
             "b": 3,
         });
         assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb || json_build_object('a', COALESCE(_jsonb->'a')::numeric + 1)::jsonb || json_build_object('b', COALESCE(_jsonb->'b')::numeric + 3)::jsonb");
+    }
+
+    #[test]
+    fn test_get_where() {
+        let doc = doc! {
+            "a": "1",
+            "b": "2",
+        };
+        assert_eq!(
+            "(_jsonb->'a' = '\"1\"' AND _jsonb->'b' = '\"2\"')",
+            get_where(Some(&doc)).unwrap()
+        );
     }
 }

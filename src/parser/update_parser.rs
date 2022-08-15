@@ -126,6 +126,7 @@ mod tests {
     use super::*;
     use bson::doc;
 
+    #[test]
     fn test_parse_update() {
         let set_doc = doc! { "$set": { "a": 1 } };
         let repl_doc = doc! { "b": 2, "c": 8, "d": 9 };

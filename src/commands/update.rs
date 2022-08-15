@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::handler::{CommandExecutionError, Request};
 use crate::parser::parse_update;
-use crate::{commands::Handler, pg::SqlParam};
+use crate::{commands::Handler, pg::SqlParam, pg::UpdateResult};
 use bson::{doc, Bson, Document};
 
 pub struct Update {}
@@ -37,9 +37,14 @@ impl Handler for Update {
                 return Err(CommandExecutionError::new(format!("{:?}", update_doc)));
             }
 
-            n += client
-                .update(&sp, Some(q), update_doc.unwrap(), upsert, multi)
+            let result = client
+                .update(&sp, Some(q), update_doc.unwrap(), upsert, multi, false)
                 .unwrap();
+
+            match result {
+                UpdateResult::Count(total) => n += total,
+                UpdateResult::Document(_) => n += 1,
+            }
         }
 
         Ok(doc! {
