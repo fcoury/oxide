@@ -619,3 +619,78 @@ impl fmt::Display for SqlParam {
         write!(f, "{}", self.sanitize())
     }
 }
+
+fn update_from_operation(update: &UpdateDoc) -> String {
+    match update {
+        UpdateDoc::Set(set) => set
+            .keys()
+            .map(|k| {
+                let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
+                let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
+                format!("{} = {}", field, value)
+            })
+            .collect::<Vec<String>>()
+            .join(", "),
+        UpdateDoc::Unset(unset) => {
+            let mut removals = vec![];
+
+            let fields = collapse_fields(&unset);
+
+            for field in fields.keys().filter(|f| !f.contains(".")) {
+                removals.push(format!(" - '{}'", field));
+            }
+
+            for field in fields.keys().filter(|f| f.contains(".")) {
+                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
+            }
+
+            format!("_jsonb = _jsonb{}", removals.join(""))
+        }
+        UpdateDoc::Inc(inc) => format!(
+            "_jsonb = _jsonb || {}",
+            inc.iter()
+                .map(|(k, v)| format!(
+                    "json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb",
+                    k, k, v
+                ))
+                .collect::<Vec<String>>()
+                .join(" || ")
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bson::doc;
+
+    #[test]
+    fn test_update_set() {
+        let doc = UpdateDoc::Set(doc! {
+            "a": 1,
+            "b": 2,
+        });
+        assert_eq!(
+            update_from_operation(&doc),
+            "_jsonb['a'] = '1', _jsonb['b'] = '2'"
+        );
+    }
+
+    #[test]
+    fn test_update_unset() {
+        let doc = UpdateDoc::Unset(doc! {
+            "a": 1,
+            "b": 1,
+        });
+        assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb - 'a' - 'b'");
+    }
+
+    #[test]
+    fn test_update_inc() {
+        let doc = UpdateDoc::Inc(doc! {
+            "a": 1,
+            "b": 3,
+        });
+        assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb || json_build_object('a', COALESCE(_jsonb->'a')::numeric + 1)::jsonb || json_build_object('b', COALESCE(_jsonb->'b')::numeric + 3)::jsonb");
+    }
+}
