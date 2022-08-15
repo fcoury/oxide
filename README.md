@@ -2,6 +2,8 @@
 
 [![CI workflow](https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg)](https://github.com/fcoury/oxide/actions/workflows/ci.yml)
 
+_If it looks like MongoDB, swims like MongoDB, and quacks like MongoDB, then it probably is PostgreSQL._ :upside_down_face:
+
 OxideDB is a translation layer that works as a MongoDB database server while using PostgreSQL's JSON capabilities as the underlying data store.
 
 This project might be something that you could be interested on if:
