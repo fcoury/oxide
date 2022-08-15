@@ -3,7 +3,6 @@ use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
-use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
 use r2d2::PooledConnection;
@@ -215,73 +214,17 @@ impl PgDb {
         };
 
         let statements = match update {
-            UpdateOper::Update(updates) => {
-                let mut statements = vec![];
-                for update in updates {
-                    match update {
-                        UpdateDoc::Set(set) => {
-                            let updates = set
-                                .keys()
-                                .map(|k| {
-                                    let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
-                                    let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
-                                    format!("{} = {}", field, value)
-                                })
-                                .collect::<Vec<String>>()
-                                .join(", ");
-
-                            let sql = format!("UPDATE {} SET {}{}", table_name, updates, where_str);
-                            statements.push(sql);
-                        }
-                        UpdateDoc::Unset(unset) => {
-                            let mut removals = vec![];
-                            let fields = collapse_fields(&unset);
-
-                            for field in fields.keys().filter(|f| !f.contains(".")) {
-                                removals.push(format!(" - '{}'", field));
-                            }
-
-                            for field in fields.keys().filter(|f| f.contains(".")) {
-                                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
-                            }
-
-                            let sql = format!(
-                                "UPDATE {} SET _jsonb = _jsonb{}{}",
-                                table_name,
-                                removals.join(""),
-                                where_str
-                            );
-                            statements.push(sql);
-                        }
-                        UpdateDoc::Inc(inc) => {
-                            let updates = inc
-                                .iter()
-                                .map(|(k, v)|
-                                    format!("json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb", k, k, v)
-                                )
-                                .collect::<Vec<String>>()
-                                .join(" || ");
-
-                            // UPDATE "test"."ages" SET
-                            // 	_jsonb = _jsonb
-                            // 		|| json_build_object('age', COALESCE(_jsonb->'age')::numeric + 1)::jsonb
-                            // 		|| json_build_object('limit', COALESCE(_jsonb->'limit')::numeric - 2)::jsonb;
-
-                            let sql = format!(
-                                indoc! {"
-                                UPDATE {}
-                                SET _jsonb = _jsonb ||
-                                    {}
-                                {}
-                            "},
-                                table_name, updates, where_str
-                            );
-                            statements.push(sql);
-                        }
-                    }
-                }
-                statements
-            }
+            UpdateOper::Update(updates) => updates
+                .iter()
+                .map(|u| {
+                    format!(
+                        "UPDATE {} SET {}{}",
+                        table_name,
+                        update_from_operation(u),
+                        where_str
+                    )
+                })
+                .collect::<Vec<String>>(),
             UpdateOper::Replace(mut replace) => {
                 if !replace.contains_key("_id") {
                     replace.insert("_id", bson::oid::ObjectId::new());
