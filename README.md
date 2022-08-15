@@ -1,10 +1,25 @@
+![banner-small](https://user-images.githubusercontent.com/1371/184679510-4f455245-8580-4b00-809b-19f865dd0931.png)
+
+<p align="center">
+   <a href="https://github.com/fcoury/oxide/actions/workflows/ci.yml">
+      <img src="https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg">
+   </a>
+   <!-- [![CI workflow](https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg)](https://github.com/fcoury/oxide/actions/workflows/ci.yml) -->
+</p>
+   
+<p align="center">
+   &ldquo;<i>If it looks like MongoDB, swims like MongoDB, and quacks like MongoDB, then it probably is PostgreSQL.</i>&rdquo; :upside_down_face:
+</p>
+
+<p align="center">
+   <a href="https://demo.oxidedb.com" target="_blank">Online Demo</a> | <a href="https://youtu.be/hC-CZOEjzaM">Intro Video</a> | <a href="https://github.com/fcoury/oxide#quickstart">Quickstart</a>
+</p>
+
 # OxideDB
 
-[![CI workflow](https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg)](https://github.com/fcoury/oxide/actions/workflows/ci.yml)
-
-_If it looks like MongoDB, swims like MongoDB, and quacks like MongoDB, then it probably is PostgreSQL._ :upside_down_face:
-
 OxideDB is a translation layer that works as a MongoDB database server while using PostgreSQL's JSON capabilities as the underlying data store.
+
+## Audience
 
 This project might be something that you could be interested on if:
 
@@ -14,8 +29,6 @@ document store, without any sharding features
 
 On the other hand, if your use-case leverages MongoDB as a distributed database, then unfortunately this project might
 not be for you. At least right now supporting multi-sharding and scale-out deployments is not part of the roadmap.
-
-![Web UI](docs/assets/screenshot.png)
 
 ## Current status
 
@@ -80,6 +93,8 @@ test> db.col.find({ "name": "Fernanda" })
 [![Intro to OxideDB](docs/assets/video.png)](https://youtu.be/8TkcGV0TkgM)
 
 ## Web interface
+
+![Web UI](docs/assets/screenshot.png)
 
 If you want to perform quick queries on your database, you can use the built in web interface, just start oxide with the `--web` flag:
 
