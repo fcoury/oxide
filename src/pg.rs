@@ -307,6 +307,24 @@ impl PgDb {
         sanitize_string(s.replace("%table%", &table))
     }
 
+    pub fn insert_doc(&mut self, sp: SqlParam, doc: &Document) -> Result<Document> {
+        let query = self.get_query("INSERT INTO %table% VALUES ($1) RETURNING _jsonb", sp);
+        let mut doc = doc.clone();
+
+        if !doc.contains_key("_id") {
+            doc.insert("_id", bson::oid::ObjectId::new());
+        }
+
+        let bson: Bson = Bson::Document(doc.clone()).into();
+        let json = bson.into_psql_json();
+        let res = self.raw_query(&query, &[&json])?;
+        let row = res.get(0).unwrap();
+        let json: serde_json::Value = row.get(0);
+        let doc = json.from_psql_json();
+
+        Ok(doc.as_document().unwrap().clone())
+    }
+
     pub fn insert_docs(&mut self, sp: SqlParam, docs: &mut Vec<Document>) -> Result<u64> {
         let query = self.get_query("INSERT INTO %table% VALUES ($1)", sp);
 

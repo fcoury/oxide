@@ -1,4 +1,5 @@
 use bson::doc;
+use mongodb::options::FindOneAndUpdateOptions;
 
 mod common;
 
@@ -37,6 +38,41 @@ fn test_find_and_modify() {
         .find(|r| r.get_str("name").unwrap() == "Mike")
         .unwrap();
     assert_eq!(mike.get_i32("age").unwrap(), 44);
+}
+
+#[test]
+fn test_find_and_modify_upsert() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .find_one_and_update(
+            doc! { "name": "Mike", "active": "true" },
+            doc! { "$set": { "age": 44 } },
+            FindOneAndUpdateOptions::builder().upsert(true).build(),
+        )
+        .unwrap();
+    assert_eq!(res, None);
+
+    let rows = common::get_rows(ctx.col().find(None, None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(row.get_i32("age").unwrap(), 44);
+}
+
+#[test]
+fn test_find_and_modify_empty() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .find_one_and_update(
+            doc! {"name": "Mike"},
+            doc! { "$set": { "name": "Joe"}},
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(res, None);
 }
 
 #[test]
