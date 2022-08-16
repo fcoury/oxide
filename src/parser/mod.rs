@@ -10,6 +10,13 @@ use mongodb_language_model::{
 use serde_json::Map;
 use std::fmt;
 
+pub use self::update_parser::parse_update;
+pub use self::update_parser::InvalidUpdateError;
+pub use self::update_parser::UpdateDoc;
+pub use self::update_parser::UpdateOper;
+
+mod update_parser;
+
 #[derive(Debug)]
 struct UnimplementedError {
     pub kind: String,

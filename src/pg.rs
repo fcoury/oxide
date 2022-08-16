@@ -1,10 +1,9 @@
-use crate::commands::{InvalidUpdateError, UpdateDoc, UpdateOper};
-use crate::parser::value_to_jsonb;
+use crate::deserializer::PostgresJsonDeserializer;
+use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
-use indoc::indoc;
 use postgres::error::{Error, SqlState};
 use postgres::{types::ToSql, NoTls, Row};
 use r2d2::PooledConnection;
@@ -31,6 +30,12 @@ impl StdError for AlreadyExistsError {}
 pub enum CreateTableError {
     AlreadyExists(AlreadyExistsError),
     Other(Error),
+}
+
+#[derive(Debug)]
+pub enum UpdateResult {
+    Count(u64),
+    Document(Document),
 }
 
 #[derive(Debug)]
@@ -179,10 +184,12 @@ impl PgDb {
         &mut self,
         sp: &SqlParam,
         filter: Option<&Document>,
+        sort: Option<&Document>,
         update: UpdateOper,
         upsert: bool,
         multi: bool,
-    ) -> Result<u64> {
+        returning: bool,
+    ) -> Result<UpdateResult> {
         let mut where_str = if let Some(f) = filter {
             if f.keys().count() < 1 {
                 "".to_string()
@@ -193,16 +200,19 @@ impl PgDb {
             "".to_string()
         };
 
+        let return_str = if returning { " RETURNING _jsonb" } else { "" };
+
         let table_name = format!("{}", sp.sanitize());
         if !multi {
+            let order_by_str = get_order_by(sort);
             // gets the first id that matches
             let sql = format!(
-                "SELECT _jsonb->'_id'->>'$o' FROM {} {} LIMIT 1",
-                table_name, where_str
+                "SELECT _jsonb->'_id'->>'$o' FROM {} {}{} LIMIT 1",
+                table_name, where_str, order_by_str
             );
             let rows = self.raw_query(&sql, &[]).unwrap();
             if !upsert && rows.len() < 1 {
-                return Ok(0);
+                return Ok(UpdateResult::Count(0));
             }
             if rows.len() > 0 {
                 let id: String = rows[0].get(0);
@@ -216,73 +226,18 @@ impl PgDb {
         };
 
         let statements = match update {
-            UpdateOper::Update(updates) => {
-                let mut statements = vec![];
-                for update in updates {
-                    match update {
-                        UpdateDoc::Set(set) => {
-                            let updates = set
-                                .keys()
-                                .map(|k| {
-                                    let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
-                                    let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
-                                    format!("{} = {}", field, value)
-                                })
-                                .collect::<Vec<String>>()
-                                .join(", ");
-
-                            let sql = format!("UPDATE {} SET {}{}", table_name, updates, where_str);
-                            statements.push(sql);
-                        }
-                        UpdateDoc::Unset(unset) => {
-                            let mut removals = vec![];
-                            let fields = collapse_fields(&unset);
-
-                            for field in fields.keys().filter(|f| !f.contains(".")) {
-                                removals.push(format!(" - '{}'", field));
-                            }
-
-                            for field in fields.keys().filter(|f| f.contains(".")) {
-                                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
-                            }
-
-                            let sql = format!(
-                                "UPDATE {} SET _jsonb = _jsonb{}{}",
-                                table_name,
-                                removals.join(""),
-                                where_str
-                            );
-                            statements.push(sql);
-                        }
-                        UpdateDoc::Inc(inc) => {
-                            let updates = inc
-                                .iter()
-                                .map(|(k, v)|
-                                    format!("json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb", k, k, v)
-                                )
-                                .collect::<Vec<String>>()
-                                .join(" || ");
-
-                            // UPDATE "test"."ages" SET
-                            // 	_jsonb = _jsonb
-                            // 		|| json_build_object('age', COALESCE(_jsonb->'age')::numeric + 1)::jsonb
-                            // 		|| json_build_object('limit', COALESCE(_jsonb->'limit')::numeric - 2)::jsonb;
-
-                            let sql = format!(
-                                indoc! {"
-                                UPDATE {}
-                                SET _jsonb = _jsonb ||
-                                    {}
-                                {}
-                            "},
-                                table_name, updates, where_str
-                            );
-                            statements.push(sql);
-                        }
-                    }
-                }
-                statements
-            }
+            UpdateOper::Update(updates) => updates
+                .iter()
+                .map(|u| {
+                    format!(
+                        "UPDATE {} SET {}{}{}",
+                        table_name,
+                        update_from_operation(u),
+                        where_str,
+                        return_str
+                    )
+                })
+                .collect::<Vec<String>>(),
             UpdateOper::Replace(mut replace) => {
                 if !replace.contains_key("_id") {
                     replace.insert("_id", bson::oid::ObjectId::new());
@@ -299,21 +254,46 @@ impl PgDb {
                         exists
                     };
                 let sql = if needs_insert {
-                    format!("INSERT INTO {} (_jsonb) VALUES ($1)", table_name)
+                    format!(
+                        "INSERT INTO {} (_jsonb) VALUES ($1){}",
+                        table_name, return_str
+                    )
                 } else {
-                    format!("UPDATE {} SET _jsonb = $1 {}", table_name, where_str)
+                    format!(
+                        "UPDATE {} SET _jsonb = $1 {}{}",
+                        table_name, where_str, return_str
+                    )
                 };
-                return Ok(self.exec(&sql, &[&json])?);
+
+                return if returning {
+                    let res = self.raw_query(&sql, &[&json])?;
+                    println!("{:?}", res);
+                    // Ok(UpdateResult::Document(res))
+                    todo!("Not ready yet")
+                } else {
+                    let res = self.exec(&sql, &[&json])?;
+                    Ok(UpdateResult::Count(res))
+                };
             }
         };
 
-        // FIXME start a transaction here
-        // #16 - https://github.com/fcoury/oxide/issues/16
-        let mut total = 0;
-        for sql in statements {
-            total += self.exec(&sql, &[])?;
+        if returning {
+            let sql = statements[0].clone();
+            let res = self.raw_query(&sql, &[])?;
+            let row = res.get(0).unwrap();
+            let json: serde_json::Value = row.get(0);
+            let doc = json.from_psql_json();
+
+            Ok(UpdateResult::Document(doc.as_document().unwrap().clone()))
+        } else {
+            // FIXME start a transaction here
+            // #16 - https://github.com/fcoury/oxide/issues/16
+            let mut total = 0;
+            for sql in statements {
+                total += self.exec(&sql, &[])?;
+            }
+            Ok(UpdateResult::Count(total))
         }
-        Ok(total)
     }
 
     pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {
@@ -327,6 +307,24 @@ impl PgDb {
     fn get_query(&self, s: &str, sp: SqlParam) -> String {
         let table = sp.sanitize();
         sanitize_string(s.replace("%table%", &table))
+    }
+
+    pub fn insert_doc(&mut self, sp: SqlParam, doc: &Document) -> Result<Document> {
+        let query = self.get_query("INSERT INTO %table% VALUES ($1) RETURNING _jsonb", sp);
+        let mut doc = doc.clone();
+
+        if !doc.contains_key("_id") {
+            doc.insert("_id", bson::oid::ObjectId::new());
+        }
+
+        let bson: Bson = Bson::Document(doc.clone()).into();
+        let json = bson.into_psql_json();
+        let res = self.raw_query(&query, &[&json])?;
+        let row = res.get(0).unwrap();
+        let json: serde_json::Value = row.get(0);
+        let doc = json.from_psql_json();
+
+        Ok(doc.as_document().unwrap().clone())
     }
 
     pub fn insert_docs(&mut self, sp: SqlParam, docs: &mut Vec<Document>) -> Result<u64> {
@@ -618,5 +616,133 @@ impl SqlParam {
 impl fmt::Display for SqlParam {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.sanitize())
+    }
+}
+
+fn update_from_operation(update: &UpdateDoc) -> String {
+    match update {
+        UpdateDoc::Set(set) => set
+            .keys()
+            .map(|k| {
+                let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
+                let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
+                format!("{} = {}", field, value)
+            })
+            .collect::<Vec<String>>()
+            .join(", "),
+        UpdateDoc::Unset(unset) => {
+            let mut removals = vec![];
+
+            let fields = collapse_fields(&unset);
+
+            for field in fields.keys().filter(|f| !f.contains(".")) {
+                removals.push(format!(" - '{}'", field));
+            }
+
+            for field in fields.keys().filter(|f| f.contains(".")) {
+                removals.push(format!(" #- '{{{}}}'", field.replace(".", ",")));
+            }
+
+            format!("_jsonb = _jsonb{}", removals.join(""))
+        }
+        UpdateDoc::Inc(inc) => format!(
+            "_jsonb = _jsonb || {}",
+            inc.iter()
+                .map(|(k, v)| format!(
+                    "json_build_object('{}', COALESCE(_jsonb->'{}')::numeric + {})::jsonb",
+                    k, k, v
+                ))
+                .collect::<Vec<String>>()
+                .join(" || ")
+        ),
+    }
+}
+
+pub fn get_where(filter: Option<&Document>) -> Option<String> {
+    if let Some(f) = filter {
+        if f.keys().count() < 1 {
+            None
+        } else {
+            Some(super::parser::parse(f.clone()).unwrap())
+        }
+    } else {
+        None
+    }
+}
+
+pub fn get_order_by(sort: Option<&Document>) -> String {
+    if let Some(s) = sort {
+        let mut order_by = vec![];
+        for (k, v) in s.iter() {
+            let v = if v.as_i32().unwrap() > 0 {
+                "ASC"
+            } else {
+                "DESC"
+            };
+            order_by.push(format!("_jsonb->'{}' {}", k, v));
+        }
+        format!(" ORDER BY {}", order_by.join(", "))
+    } else {
+        "".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bson::doc;
+
+    #[test]
+    fn test_update_set() {
+        let doc = UpdateDoc::Set(doc! {
+            "a": 1,
+            "b": 2,
+        });
+        assert_eq!(
+            update_from_operation(&doc),
+            "_jsonb['a'] = '1', _jsonb['b'] = '2'"
+        );
+    }
+
+    #[test]
+    fn test_update_unset() {
+        let doc = UpdateDoc::Unset(doc! {
+            "a": 1,
+            "b": 1,
+        });
+        assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb - 'a' - 'b'");
+    }
+
+    #[test]
+    fn test_update_inc() {
+        let doc = UpdateDoc::Inc(doc! {
+            "a": 1,
+            "b": 3,
+        });
+        assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb || json_build_object('a', COALESCE(_jsonb->'a')::numeric + 1)::jsonb || json_build_object('b', COALESCE(_jsonb->'b')::numeric + 3)::jsonb");
+    }
+
+    #[test]
+    fn test_get_where() {
+        let doc = doc! {
+            "a": "1",
+            "b": "2",
+        };
+        assert_eq!(
+            "(_jsonb->'a' = '\"1\"' AND _jsonb->'b' = '\"2\"')",
+            get_where(Some(&doc)).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_get_order_by() {
+        let doc = doc! {
+            "a": 1,
+            "b": -1,
+        };
+        assert_eq!(
+            " ORDER BY _jsonb->'a' ASC, _jsonb->'b' DESC",
+            get_order_by(Some(&doc))
+        );
     }
 }
