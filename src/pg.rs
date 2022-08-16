@@ -184,6 +184,7 @@ impl PgDb {
         &mut self,
         sp: &SqlParam,
         filter: Option<&Document>,
+        sort: Option<&Document>,
         update: UpdateOper,
         upsert: bool,
         multi: bool,
@@ -203,10 +204,11 @@ impl PgDb {
 
         let table_name = format!("{}", sp.sanitize());
         if !multi {
+            let order_by_str = get_order_by(sort);
             // gets the first id that matches
             let sql = format!(
-                "SELECT _jsonb->'_id'->>'$o' FROM {} {} LIMIT 1",
-                table_name, where_str
+                "SELECT _jsonb->'_id'->>'$o' FROM {} {}{} LIMIT 1",
+                table_name, where_str, order_by_str
             );
             let rows = self.raw_query(&sql, &[]).unwrap();
             if !upsert && rows.len() < 1 {
@@ -668,6 +670,23 @@ pub fn get_where(filter: Option<&Document>) -> Option<String> {
     }
 }
 
+pub fn get_order_by(sort: Option<&Document>) -> String {
+    if let Some(s) = sort {
+        let mut order_by = vec![];
+        for (k, v) in s.iter() {
+            let v = if v.as_i32().unwrap() > 0 {
+                "ASC"
+            } else {
+                "DESC"
+            };
+            order_by.push(format!("_jsonb->'{}' {}", k, v));
+        }
+        format!(" ORDER BY {}", order_by.join(", "))
+    } else {
+        "".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,6 +731,18 @@ mod tests {
         assert_eq!(
             "(_jsonb->'a' = '\"1\"' AND _jsonb->'b' = '\"2\"')",
             get_where(Some(&doc)).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_get_order_by() {
+        let doc = doc! {
+            "a": 1,
+            "b": -1,
+        };
+        assert_eq!(
+            " ORDER BY _jsonb->'a' ASC, _jsonb->'b' DESC",
+            get_order_by(Some(&doc))
         );
     }
 }

@@ -38,7 +38,15 @@ impl Handler for Update {
             }
 
             let result = client
-                .update(&sp, Some(q), update_doc.unwrap(), upsert, multi, false)
+                .update(
+                    &sp,
+                    Some(q),
+                    None,
+                    update_doc.unwrap(),
+                    upsert,
+                    multi,
+                    false,
+                )
                 .unwrap();
 
             match result {

@@ -21,6 +21,10 @@ impl Handler for FindAndModify {
         let collection = doc.get_str("findAndModify").unwrap();
         let sp = SqlParam::new(db, collection);
         let query = doc.get_document("query").unwrap();
+        let sort = match doc.get_document("sort") {
+            Ok(sort_doc) => Some(sort_doc),
+            _ => None,
+        };
         let raw_update = doc.get_document("update").unwrap();
         let update_doc = parse_update(raw_update);
         let upsert = doc.get_bool("upsert").unwrap_or(false);
@@ -29,7 +33,15 @@ impl Handler for FindAndModify {
         client.create_table_if_not_exists(db, collection).unwrap();
 
         let res = client
-            .update(&sp, Some(query), update_doc.unwrap(), false, false, true)
+            .update(
+                &sp,
+                Some(query),
+                sort,
+                update_doc.unwrap(),
+                false,
+                false,
+                true,
+            )
             .unwrap();
 
         match res {

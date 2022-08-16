@@ -76,5 +76,40 @@ fn test_find_and_modify_empty() {
 }
 
 #[test]
+fn test_find_and_modify_with_sort() {
+    let col = insert! {
+        doc! {
+            "ext_id": 1,
+            "name": "John",
+            "age": 45,
+        },
+        doc! {
+            "ext_id": 2,
+            "name": "John",
+            "age": 22,
+        },
+        doc! {
+            "ext_id": 3,
+            "name": "John",
+            "age": 87,
+        }
+    };
+
+    let res = col
+        .find_one_and_update(
+            doc! { "name": "John" },
+            doc! { "$set": { "age": 44 } },
+            FindOneAndUpdateOptions::builder()
+                .sort(doc! { "age": -1 })
+                .build(),
+        )
+        .unwrap();
+    let updated = res.unwrap();
+
+    assert_eq!(updated.get_i32("age").unwrap(), 44);
+    assert_eq!(updated.get_i32("ext_id").unwrap(), 3);
+}
+
+#[test]
 #[ignore = "this is not yet implemented"]
 fn test_find_and_modify_inexistent_table() {}
