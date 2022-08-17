@@ -194,6 +194,7 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> Result<Stri
         "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => {
             translate_operator(value_oper.operator.as_str())
         }
+        "$regex" => "~",
         "$exists" => {
             let source = "_jsonb".to_string();
             let value = value_oper.value.value;
@@ -275,7 +276,7 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
         flat_obj.insert(format!("{}.{}", field, key), value);
     }
 
-    for (key, v) in flat_obj {
+    for (key, v) in &flat_obj {
         let mut parts = key.split(".").collect::<Vec<&str>>();
         let mut value = OperatorValueType::Json(v.to_owned());
 
@@ -283,6 +284,33 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
             let operator = parts.pop().unwrap();
             match operator {
                 "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => translate_operator(operator),
+                "$regex" => {
+                    let last = parts.pop().unwrap();
+                    let mut field = parts
+                        .iter()
+                        .map(|f| format!("'{}'", f))
+                        .collect::<Vec<String>>();
+                    field.insert(0, "_jsonb".to_string());
+                    let field = field.join("->");
+                    let field = format!("{}->>'{}'", field, last);
+
+                    let options_key = key.replace("$regex", "$options");
+                    let options = flat_obj.get(&options_key);
+
+                    let mut oper = "~";
+                    if let Some(options) = options {
+                        if options.as_str().unwrap().contains('i') {
+                            oper = "~*";
+                        }
+                    }
+
+                    let value = match v {
+                        serde_json::Value::String(s) => s,
+                        _ => return Err(eyre!("$regex has to be a string")),
+                    };
+
+                    return Ok(format!("{} {} '{}'", field, oper, value));
+                }
                 "$exists" => {
                     let negative = v.is_boolean() && !v.as_bool().unwrap()
                         || v.is_number() && v.as_i64().unwrap() == 0;
@@ -354,7 +382,8 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
             .join("->");
         let field = format!("_jsonb->{}", field);
         let value = value_to_jsonb(value.to_string());
-        res.push(format!("{} {} {}", field, oper, value));
+        let str = format!("{} {} {}", field, oper, value);
+        res.push(str);
     }
 
     Ok(res.join(" AND "))
@@ -647,6 +676,48 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "$gt": { "$d": Bson::Int64(1659448486285) } } }).unwrap(),
             r#"_jsonb->'a'->'$d' > '1659448486285'"#
+        )
+    }
+
+    #[test]
+    fn test_regex() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": "^j" } }).unwrap(),
+            r#"_jsonb->>'a' ~ '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_nested() {
+        assert_eq!(
+            parse(doc! { "a": { "b": { "$regex": "^j", "$options": "i" } } }).unwrap(),
+            r#"_jsonb->'a'->>'b' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_ignore_case() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": "^j", "$options": "i" } }).unwrap(),
+            r#"_jsonb->>'a' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_nested_ignore_case() {
+        assert_eq!(
+            parse(doc! { "a.b": { "$regex": "^j", "$options": "i" } }).unwrap(),
+            r#"_jsonb->'a'->>'b' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_invalid() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": 1 } })
+                .unwrap_err()
+                .to_string(),
+            "$regex has to be a string"
         )
     }
 }
