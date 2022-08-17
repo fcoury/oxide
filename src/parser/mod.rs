@@ -304,7 +304,12 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
                         }
                     }
 
-                    return Ok(format!("{} {} '{}'", field, oper, v.as_str().unwrap()));
+                    let value = match v {
+                        serde_json::Value::String(s) => s,
+                        _ => return Err(eyre!("$regex has to be a string")),
+                    };
+
+                    return Ok(format!("{} {} '{}'", field, oper, value));
                 }
                 "$exists" => {
                     let negative = v.is_boolean() && !v.as_bool().unwrap()
@@ -671,6 +676,48 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "$gt": { "$d": Bson::Int64(1659448486285) } } }).unwrap(),
             r#"_jsonb->'a'->'$d' > '1659448486285'"#
+        )
+    }
+
+    #[test]
+    fn test_regex() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": "^j" } }).unwrap(),
+            r#"_jsonb->>'a' ~ '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_nested() {
+        assert_eq!(
+            parse(doc! { "a": { "b": { "$regex": "^j", "$options": "i" } } }).unwrap(),
+            r#"_jsonb->'a'->>'b' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_ignore_case() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": "^j", "$options": "i" } }).unwrap(),
+            r#"_jsonb->>'a' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_nested_ignore_case() {
+        assert_eq!(
+            parse(doc! { "a.b": { "$regex": "^j", "$options": "i" } }).unwrap(),
+            r#"_jsonb->'a'->>'b' ~* '^j'"#
+        )
+    }
+
+    #[test]
+    fn test_regex_invalid() {
+        assert_eq!(
+            parse(doc! { "a": { "$regex": 1 } })
+                .unwrap_err()
+                .to_string(),
+            "$regex has to be a string"
         )
     }
 }
