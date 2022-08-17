@@ -31,6 +31,63 @@ fn test_match() {
 }
 
 #[test]
+fn test_match_regex() {
+    let col = insert!(
+        doc! {
+            "name": "John",
+            "age": 30,
+            "city": "New York",
+        },
+        doc! {
+            "name": "Paul",
+            "age": 29,
+            "city": "Ann Arbor",
+        }
+    );
+
+    let pipeline = doc! {
+        "$match": doc! {
+            "name": doc! {
+                "$regex": "^J"
+            }
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let row = rows.get(0).unwrap();
+    assert_eq!(row.get_str("name").unwrap(), "John");
+}
+
+#[test]
+fn test_match_nested_regex() {
+    let col = insert!(
+        doc! {
+            "name": { "first": "John" },
+            "age": 30,
+            "city": "New York",
+        },
+        doc! {
+            "name": { "first": "Paul" },
+            "age": 29,
+            "city": "Ann Arbor",
+        }
+    );
+
+    let pipeline = doc! {
+        "$match": doc! {
+            "name.first": doc! {
+                "$regex": "^J"
+            }
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let row = rows.get(0).unwrap();
+    let name = row.get_document("name").unwrap();
+    assert_eq!(name.get_str("first").unwrap(), "John");
+}
+
+#[test]
 fn test_group() {
     let col = insert!(
         doc! {

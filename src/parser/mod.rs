@@ -194,6 +194,7 @@ fn parse_value_operator(value_oper: ValueOperator, field: String) -> Result<Stri
         "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => {
             translate_operator(value_oper.operator.as_str())
         }
+        "$regex" => "~",
         "$exists" => {
             let source = "_jsonb".to_string();
             let value = value_oper.value.value;
@@ -283,6 +284,18 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
             let operator = parts.pop().unwrap();
             match operator {
                 "$lt" | "$lte" | "$gt" | "$gte" | "$ne" | "$eq" => translate_operator(operator),
+                "$regex" => {
+                    let last = parts.pop().unwrap();
+                    let mut field = parts
+                        .iter()
+                        .map(|f| format!("'{}'", f))
+                        .collect::<Vec<String>>();
+                    field.insert(0, "_jsonb".to_string());
+                    let field = field.join("->");
+                    let field = format!("{}->>'{}'", field, last);
+
+                    return Ok(format!("{} ~ '{}'", field, v.as_str().unwrap()));
+                }
                 "$exists" => {
                     let negative = v.is_boolean() && !v.as_bool().unwrap()
                         || v.is_number() && v.as_i64().unwrap() == 0;
@@ -354,7 +367,8 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
             .join("->");
         let field = format!("_jsonb->{}", field);
         let value = value_to_jsonb(value.to_string());
-        res.push(format!("{} {} {}", field, oper, value));
+        let str = format!("{} {} {}", field, oper, value);
+        res.push(str);
     }
 
     Ok(res.join(" AND "))
