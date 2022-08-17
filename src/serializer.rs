@@ -42,8 +42,8 @@ impl PostgresSerializer for Bson {
                 chars.sort_unstable();
                 let options: String = chars.into_iter().collect();
                 json!({
-                    "$r": pattern,
-                    "o": options,
+                    "$regex": pattern,
+                    "$options": options,
                 })
             }
             Bson::ObjectId(v) => json!({"$o": v.to_hex()}),
@@ -137,6 +137,6 @@ mod tests {
         })
         .into_psql_json()
         .to_string();
-        assert_eq!(r#"{"$r":"^[a-z]+$","o":"i"}"#, json);
+        assert_eq!(r#"{"$regex":"^[a-z]+$","$options":"i"}"#, json);
     }
 }

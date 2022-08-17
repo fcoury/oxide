@@ -54,6 +54,7 @@ fn test_match_regex() {
     };
 
     let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
     let row = rows.get(0).unwrap();
     assert_eq!(row.get_str("name").unwrap(), "John");
 }
@@ -82,9 +83,41 @@ fn test_match_nested_regex() {
     };
 
     let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
     let row = rows.get(0).unwrap();
     let name = row.get_document("name").unwrap();
     assert_eq!(name.get_str("first").unwrap(), "John");
+}
+
+#[test]
+fn test_match_regex_ignore_case() {
+    let col = insert!(
+        doc! {
+            "name": { "first": "john" },
+            "age": 30,
+            "city": "New York",
+        },
+        doc! {
+            "name": { "first": "Mark" },
+            "age": 29,
+            "city": "Ann Arbor",
+        }
+    );
+
+    let pipeline = doc! {
+        "$match": doc! {
+            "name.first": doc! {
+                "$regex": "^J",
+                "$options": "i"
+            }
+        }
+    };
+
+    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    assert_eq!(rows.len(), 1);
+    let row = rows.get(0).unwrap();
+    let name = row.get_document("name").unwrap();
+    assert_eq!(name.get_str("first").unwrap(), "john");
 }
 
 #[test]

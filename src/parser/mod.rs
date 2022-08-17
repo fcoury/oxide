@@ -276,7 +276,7 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
         flat_obj.insert(format!("{}.{}", field, key), value);
     }
 
-    for (key, v) in flat_obj {
+    for (key, v) in &flat_obj {
         let mut parts = key.split(".").collect::<Vec<&str>>();
         let mut value = OperatorValueType::Json(v.to_owned());
 
@@ -294,7 +294,17 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
                     let field = field.join("->");
                     let field = format!("{}->>'{}'", field, last);
 
-                    return Ok(format!("{} ~ '{}'", field, v.as_str().unwrap()));
+                    let options_key = key.replace("$regex", "$options");
+                    let options = flat_obj.get(&options_key);
+
+                    let mut oper = "~";
+                    if let Some(options) = options {
+                        if options.as_str().unwrap().contains('i') {
+                            oper = "~*";
+                        }
+                    }
+
+                    return Ok(format!("{} {} '{}'", field, oper, v.as_str().unwrap()));
                 }
                 "$exists" => {
                     let negative = v.is_boolean() && !v.as_bool().unwrap()
