@@ -519,7 +519,7 @@ impl PgDb {
         };
         let name = index.get_str("name").unwrap();
         let sql = format!(
-            "CREATE{} INDEX {} ON {} ({})",
+            "CREATE{} INDEX IF NOT EXISTS {} ON {} ({})",
             unique,
             name,
             sp.sanitize(),
