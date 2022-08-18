@@ -369,6 +369,9 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
 
                     return Ok(str);
                 }
+                "$o" => {
+                    return Ok(format!("_jsonb->'{}'->'$o' = '{}'", field, v));
+                }
                 t => unimplemented!("parse_object - unimplemented {:?} in ${:?}", t, object),
             }
         } else {
@@ -718,6 +721,14 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "$regex has to be a string"
+        )
+    }
+
+    #[test]
+    fn test_oid() {
+        assert_eq!(
+            parse(doc! { "a": { "$o": "62e27ae37d8474ae4ce87c14" } }).unwrap(),
+            r#"_jsonb->'a'->'$o' = '"62e27ae37d8474ae4ce87c14"'"#
         )
     }
 }

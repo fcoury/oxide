@@ -21,6 +21,29 @@ fn test_basic_find() {
 }
 
 #[test]
+fn test_find_oid() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![doc! { "x": 1 }, doc! { "x": 2, 'a': 1 }, doc! { "x": 3 }],
+            None,
+        )
+        .unwrap();
+    let oid = ctx
+        .col()
+        .find_one(doc! {}, None)
+        .unwrap()
+        .unwrap()
+        .get_object_id("_id")
+        .unwrap();
+    let mut cursor = ctx.col().find(doc! { "_id": oid }, None).unwrap();
+    let row1 = cursor.next().unwrap().unwrap();
+    assert_eq!(row1.get_i32("x").unwrap(), 1);
+    assert!(cursor.next().is_none());
+}
+
+#[test]
 fn test_find_string() {
     let ctx = common::setup();
 
