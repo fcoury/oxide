@@ -1,3 +1,4 @@
+use bson::Bson;
 use chrono::Utc;
 use mongodb::{bson::doc, options::ReplaceOptions};
 
@@ -453,4 +454,44 @@ fn test_update_with_date_time() {
         .unwrap();
     let res = common::get_rows(ctx.col().find(doc! { "_id": oid }, None).unwrap());
     assert_eq!(res[0].get_datetime("lastModifiedDate").unwrap(), &bson_dt);
+}
+
+#[test]
+fn test_update_with_null() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![
+                doc! { "enqueued": 1, "notifications": null },
+                doc! { "x": 2, "a": 1 },
+                doc! { "x": 3 },
+            ],
+            None,
+        )
+        .unwrap();
+    let oid = ctx
+        .col()
+        .find_one(doc! {}, None)
+        .unwrap()
+        .unwrap()
+        .get_object_id("_id")
+        .unwrap();
+
+    let update_doc = doc! {
+        "$set": {
+            "enqueued": null,
+            "notifications": doc! {
+                "__lastState": null,
+                "__lastOldState": "evaluateTestType"
+            }
+        }
+    };
+    println!("{:#?}", update_doc);
+    ctx.col()
+        .update_one(doc! { "_id": oid }, update_doc, None)
+        .unwrap();
+    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }, None).unwrap());
+    println!("{:?}", res[0]);
+    assert_eq!(res[0].get("enqueued").unwrap(), &Bson::Null);
 }
