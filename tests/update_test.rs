@@ -1,3 +1,4 @@
+use chrono::Utc;
 use mongodb::{bson::doc, options::ReplaceOptions};
 
 mod common;
@@ -396,4 +397,60 @@ fn test_upsert_without_id() {
 fn test_large_update() {
     let ctx = common::setup();
     ctx.send_file("tests/fixtures/binaries/large-update-1.bin");
+}
+
+#[test]
+fn test_update_with_oid() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![doc! { "x": 1 }, doc! { "x": 2, "a": 1 }, doc! { "x": 3 }],
+            None,
+        )
+        .unwrap();
+    let oid = ctx
+        .col()
+        .find_one(doc! {}, None)
+        .unwrap()
+        .unwrap()
+        .get_object_id("_id")
+        .unwrap();
+
+    ctx.col()
+        .update_one(doc! { "_id": oid }, doc! { "$set": { "x": 10 } }, None)
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": oid }, None).unwrap();
+    assert_unique_row_value!(res, "x", 10);
+}
+
+#[test]
+fn test_update_with_date_time() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(
+            vec![doc! { "x": 1 }, doc! { "x": 2, "a": 1 }, doc! { "x": 3 }],
+            None,
+        )
+        .unwrap();
+    let oid = ctx
+        .col()
+        .find_one(doc! {}, None)
+        .unwrap()
+        .unwrap()
+        .get_object_id("_id")
+        .unwrap();
+
+    let chrono_dt: chrono::DateTime<Utc> = "2014-11-28T12:00:09Z".parse().unwrap();
+    let bson_dt: bson::DateTime = chrono_dt.into();
+    ctx.col()
+        .update_one(
+            doc! { "_id": oid },
+            doc! { "$set": { "lastModifiedDate": bson_dt } },
+            None,
+        )
+        .unwrap();
+    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }, None).unwrap());
+    assert_eq!(res[0].get_datetime("lastModifiedDate").unwrap(), &bson_dt);
 }

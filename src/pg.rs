@@ -625,8 +625,8 @@ fn update_from_operation(update: &UpdateDoc) -> String {
             .keys()
             .map(|k| {
                 let field = format!("_jsonb['{}']", sanitize_string(k.clone()));
-                let value = value_to_jsonb(format!("{}", set.get(k).unwrap()));
-                format!("{} = {}", field, value)
+                let value = value_to_jsonb(set.get(k).unwrap());
+                format!("{} = '{}'", field, value)
             })
             .collect::<Vec<String>>()
             .join(", "),
