@@ -250,8 +250,13 @@ fn parse_expression_tree(exp_tree: ExpressionTreeClause) -> Result<String> {
     }
 }
 
-pub fn value_to_jsonb(value: String) -> String {
+pub fn str_to_jsonb(value: String) -> String {
     format!("'{}'", value)
+}
+
+pub fn value_to_jsonb(value: &Bson) -> String {
+    let new_value = value.clone().into_psql_json();
+    new_value.to_string()
 }
 
 enum OperatorValueType {
@@ -268,7 +273,7 @@ impl fmt::Display for OperatorValueType {
     }
 }
 
-fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<String> {
+pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<String> {
     let mut res = vec![];
     let source_flat_obj = flatten_object(object);
     let mut flat_obj: Map<String, serde_json::Value> = Map::new();
@@ -372,6 +377,9 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
                 "$o" => {
                     return Ok(format!("_jsonb->'{}'->'$o' = '{}'", field, v));
                 }
+                "$d" => {
+                    return Ok(format!("_jsonb->'{}'->'$d' = '{}'", field, v));
+                }
                 t => unimplemented!("parse_object - unimplemented {:?} in ${:?}", t, object),
             }
         } else {
@@ -384,7 +392,7 @@ fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Result<
             .collect::<Vec<String>>()
             .join("->");
         let field = format!("_jsonb->{}", field);
-        let value = value_to_jsonb(value.to_string());
+        let value = str_to_jsonb(value.to_string());
         let str = format!("{} {} {}", field, oper, value);
         res.push(str);
     }
@@ -405,7 +413,7 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) ->
                 "{}->'$d' {} {}",
                 field,
                 oper,
-                value_to_jsonb(obj["$d"].to_string())
+                str_to_jsonb(obj["$d"].to_string())
             ));
         } else {
             return parse_object(&f, obj);
@@ -424,7 +432,7 @@ fn parse_leaf_value(leaf_value: LeafValue, f: String, operator: Option<&str>) ->
         "{} {} {}",
         field,
         oper,
-        value_to_jsonb(json.to_string())
+        str_to_jsonb(json.to_string())
     ))
 }
 
@@ -730,5 +738,27 @@ mod tests {
             parse(doc! { "a": { "$o": "62e27ae37d8474ae4ce87c14" } }).unwrap(),
             r#"_jsonb->'a'->'$o' = '"62e27ae37d8474ae4ce87c14"'"#
         )
+    }
+
+    #[test]
+    fn test_parse_object_with_date() {
+        let bson: Bson = doc! { "$d": Bson::Int64(1659448486285) }.into();
+        let json = bson.into_psql_json();
+        let obj = json.as_object().unwrap();
+        assert_eq!(
+            parse_object("a", &obj).unwrap(),
+            r#"_jsonb->'a'->'$d' = '1659448486285'"#
+        )
+    }
+
+    #[test]
+    fn test_value_to_jsonb_with_date() {
+        let date = bson::DateTime::builder()
+            .day(1)
+            .month(1)
+            .year(2019)
+            .build()
+            .unwrap();
+        assert_eq!(value_to_jsonb(&date.into()), "{\"$d\":1546300800000}")
     }
 }
