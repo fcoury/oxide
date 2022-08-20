@@ -28,6 +28,9 @@ impl Handler for FindAndModify {
         let raw_update = doc.get_document("update").unwrap();
         let update_doc = parse_update(raw_update);
         let upsert = doc.get_bool("upsert").unwrap_or(false);
+        let new = doc.get_bool("new").unwrap_or(false);
+
+        log::debug!("findAndModify doc = {:#?}", doc);
 
         let mut client = request.get_client();
         client.create_table_if_not_exists(db, collection).unwrap();
@@ -52,7 +55,7 @@ impl Handler for FindAndModify {
                         obj.extend(extract_operator_values(&raw_update));
 
                         let res = client.insert_doc(sp, &obj).unwrap();
-                        return Ok(doc! {
+                        let mut doc = doc! {
                             "value": null,
                             "lastErrorObject": {
                                 "updatedExisting": false,
@@ -60,7 +63,12 @@ impl Handler for FindAndModify {
                                 "n": 1,
                             },
                             "ok": 1.0,
-                        });
+                        };
+                        if new {
+                            doc.insert("value", res.clone());
+                        }
+
+                        return Ok(doc);
                     } else {
                         return Ok(doc! {
                             "value": null,

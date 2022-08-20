@@ -1,5 +1,5 @@
 use bson::doc;
-use mongodb::options::FindOneAndUpdateOptions;
+use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
 
 mod common;
 
@@ -53,6 +53,31 @@ fn test_find_and_modify_upsert() {
         )
         .unwrap();
     assert_eq!(res, None);
+
+    let rows = common::get_rows(ctx.col().find(None, None).unwrap());
+    let row = rows[0].clone();
+    assert_eq!(row.get_i32("age").unwrap(), 44);
+}
+
+#[test]
+fn test_find_and_modify_upsert_with_returning_new() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .find_one_and_update(
+            doc! { "name": "Mike", "active": true },
+            doc! { "$set": { "age": 44 } },
+            FindOneAndUpdateOptions::builder()
+                .upsert(true)
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(res.get_str("name").unwrap(), "Mike");
+    assert_eq!(res.get_bool("active").unwrap(), true);
+    assert_eq!(res.get_i32("age").unwrap(), 44);
 
     let rows = common::get_rows(ctx.col().find(None, None).unwrap());
     let row = rows[0].clone();
