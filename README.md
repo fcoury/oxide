@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-   <a href="https://demo.oxidedb.com" target="_blank">Online Demo</a> | <a href="https://youtu.be/hC-CZOEjzaM">Intro Video</a> | <a href="https://github.com/fcoury/oxide#quickstart">Quickstart</a>
+   <a href="https://discord.gg/f7RwsbWEVh">Discord</a> | <a href="https://demo.oxidedb.com" target="_blank">Online Demo</a> | <a href="https://youtu.be/hC-CZOEjzaM">Intro Video</a> | <a href="https://github.com/fcoury/oxide#quickstart">Quickstart</a>
 </p>
 
 # OxideDB
