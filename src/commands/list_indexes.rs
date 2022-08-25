@@ -31,15 +31,14 @@ impl Handler for ListIndexes {
         }
 
         let mut indexes: Vec<Bson> = vec![];
-        let regex = Regex::new(r"_jsonb\s->\s'(.*?)'").unwrap();
         for table in tables {
             for row in &mut client.get_table_indexes(&sp.db, &table).unwrap() {
                 let name: String = row.get("indexname");
                 let def: String = row.get("indexdef");
 
                 let mut keys: Document = doc! {};
-                for cap in regex.captures_iter(def.as_str()) {
-                    keys.insert(cap[1].to_string(), 1);
+                for field in parse_index_definition(def.as_str()) {
+                    keys.insert(field, 1);
                 }
 
                 indexes.push(Bson::Document(doc! {
@@ -58,5 +57,42 @@ impl Handler for ListIndexes {
             },
             "ok": Bson::Double(1.0),
         });
+    }
+}
+
+fn parse_index_definition(def: &str) -> Vec<String> {
+    let regex = Regex::new(r"\s->\s'(.*?)'").unwrap();
+    def.split("USING btree ")
+        .nth(1)
+        .unwrap()
+        .split(", ")
+        .map(|field| {
+            regex
+                .captures_iter(field)
+                .map(|c| c[1].to_string())
+                .collect::<Vec<_>>()
+                .join(".")
+        })
+        .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_nested_index_definition() {
+        let def = r#"CREATE INDEX a_z_1_b_c_d_1 ON db_test."test_27edecea-7d1d-44c3-8443-98b100371df7" USING btree ((((_jsonb -> 'a'::text) -> 'z'::text)), ((((_jsonb -> 'b'::text) -> 'c'::text) -> 'd'::text)))"#;
+        let keys = parse_index_definition(def);
+        assert_eq!(&keys[0], "a.z");
+        assert_eq!(&keys[1], "b.c.d");
+    }
+
+    #[test]
+    fn test_parse_simple_index_definition() {
+        let def = r#"REATE INDEX a_1_b_1 ON db_test."test_74885191-7780-4f29-9133-f2ced35cbc40" USING btree (((_jsonb -> 'a'::text)), ((_jsonb -> 'b'::text)))"#;
+        let keys = parse_index_definition(def);
+        assert_eq!(&keys[0], "a");
+        assert_eq!(&keys[1], "b");
     }
 }

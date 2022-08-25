@@ -47,3 +47,26 @@ fn create_indexes_test_already_existing() {
         .unwrap();
     assert_eq!(index.keys, doc! { "a": 1, "b": 1 });
 }
+
+#[test]
+fn create_nested_index() {
+    let ctx = common::setup();
+
+    let model = IndexModel::builder()
+        .keys(doc! { "a.z": 1, "b.c.d": 1 })
+        .build();
+    let options = None;
+    ctx.col().create_index(model, options).unwrap();
+
+    let cursor = ctx.col().list_indexes(None).unwrap();
+    let indexes = cursor
+        .collect::<Vec<_>>()
+        .iter()
+        .map(|x| x.clone().unwrap())
+        .collect::<Vec<_>>();
+    let index = indexes
+        .iter()
+        .find(|x| x.keys == doc! { "a.z": 1, "b.c.d": 1 })
+        .unwrap();
+    assert_eq!(index.keys, doc! { "a.z": 1, "b.c.d": 1 });
+}
