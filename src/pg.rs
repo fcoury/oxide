@@ -510,14 +510,23 @@ impl PgDb {
             .get_document("key")
             .unwrap()
             .into_iter()
-            .map(|(k, _)| format!("(_jsonb->'{}')", k))
+            .map(|(k, _)| {
+                format!(
+                    "(_jsonb->{})",
+                    k.split(".")
+                        .into_iter()
+                        .map(|k| format!("'{}'", k))
+                        .collect::<Vec<_>>()
+                        .join("->")
+                )
+            })
             .collect();
         let unique = if index.get_bool("unique").unwrap_or(false) {
             " UNIQUE"
         } else {
             ""
         };
-        let name = index.get_str("name").unwrap();
+        let name = index.get_str("name").unwrap().replace(".", "_");
         let sql = format!(
             "CREATE{} INDEX IF NOT EXISTS {} ON {} ({})",
             unique,
