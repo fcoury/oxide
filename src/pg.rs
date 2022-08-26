@@ -73,6 +73,16 @@ impl PgDb {
         }
     }
 
+    pub fn query_one(
+        &mut self,
+        query: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Option<Row>> {
+        let rows = self.raw_query(query, params)?;
+        let row = rows.into_iter().next();
+        Ok(row)
+    }
+
     pub fn query(
         &mut self,
         query: &str,
@@ -81,7 +91,6 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>> {
         let mut sql = self.get_query(query, sp);
-
         if let Some(f) = filter {
             let filter_doc = expand_fields(&f).unwrap();
             let filter = super::parser::parse(filter_doc)?;
@@ -90,6 +99,7 @@ impl PgDb {
             }
         }
 
+        println!("SQL: {} - {:#?}", sql, params);
         log::debug!("SQL: {} - {:#?}", sql, params);
         self.raw_query(&sql, params)
     }
@@ -207,7 +217,7 @@ impl PgDb {
             let order_by_str = get_order_by(sort);
             // gets the first id that matches
             let sql = format!(
-                "SELECT _jsonb->'_id'->>'$o' FROM {} {}{} LIMIT 1",
+                "SELECT _jsonb->'_id' FROM {} {}{} LIMIT 1",
                 table_name, where_str, order_by_str
             );
             let rows = self.raw_query(&sql, &[]).unwrap();
@@ -215,8 +225,8 @@ impl PgDb {
                 return Ok(UpdateResult::Count(0));
             }
             if rows.len() > 0 {
-                let id: String = rows[0].get(0);
-                let match_id = format!("_jsonb->'_id'->>'$o' = '{}'", id);
+                let id: serde_json::Value = rows[0].get(0);
+                let match_id = format!("_jsonb->'_id' = '{}'", id);
                 if where_str == "" {
                     where_str = format!(" WHERE {}", match_id);
                 } else {
@@ -224,6 +234,10 @@ impl PgDb {
                 }
             }
         };
+
+        if let UpdateOper::Update(updates) = update.clone() {
+            self.check_preconditions(&sp, &updates)?;
+        }
 
         let statements = match update {
             UpdateOper::Update(updates) => updates
@@ -294,6 +308,36 @@ impl PgDb {
             }
             Ok(UpdateResult::Count(total))
         }
+    }
+
+    pub fn check_preconditions(&mut self, sp: &SqlParam, updates: &Vec<UpdateDoc>) -> Result<()> {
+        for update in updates {
+            match update {
+                UpdateDoc::AddToSet(add_to_set) => {
+                    // check if any of the fields to be set is not an array
+                    let mut checks = vec![];
+                    for (field, _) in add_to_set.iter() {
+                        checks.push(format!("jsonb_typeof(_jsonb->'{}') <> 'array'", field));
+                    }
+                    let where_str = checks.join(" OR ");
+                    let table = sp.sanitize();
+                    let sql = format!("SELECT _jsonb->'_id' AS _id FROM {table} WHERE {where_str}");
+                    let row = self.query_one(&sql, &[])?;
+                    if let Some(row) = row {
+                        let id: serde_json::Value = row.get(0);
+                        let id = id.from_psql_json();
+                        let field = add_to_set.keys().next().unwrap();
+                        let err = format!(
+                            "Cannot apply $addToSet to a non-array field. Field named '{}' has a non-array type int in the document _id: {}",
+                            field, id
+                        );
+                        return Err(eyre! { err });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {

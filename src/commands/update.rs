@@ -37,21 +37,20 @@ impl Handler for Update {
                 return Err(CommandExecutionError::new(format!("{:?}", update_doc)));
             }
 
-            let result = client
-                .update(
-                    &sp,
-                    Some(q),
-                    None,
-                    update_doc.unwrap(),
-                    upsert,
-                    multi,
-                    false,
-                )
-                .unwrap();
+            let result = client.update(
+                &sp,
+                Some(q),
+                None,
+                update_doc.unwrap(),
+                upsert,
+                multi,
+                false,
+            );
 
             match result {
-                UpdateResult::Count(total) => n += total,
-                UpdateResult::Document(_) => n += 1,
+                Ok(UpdateResult::Count(total)) => n += total,
+                Ok(UpdateResult::Document(_)) => n += 1,
+                Err(err) => return Err(CommandExecutionError::new(format!("{:?}", err))),
             }
         }
 

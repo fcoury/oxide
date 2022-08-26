@@ -552,28 +552,46 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
 }
 
 #[test]
-fn test_update_with_add_to_set_multiple_for_non_array() {
+fn test_update_with_provided_oid() {
     let ctx = common::setup();
 
     let res = ctx
         .col()
-        .insert_one(doc! { "letters": "a" }, None)
+        .insert_one(doc! { "_id": 1, "letter": "a" }, None)
         .unwrap();
     let oid = res.inserted_id;
 
     ctx.col()
         .update_one(
             doc! { "_id": &oid },
-            doc! { "$addToSet": { "letters": "c" } },
+            doc! { "$set": { "letter": "b" } },
             None,
         )
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+
+    let res = ctx.col().find(None, None).unwrap();
     let rows = common::get_rows(res);
-    let letters = rows[0].get_array("letters").unwrap();
-    println!("{:?}", letters);
-    // assert_eq!(letters.len(), 3);
-    // assert_eq!(letters[0].as_str().unwrap(), "a");
-    // assert_eq!(letters[1].as_str().unwrap(), "b");
-    // assert_eq!(letters[2].as_str().unwrap(), "c");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_str("letter").unwrap(), "b");
+}
+
+#[test]
+fn test_update_with_add_to_set_multiple_for_non_array() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "_id": 1, "letters": "a" }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    let err = ctx
+        .col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "c" } },
+            None,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'letters' has a non-array type int in the document _id: 1"));
 }
