@@ -664,6 +664,13 @@ fn update_from_operation(update: &UpdateDoc) -> String {
                 .collect::<Vec<String>>()
                 .join(" || ")
         ),
+        UpdateDoc::AddToSet(add_to_set) => {
+            let mut current = "_jsonb".to_string();
+            for (field, value) in add_to_set.iter() {
+                current = format!("jsonb_set({current}, '{{{field}}}', CASE WHEN NOT _jsonb ? '{field}' THEN '[{value}]' ELSE jsonb->'{field}' || '{value}' END)");
+            }
+            format!("_jsonb = {}", current)
+        }
     }
 }
 
@@ -729,6 +736,18 @@ mod tests {
             "b": 3,
         });
         assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb || json_build_object('a', COALESCE(_jsonb->'a')::numeric + 1)::jsonb || json_build_object('b', COALESCE(_jsonb->'b')::numeric + 3)::jsonb");
+    }
+
+    #[test]
+    fn test_update_add_to_set() {
+        let doc = UpdateDoc::AddToSet(doc! {
+            "letters": "a",
+            "colors": "red",
+        });
+        assert_eq!(
+            update_from_operation(&doc),
+            r#"_jsonb = jsonb_set(jsonb_set(_jsonb, '{letters}', CASE WHEN NOT _jsonb ? 'letters' THEN '["a"]' ELSE jsonb->'letters' || '"a"' END), '{colors}', CASE WHEN NOT _jsonb ? 'colors' THEN '["red"]' ELSE jsonb->'colors' || '"red"' END)"#
+        );
     }
 
     #[test]

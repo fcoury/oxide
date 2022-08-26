@@ -13,6 +13,7 @@ pub enum UpdateDoc {
     Inc(Document),
     Set(Document),
     Unset(Document),
+    AddToSet(Document),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +41,7 @@ impl UpdateDoc {
             },
             UpdateDoc::Unset(doc) => Ok(UpdateDoc::Unset(doc.clone())),
             UpdateDoc::Inc(u) => Ok(UpdateDoc::Inc(u.clone())),
+            UpdateDoc::AddToSet(doc) => Ok(UpdateDoc::AddToSet(doc.clone())),
             // _ => {
             //     return Err(InvalidUpdateError::new(format!(
             //         "Unhandled update operation: {:?}",
@@ -102,6 +104,23 @@ pub fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
                     }
                 };
                 match UpdateDoc::Inc(expanded_doc).validate() {
+                    Ok(update_doc) => res.push(update_doc),
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
+                    }
+                }
+            }
+            "$addToSet" => {
+                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
+                    Ok(doc) => doc,
+                    Err(e) => {
+                        return Err(InvalidUpdateError::new(format!(
+                            "Cannot update '{}' and '{}' at the same time",
+                            e.target, e.source
+                        )));
+                    }
+                };
+                match UpdateDoc::AddToSet(expanded_doc).validate() {
                     Ok(update_doc) => res.push(update_doc),
                     Err(e) => {
                         return Err(InvalidUpdateError::new(format!("{:?}", e)));
