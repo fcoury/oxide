@@ -6,6 +6,9 @@ check:
 start:
 	./scripts/start.sh
 
+debug:
+	./scripts/start.sh --debug
+
 test:
 	# cargo nextest run
 	cargo test
