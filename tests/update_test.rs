@@ -495,3 +495,29 @@ fn test_update_with_null() {
     println!("{:?}", res[0]);
     assert_eq!(res[0].get("enqueued").unwrap(), &Bson::Null);
 }
+
+#[test]
+fn test_update_with_add_to_set() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "letters": ["a", "b", "c"] }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "d" } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    assert_eq!(letters[0].as_str().unwrap(), "a");
+    assert_eq!(letters[1].as_str().unwrap(), "b");
+    assert_eq!(letters[2].as_str().unwrap(), "c");
+    assert_eq!(letters[3].as_str().unwrap(), "d");
+}
