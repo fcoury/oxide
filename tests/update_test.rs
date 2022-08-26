@@ -550,3 +550,30 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
     assert_eq!(colors.len(), 1);
     assert_eq!(colors[0].as_str().unwrap(), "red");
 }
+
+#[test]
+fn test_update_with_add_to_set_multiple_for_non_array() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "letters": "a" }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "c" } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    println!("{:?}", letters);
+    // assert_eq!(letters.len(), 3);
+    // assert_eq!(letters[0].as_str().unwrap(), "a");
+    // assert_eq!(letters[1].as_str().unwrap(), "b");
+    // assert_eq!(letters[2].as_str().unwrap(), "c");
+}
