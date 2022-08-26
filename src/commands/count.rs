@@ -21,13 +21,22 @@ impl Handler for Count {
         let collection = doc.get_str("count").unwrap();
         let sp = SqlParam::new(db, collection);
 
+        let mut client = request.get_client();
+
+        // returns empty if db or collection doesn't exist
+        if !client.table_exists(db, collection).unwrap() {
+            return Ok(doc! {
+                "n": 0,
+                "ok": Bson::Double(1.0),
+            });
+        }
+
         let filter = if doc.contains_key("filter") {
             Some(doc.get_document("filter").unwrap().clone())
         } else {
             None
         };
 
-        let mut client = request.get_client();
         let r = client.query("SELECT COUNT(*) FROM %table%", sp, filter, &[]);
         match r {
             Ok(rows) => {

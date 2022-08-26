@@ -40,3 +40,14 @@ fn test_count() {
 
     assert_eq!(res.get_i32("n").unwrap(), 4);
 }
+
+#[test]
+fn test_count_for_non_existent_collection() {
+    let ctx = common::setup();
+    let res = ctx
+        .db()
+        .run_command(doc! {"count": "i-dont-exist"}, None)
+        .unwrap();
+
+    assert_eq!(res.get_i32("n").unwrap(), 0);
+}
