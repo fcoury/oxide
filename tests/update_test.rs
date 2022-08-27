@@ -589,6 +589,9 @@ fn test_update_with_add_to_set_nested_object() {
         .unwrap();
     let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
     let rows = common::get_rows(res);
+    let letters = rows[0].get("data.letters");
+    assert_eq!(letters, None);
+    println!("rows[0]: {:#?}", rows[0]);
     let data = rows[0].get_document("data").unwrap();
     let letters = data.get_array("letters").unwrap();
     assert_eq!(letters.len(), 1);
@@ -608,7 +611,7 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
     ctx.col()
         .update_one(
             doc! { "_id": &oid },
-            doc! { "$addToSet": { "letters": "c", "colors": "red" } },
+            doc! { "$addToSet": { "letters": "c", "colors.selected": "red" } },
             None,
         )
         .unwrap();
@@ -619,13 +622,14 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
     assert_eq!(letters[0].as_str().unwrap(), "a");
     assert_eq!(letters[1].as_str().unwrap(), "b");
     assert_eq!(letters[2].as_str().unwrap(), "c");
-    let colors = rows[0].get_array("colors").unwrap();
-    assert_eq!(colors.len(), 1);
-    assert_eq!(colors[0].as_str().unwrap(), "red");
+    let colors = rows[0].get_document("colors").unwrap();
+    let selected = colors.get_array("selected").unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].as_str().unwrap(), "red");
 }
 
 #[test]
-fn test_update_with_add_to_set_multiple_for_non_array() {
+fn test_update_with_add_to_set_for_non_array() {
     let ctx = common::setup();
 
     let res = ctx
@@ -643,4 +647,25 @@ fn test_update_with_add_to_set_multiple_for_non_array() {
         )
         .unwrap_err();
     assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'letters' has a non-array type int in the document _id: 1"));
+}
+
+#[test]
+fn test_update_with_add_to_set_nested_for_non_array() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "_id": 1, "letters": {"a": "1"} }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    let err = ctx
+        .col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters.a": "2" } },
+            None,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'a' has a non-array type int in the document _id: 1"));
 }

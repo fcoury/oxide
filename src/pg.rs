@@ -303,6 +303,7 @@ impl PgDb {
             // #16 - https://github.com/fcoury/oxide/issues/16
             let mut total = 0;
             for sql in statements {
+                println!("sql = {}", sql);
                 total += self.exec(&sql, &[])?;
             }
             Ok(UpdateResult::Count(total))
@@ -310,27 +311,40 @@ impl PgDb {
     }
 
     pub fn check_preconditions(&mut self, sp: &SqlParam, updates: &Vec<UpdateDoc>) -> Result<()> {
+        // field is a.b.c and value is d: 1
+        // preconditions are:
+        // 1. a is object (or doesn't exist -- ends here with success)
+        // 2. b is object (or doesn't exist -- ends here with success)
+        // 3. c is array  (or doesn't exist -- ends here with success)
+
         for update in updates {
             match update {
                 UpdateDoc::AddToSet(add_to_set) => {
                     // check if any of the fields to be set is not an array
-                    let mut checks = vec![];
-                    for (field, _) in add_to_set.iter() {
-                        checks.push(format!("jsonb_typeof(_jsonb->'{}') <> 'array'", field));
-                    }
-                    let where_str = checks.join(" OR ");
                     let table = sp.sanitize();
-                    let sql = format!("SELECT _jsonb->'_id' AS _id FROM {table} WHERE {where_str}");
-                    let row = self.query_one(&sql, &[])?;
-                    if let Some(row) = row {
-                        let id: serde_json::Value = row.get(0);
-                        let id = id.from_psql_json();
-                        let field = add_to_set.keys().next().unwrap();
-                        let err = format!(
-                            "Cannot apply $addToSet to a non-array field. Field named '{}' has a non-array type int in the document _id: {}",
-                            field, id
+                    for (field, _) in add_to_set.iter() {
+                        let set_field = format!(
+                            "_jsonb{}",
+                            field
+                                .split(".")
+                                .map(|f| format!("['{}']", f))
+                                .collect::<Vec<_>>()
+                                .join("")
                         );
-                        return Err(eyre! { err });
+
+                        let sql = format!("SELECT _jsonb->'_id' AS _id FROM {table} WHERE jsonb_typeof({set_field}) IS NOT NULL AND jsonb_typeof({set_field}) <> 'array'");
+                        let row = self.query_one(&sql, &[])?;
+                        if let Some(row) = row {
+                            let id: serde_json::Value = row.get(0);
+                            let id = id.from_psql_json();
+                            let field = add_to_set.keys().next().unwrap();
+                            let last_part = field.split(".").last().unwrap();
+                            let err = format!(
+                                "Cannot apply $addToSet to a non-array field. Field named '{}' has a non-array type int in the document _id: {}",
+                                last_part, id
+                            );
+                            return Err(eyre! { err });
+                        }
                     }
                 }
                 _ => {}
@@ -708,11 +722,30 @@ fn update_from_operation(update: &UpdateDoc) -> String {
                 .join(" || ")
         ),
         UpdateDoc::AddToSet(add_to_set) => {
-            let mut current = "_jsonb".to_string();
+            let mut updates = vec![];
             for (field, value) in add_to_set.iter() {
-                current = format!("jsonb_set({current}, '{{{field}}}', CASE WHEN NOT _jsonb ? '{field}' THEN '[{value}]' WHEN NOT _jsonb->'{field}' @> '[{value}]' THEN _jsonb->'{field}' || '{value}' ELSE _jsonb->'{field}' END)");
+                // comes as { "data.letters": { "name": "a" } }
+                // we need _jsonb['data']['letters'] and {data,letters}
+                let set_field = format!(
+                    "_jsonb{}",
+                    field
+                        .split(".")
+                        .map(|f| format!("['{}']", f))
+                        .collect::<Vec<_>>()
+                        .join("")
+                );
+                let path = format!("{{{}}}", field.replace(".", ","));
+                updates.push(format!(
+                    r#"
+                    {set_field} = CASE
+                        WHEN _jsonb #> '{path}' @> '[{value}]' THEN {set_field}
+                        WHEN jsonb_typeof(_jsonb #> '{path}') = 'array' THEN {set_field} || '{value}'
+                        ELSE '[{value}]'
+                    END
+                    "#
+                ));
             }
-            format!("_jsonb = {}", current)
+            updates.join(", ")
         }
     }
 }
@@ -779,18 +812,6 @@ mod tests {
             "b": 3,
         });
         assert_eq!(update_from_operation(&doc), "_jsonb = _jsonb || json_build_object('a', COALESCE(_jsonb->'a')::numeric + 1)::jsonb || json_build_object('b', COALESCE(_jsonb->'b')::numeric + 3)::jsonb");
-    }
-
-    #[test]
-    fn test_update_add_to_set() {
-        let doc = UpdateDoc::AddToSet(doc! {
-            "letters": "a",
-            "colors": "red",
-        });
-        assert_eq!(
-            update_from_operation(&doc),
-            r#"_jsonb = jsonb_set(jsonb_set(_jsonb, '{letters}', CASE WHEN NOT _jsonb ? 'letters' THEN '["a"]' WHEN NOT _jsonb->'letters' @> '["a"]' THEN _jsonb->'letters' || '"a"' ELSE _jsonb->'letters' END), '{colors}', CASE WHEN NOT _jsonb ? 'colors' THEN '["red"]' WHEN NOT _jsonb->'colors' @> '["red"]' THEN _jsonb->'colors' || '"red"' ELSE _jsonb->'colors' END)"#
-        );
     }
 
     #[test]
