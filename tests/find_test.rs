@@ -287,3 +287,13 @@ fn test_with_multiple_fields() {
     assert_eq!(1, rows[0].get_i32("counter").unwrap());
     assert_eq!(1, rows[0].get_i32("a").unwrap());
 }
+
+#[test]
+fn test_with_array() {
+    let col = insert!(doc! { "loginTokens": [{"when": "now", "token": "TOKEN_VALUE"}] });
+    let rows = common::get_rows(
+        col.find(doc! { "loginTokens.token": "TOKEN_VALUE" }, None)
+            .unwrap(),
+    );
+    assert_eq!(1, rows.len());
+}
