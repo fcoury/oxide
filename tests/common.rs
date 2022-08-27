@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use bson::Bson;
 use mongodb::bson::Document;
 use mongodb::sync::Cursor;
 use oxide::pg::PgDb;
@@ -9,6 +10,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::Once;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
 static INIT: Once = Once::new();
@@ -132,6 +134,15 @@ pub fn get_rows(cursor: Cursor<Document>) -> Vec<Document> {
     let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
     let rows: Result<Vec<Document>, mongodb::error::Error> = rows.into_iter().collect();
     rows.unwrap()
+}
+
+pub fn get_datetime(rfc3339: &str) -> Bson {
+    let date = chrono::DateTime::parse_from_rfc3339(rfc3339).unwrap();
+    let time: u128 = SystemTime::from(date)
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    Bson::DateTime(bson::DateTime::from_millis(time.try_into().unwrap()))
 }
 
 #[macro_export]

@@ -303,7 +303,6 @@ impl PgDb {
             // #16 - https://github.com/fcoury/oxide/issues/16
             let mut total = 0;
             for sql in statements {
-                println!("sql = {}", sql);
                 total += self.exec(&sql, &[])?;
             }
             Ok(UpdateResult::Count(total))
@@ -735,6 +734,7 @@ fn update_from_operation(update: &UpdateDoc) -> String {
                         .join("")
                 );
                 let path = format!("{{{}}}", field.replace(".", ","));
+                let value = value.clone().into_psql_json().to_string();
                 updates.push(format!(
                     r#"
                     {set_field} = CASE
