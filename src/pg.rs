@@ -99,7 +99,6 @@ impl PgDb {
             }
         }
 
-        println!("SQL: {} - {:#?}", sql, params);
         log::debug!("SQL: {} - {:#?}", sql, params);
         self.raw_query(&sql, params)
     }
@@ -711,7 +710,7 @@ fn update_from_operation(update: &UpdateDoc) -> String {
         UpdateDoc::AddToSet(add_to_set) => {
             let mut current = "_jsonb".to_string();
             for (field, value) in add_to_set.iter() {
-                current = format!("jsonb_set({current}, '{{{field}}}', CASE WHEN NOT _jsonb ? '{field}' THEN '[{value}]' WHEN NOT _jsonb->'{field}' @> '{value}' THEN _jsonb->'{field}' || '{value}' ELSE _jsonb->'{field}' END)");
+                current = format!("jsonb_set({current}, '{{{field}}}', CASE WHEN NOT _jsonb ? '{field}' THEN '[{value}]' WHEN NOT _jsonb->'{field}' @> '[{value}]' THEN _jsonb->'{field}' || '{value}' ELSE _jsonb->'{field}' END)");
             }
             format!("_jsonb = {}", current)
         }
@@ -790,7 +789,7 @@ mod tests {
         });
         assert_eq!(
             update_from_operation(&doc),
-            r#"_jsonb = jsonb_set(jsonb_set(_jsonb, '{letters}', CASE WHEN NOT _jsonb ? 'letters' THEN '["a"]' WHEN NOT _jsonb->'letters' @> '"a"' THEN _jsonb->'letters' || '"a"' ELSE _jsonb->'letters' END), '{colors}', CASE WHEN NOT _jsonb ? 'colors' THEN '["red"]' WHEN NOT _jsonb->'colors' @> '"red"' THEN _jsonb->'colors' || '"red"' ELSE _jsonb->'colors' END)"#
+            r#"_jsonb = jsonb_set(jsonb_set(_jsonb, '{letters}', CASE WHEN NOT _jsonb ? 'letters' THEN '["a"]' WHEN NOT _jsonb->'letters' @> '["a"]' THEN _jsonb->'letters' || '"a"' ELSE _jsonb->'letters' END), '{colors}', CASE WHEN NOT _jsonb ? 'colors' THEN '["red"]' WHEN NOT _jsonb->'colors' @> '["red"]' THEN _jsonb->'colors' || '"red"' ELSE _jsonb->'colors' END)"#
         );
     }
 
