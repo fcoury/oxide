@@ -6,7 +6,7 @@
    </a>
    <!-- [![CI workflow](https://github.com/fcoury/oxide/actions/workflows/ci.yml/badge.svg)](https://github.com/fcoury/oxide/actions/workflows/ci.yml) -->
 </p>
-   
+
 <p align="center">
    &ldquo;<i>If it looks like MongoDB, swims like MongoDB, and quacks like MongoDB, then it probably is PostgreSQL.</i>&rdquo; :upside_down_face:
 </p>
@@ -114,7 +114,7 @@ By default oxide will bind to 127.0.0.1 and port 27017. You can change those set
 
 ```
 > $ ./oxide --help
-oxide 0.1.5
+oxide 0.1.6
 A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage.
 
 USAGE:
