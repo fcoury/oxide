@@ -571,6 +571,31 @@ fn test_update_with_add_to_set_object() {
 }
 
 #[test]
+fn test_update_with_add_to_set_nested_object() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "data": { "letters": [{"name": "a"}] } }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "data.letters": {"name": "a"} } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let data = rows[0].get_document("data").unwrap();
+    let letters = data.get_array("letters").unwrap();
+    assert_eq!(letters.len(), 1);
+    assert_eq!(letters[0].as_document().unwrap(), &doc! { "name": "a" });
+}
+
+#[test]
 fn test_update_with_add_to_set_multiple_and_repeated() {
     let ctx = common::setup();
 

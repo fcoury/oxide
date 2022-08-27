@@ -111,16 +111,8 @@ pub fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
                 }
             }
             "$addToSet" => {
-                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
-                    Ok(doc) => doc,
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!(
-                            "Cannot update '{}' and '{}' at the same time",
-                            e.target, e.source
-                        )));
-                    }
-                };
-                match UpdateDoc::AddToSet(expanded_doc).validate() {
+                let doc = value.as_document().unwrap().clone();
+                match UpdateDoc::AddToSet(doc).validate() {
                     Ok(update_doc) => res.push(update_doc),
                     Err(e) => {
                         return Err(InvalidUpdateError::new(format!("{:?}", e)));
