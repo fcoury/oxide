@@ -284,6 +284,7 @@ pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Res
     for (key, v) in &flat_obj {
         let mut parts = key.split(".").collect::<Vec<&str>>();
         let mut value = OperatorValueType::Json(v.to_owned());
+        let mut alternate = "".to_string();
 
         let oper = if parts[parts.len() - 1].starts_with("$") {
             let operator = parts.pop().unwrap();
@@ -383,6 +384,20 @@ pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Res
                 t => unimplemented!("parse_object - unimplemented {:?} in ${:?}", t, object),
             }
         } else {
+            let mut alt_parts = parts.clone();
+            let field = alt_parts.pop().unwrap();
+            alternate = if alt_parts.len() > 0 {
+                let path = format!("{{{}}}", alt_parts.join(","));
+                format!(
+                    r#" OR _jsonb #> '{}' @> '[{{"{}": {}}}]'"#,
+                    path,
+                    field,
+                    value.to_string()
+                )
+            } else {
+                "".to_string()
+            };
+
             "="
         };
 
@@ -393,7 +408,7 @@ pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Res
             .join("->");
         let field = format!("_jsonb->{}", field);
         let value = str_to_jsonb(value.to_string());
-        let str = format!("{} {} {}", field, oper, value);
+        let str = format!("({} {} {}{})", field, oper, value, alternate);
         res.push(str);
     }
 
@@ -587,7 +602,7 @@ mod tests {
         );
         assert_eq!(
             parse(doc! { "a.b": { "$exists": 1 } }).unwrap(),
-            r#"_jsonb->'a' ? 'b'"#
+            r#"(_jsonb->'a' ? 'b')"#
         );
         assert_eq!(
             parse(doc! { "a.b": { "$exists": 0 } }).unwrap(),
@@ -595,7 +610,7 @@ mod tests {
         );
         assert_eq!(
             parse(doc! { "a.b.c": { "$exists": 1 } }).unwrap(),
-            r#"_jsonb->'a'->'b' ? 'c'"#
+            r#"(_jsonb->'a'->'b' ? 'c')"#
         );
         assert_eq!(
             parse(doc! { "a.b.c.d.e.f": { "$exists": 0 } }).unwrap(),
@@ -607,7 +622,7 @@ mod tests {
     fn test_dot_nested() {
         assert_eq!(
             parse(doc! { "config.get.method": "GET" }).unwrap(),
-            r#"_jsonb->'config'->'get'->'method' = '"GET"'"#
+            r#"(_jsonb->'config'->'get'->'method' = '"GET"' OR _jsonb #> '{config,get}' @> '[{"method": "GET"}]')"#
         )
     }
 
@@ -615,7 +630,7 @@ mod tests {
     fn test_nested_find() {
         assert_eq!(
             parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }).unwrap(),
-            r#"_jsonb->'a'->'b'->'c' = '1' AND _jsonb->'a'->'b'->'d' = '2' AND _jsonb->'a'->'e' = '2'"#
+            r#"(_jsonb->'a'->'b'->'c' = '1' OR _jsonb #> '{a,b}' @> '[{"c": 1}]') AND (_jsonb->'a'->'b'->'d' = '2' OR _jsonb #> '{a,b}' @> '[{"d": 2}]') AND (_jsonb->'a'->'e' = '2' OR _jsonb #> '{a}' @> '[{"e": 2}]')"#
         )
     }
 
@@ -624,7 +639,7 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } })
                 .unwrap(),
-            r#"_jsonb->'a' ? 'b' AND _jsonb->'a'->'c' > '1' AND _jsonb->'a'->'e' = '"Felipe"'"#
+            r#"(_jsonb->'a' ? 'b') AND (_jsonb->'a'->'c' > '1') AND (_jsonb->'a'->'e' = '"Felipe"' OR _jsonb #> '{a}' @> '[{"e": "Felipe"}]')"#
         )
     }
 
