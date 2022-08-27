@@ -495,3 +495,177 @@ fn test_update_with_null() {
     println!("{:?}", res[0]);
     assert_eq!(res[0].get("enqueued").unwrap(), &Bson::Null);
 }
+
+#[test]
+fn test_update_with_provided_oid() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "_id": 1, "letter": "a" }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$set": { "letter": "b" } },
+            None,
+        )
+        .unwrap();
+
+    let res = ctx.col().find(None, None).unwrap();
+    let rows = common::get_rows(res);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get_str("letter").unwrap(), "b");
+}
+
+#[test]
+fn test_update_with_add_to_set() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "letters": ["a", "b", "c"] }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "d" } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    assert_eq!(letters[0].as_str().unwrap(), "a");
+    assert_eq!(letters[1].as_str().unwrap(), "b");
+    assert_eq!(letters[2].as_str().unwrap(), "c");
+    assert_eq!(letters[3].as_str().unwrap(), "d");
+}
+
+#[test]
+fn test_update_with_add_to_set_object() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "letters": [{"name": "a"}] }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": {"name": "a"} } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    assert_eq!(letters.len(), 1);
+    assert_eq!(letters[0].as_document().unwrap(), &doc! { "name": "a" });
+}
+
+#[test]
+fn test_update_with_add_to_set_nested_object() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "data": { "letters": [{"name": "a"}] } }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "data.letters": {"name": "a"} } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get("data.letters");
+    assert_eq!(letters, None);
+    println!("rows[0]: {:#?}", rows[0]);
+    let data = rows[0].get_document("data").unwrap();
+    let letters = data.get_array("letters").unwrap();
+    assert_eq!(letters.len(), 1);
+    assert_eq!(letters[0].as_document().unwrap(), &doc! { "name": "a" });
+}
+
+#[test]
+fn test_update_with_add_to_set_multiple_and_repeated() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "letters": ["a", "b", "c"] }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "c", "colors.selected": "red" } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    assert_eq!(letters.len(), 3);
+    assert_eq!(letters[0].as_str().unwrap(), "a");
+    assert_eq!(letters[1].as_str().unwrap(), "b");
+    assert_eq!(letters[2].as_str().unwrap(), "c");
+    let colors = rows[0].get_document("colors").unwrap();
+    let selected = colors.get_array("selected").unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].as_str().unwrap(), "red");
+}
+
+#[test]
+fn test_update_with_add_to_set_for_non_array() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "_id": 1, "letters": "a" }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    let err = ctx
+        .col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": "c" } },
+            None,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'letters' has a non-array type int in the document _id: 1"));
+}
+
+#[test]
+fn test_update_with_add_to_set_nested_for_non_array() {
+    let ctx = common::setup();
+
+    let res = ctx
+        .col()
+        .insert_one(doc! { "_id": 1, "letters": {"a": "1"} }, None)
+        .unwrap();
+    let oid = res.inserted_id;
+
+    let err = ctx
+        .col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters.a": "2" } },
+            None,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'a' has a non-array type int in the document _id: 1"));
+}
