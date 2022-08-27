@@ -669,3 +669,29 @@ fn test_update_with_add_to_set_nested_for_non_array() {
         .unwrap_err();
     assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'a' has a non-array type int in the document _id: 1"));
 }
+
+#[test]
+fn test_update_with_add_to_set_date() {
+    let ctx = common::setup();
+
+    let res = ctx.col().insert_one(doc! { "letters": [] }, None).unwrap();
+    let oid = res.inserted_id;
+
+    ctx.col()
+        .update_one(
+            doc! { "_id": &oid },
+            doc! { "$addToSet": { "letters": {"name": "a", "date": common::get_datetime("1996-12-19T16:39:57-08:00")} } },
+            None,
+        )
+        .unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let rows = common::get_rows(res);
+    let letters = rows[0].get_array("letters").unwrap();
+    assert_eq!(letters.len(), 1);
+    let doc = letters[0].as_document().unwrap();
+    let date = doc.get_datetime("date").unwrap();
+    assert_eq!(
+        date.try_to_rfc3339_string().unwrap(),
+        "1996-12-20T00:39:57Z"
+    );
+}
