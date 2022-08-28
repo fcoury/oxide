@@ -121,8 +121,9 @@ pub fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
             }
             _ => {
                 if key.starts_with("$") || res.len() > 0 {
+                    log::error!("Unhandled update operator: {}\nDocument = {:#?}", key, doc);
                     return Err(InvalidUpdateError::new(format!(
-                        "Unknown modifier: {}",
+                        "Unknown update operator: {}",
                         key
                     )));
                 }
