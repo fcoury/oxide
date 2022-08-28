@@ -24,13 +24,24 @@ fn test_basic_insert() {
 #[test]
 fn test_insert_without_id() {
     let ctx = common::setup();
-    ctx.db().run_command(doc! {
-        "insert": &ctx.collection,
-        "documents": vec![doc! {
-            "name": "Felipe"
-        }]
-    }, None).unwrap();
-    let doc = ctx.col().find(doc! { "name": "Felipe" }, None).unwrap().next().unwrap().unwrap();
+    ctx.db()
+        .run_command(
+            doc! {
+                "insert": &ctx.collection,
+                "documents": vec![doc! {
+                    "name": "Felipe"
+                }]
+            },
+            None,
+        )
+        .unwrap();
+    let doc = ctx
+        .col()
+        .find(doc! { "name": "Felipe" }, None)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
     assert!(doc.contains_key("_id"));
 }
 
@@ -68,5 +79,43 @@ fn test_raw_kind2_op_msg_insert() {
     "};
 
     ctx.send(&hexdump_to_bytes(kind2insert));
+    assert_eq!(count_documents(ctx), count + 1);
+}
+
+#[test]
+fn test_raw_jetbrains_idea_insert() {
+    let ctx = common::setup();
+    let count = count_documents(ctx.clone());
+
+    fn count_documents(ctx: common::TestContext) -> usize {
+        let cursor = ctx
+            .mongodb()
+            .database("test")
+            .collection::<Document>("inventory")
+            .find(None, None)
+            .unwrap();
+        let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+        rows.len()
+    }
+
+    let insert = indoc! {"
+        0000   c9 00 00 00 36 00 00 00 00 00 00 00 dd 07 00 00   ....6...........
+        0010   00 00 00 00 00 33 00 00 00 02 69 6e 73 65 72 74   .....3....insert
+        0020   00 0a 00 00 00 69 6e 76 65 6e 74 6f 72 79 00 08   .....inventory..
+        0030   6f 72 64 65 72 65 64 00 01 02 24 64 62 00 05 00   ordered...$db...
+        0040   00 00 74 65 73 74 00 00 01 80 00 00 00 64 6f 63   ..test.......doc
+        0050   75 6d 65 6e 74 73 00 72 00 00 00 07 5f 69 64 00   uments.r...._id.
+        0060   63 0b ac 82 29 0b 4a 69 98 af 9c ac 02 69 74 65   c...).Ji.....ite
+        0070   6d 00 07 00 00 00 63 61 6e 76 61 73 00 10 71 74   m.....canvas..qt
+        0080   79 00 64 00 00 00 04 74 61 67 73 00 13 00 00 00   y.d....tags.....
+        0090   02 30 00 07 00 00 00 63 6f 74 74 6f 6e 00 00 03   .0.....cotton...
+        00a0   73 69 7a 65 00 23 00 00 00 10 68 00 1c 00 00 00   size.#....h.....
+        00b0   01 77 00 00 00 00 00 00 c0 41 40 02 75 6f 6d 00   .w.......A@.uom.
+        00c0   03 00 00 00 63 6d 00 00 00                        ....cm...
+    "};
+
+    let bytes = hexdump_to_bytes(insert);
+    ctx.send(&bytes);
+
     assert_eq!(count_documents(ctx), count + 1);
 }
