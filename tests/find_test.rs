@@ -304,7 +304,9 @@ fn test_with_nested_arrays() {
         doc! { "_id": 1, "loginTokens": {"when": "now", "tokens": {"name": "TOKEN_VALUE2"}} },
         doc! { "_id": 2, "loginTokens": {"when": "now", "tokens": [{"name": "TOKEN_VALUE1"}, {"name": "TOKEN_VALUE2"}]} },
         doc! { "_id": 3, "loginTokens": [{"when": "now", "tokens": [{"name": "TOKEN_VALUE1"}, {"name": "TOKEN_VALUE2"}]}] },
-        doc! { "_id": 4, "a": { "loginTokens": [{"when": "now", "tokens": [{"name": "TOKEN_VALUE1"}, {"name": "TOKEN_VALUE2"}]}] } }
+        doc! { "_id": 4, "loginTokens": [{"when": "now", "tokens": [{"name": ["TOKEN_VALUE1", "TOKEN_VALUE2"]}]}] },
+        doc! { "_id": 5, "loginTokens": [{"when": "now", "tokens": {"name": ["TOKEN_VALUE1", "TOKEN_VALUE2"]}}] },
+        doc! { "_id": 6, "a": { "loginTokens": [{"when": "now", "tokens": [{"name": "TOKEN_VALUE1"}, {"name": "TOKEN_VALUE2"}]}] } }
     );
     let rows = common::get_rows(
         col.find(doc! { "loginTokens.tokens.name": "TOKEN_VALUE2" }, None)
@@ -314,6 +316,6 @@ fn test_with_nested_arrays() {
         .iter()
         .map(|r| r.get_i32("_id").unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(3, rows.len());
-    assert_eq!(ids, [1, 2, 3]);
+    assert_eq!(5, rows.len());
+    assert_eq!(ids, [1, 2, 3, 4, 5]);
 }
