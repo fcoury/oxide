@@ -155,11 +155,11 @@ mod tests {
         );
         assert_eq!(
             parse_update(&unknown_doc).unwrap_err(),
-            InvalidUpdateError::new("Unknown modifier: $xyz".to_string())
+            InvalidUpdateError::new("Unknown update operator: $xyz".to_string())
         );
         assert_eq!(
             parse_update(&mixed_doc).unwrap_err(),
-            InvalidUpdateError::new("Unknown modifier: b".to_string())
+            InvalidUpdateError::new("Unknown update operator: b".to_string())
         );
     }
 }
