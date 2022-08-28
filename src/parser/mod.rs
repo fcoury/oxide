@@ -620,7 +620,7 @@ mod tests {
     fn test_dot_nested() {
         assert_eq!(
             parse(doc! { "config.get.method": "GET" }).unwrap(),
-            r#"(_jsonb->'config'->'get'->'method' = '"GET"' OR _jsonb #> '{config,get}' @> '[{"method": "GET"}]')"#
+            r#"(_jsonb->'config'->'get'->'method' = '"GET"' OR jsonb_path_exists(_jsonb, '$[*].config[*].get[*].method ? (@ == "GET")'))"#
         )
     }
 
@@ -628,7 +628,7 @@ mod tests {
     fn test_nested_find() {
         assert_eq!(
             parse(doc! { "a": { "b": { "c": 1, "d": 2 }, "e": 2 } }).unwrap(),
-            r#"(_jsonb->'a'->'b'->'c' = '1' OR _jsonb #> '{a,b}' @> '[{"c": 1}]') AND (_jsonb->'a'->'b'->'d' = '2' OR _jsonb #> '{a,b}' @> '[{"d": 2}]') AND (_jsonb->'a'->'e' = '2' OR _jsonb #> '{a}' @> '[{"e": 2}]')"#
+            r#"(_jsonb->'a'->'b'->'c' = '1' OR jsonb_path_exists(_jsonb, '$[*].a[*].b[*].c ? (@ == 1)')) AND (_jsonb->'a'->'b'->'d' = '2' OR jsonb_path_exists(_jsonb, '$[*].a[*].b[*].d ? (@ == 2)')) AND (_jsonb->'a'->'e' = '2' OR jsonb_path_exists(_jsonb, '$[*].a[*].e ? (@ == 2)'))"#
         )
     }
 
@@ -637,7 +637,7 @@ mod tests {
         assert_eq!(
             parse(doc! { "a": { "b": { "$exists": 1 }, "c": { "$gt": 1 }, "e": "Felipe" } })
                 .unwrap(),
-            r#"(_jsonb->'a' ? 'b') AND (_jsonb->'a'->'c' > '1') AND (_jsonb->'a'->'e' = '"Felipe"' OR _jsonb #> '{a}' @> '[{"e": "Felipe"}]')"#
+            r#"(_jsonb->'a' ? 'b') AND (_jsonb->'a'->'c' > '1') AND (_jsonb->'a'->'e' = '"Felipe"' OR jsonb_path_exists(_jsonb, '$[*].a[*].e ? (@ == "Felipe")'))"#
         )
     }
 
