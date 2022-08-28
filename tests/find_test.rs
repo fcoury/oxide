@@ -297,3 +297,15 @@ fn test_with_array() {
     );
     assert_eq!(1, rows.len());
 }
+
+#[test]
+fn test_with_nested_arrays() {
+    let col = insert!(
+        doc! { "loginTokens": [{"when": "now", "tokens": [{"name": "TOKEN_VALUE1"}, {"name": "TOKEN_VALUE2"}]}] }
+    );
+    let rows = common::get_rows(
+        col.find(doc! { "loginTokens.tokens.name": "TOKEN_VALUE2" }, None)
+            .unwrap(),
+    );
+    assert_eq!(1, rows.len());
+}

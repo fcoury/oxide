@@ -386,17 +386,15 @@ pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Res
         } else {
             let mut alt_parts = parts.clone();
             let field = alt_parts.pop().unwrap();
-            alternate = if alt_parts.len() > 0 {
-                let path = format!("{{{}}}", alt_parts.join(","));
-                format!(
-                    r#" OR _jsonb #> '{}' @> '[{{"{}": {}}}]'"#,
-                    path,
-                    field,
-                    value.to_string()
-                )
-            } else {
-                "".to_string()
-            };
+            let str_value = value.to_string();
+            let fields_expr = alt_parts
+                .iter()
+                .map(|p| format!("{p}[*]."))
+                .collect::<Vec<String>>()
+                .join("");
+            alternate = format!(
+                " OR jsonb_path_exists(_jsonb, '$[*].{fields_expr}{field} ? (@ == {str_value})')"
+            );
 
             "="
         };
