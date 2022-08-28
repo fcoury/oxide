@@ -41,12 +41,15 @@ pub fn hexstring_to_bytes(hexstr: &str) -> Vec<u8> {
 }
 
 pub fn hexdump_to_bytes(op_msg_hexstr: &str) -> Vec<u8> {
-    let re = Regex::new(r"\d{4}\s{3}(((\d|[a-f]){2}\s)+)\s{2}.*").unwrap();
-    let mut bytes: Vec<u8> = vec![];
-    for cap in re.captures_iter(op_msg_hexstr) {
-        bytes.extend(hexstring_to_bytes(cap.get(1).unwrap().as_str()));
+    let re1 = Regex::new(r"([0-9a-f]{4}\s+)").unwrap();
+    let re2 = Regex::new(r"(\s{3}(.*)$)").unwrap();
+    let mut res = "".to_string();
+    for line in op_msg_hexstr.split("\n") {
+        let line = re1.replace_all(line, "").to_string();
+        let line = re2.replace_all(&line, "").to_string();
+        res = format!("{res} {line}");
     }
-    return bytes;
+    hexstring_to_bytes(&res)
 }
 
 fn path_to_doc(path: &str, value: &Bson) -> Document {
@@ -294,6 +297,8 @@ pub fn convert_if_numeric(field: &str) -> String {
 
 #[cfg(test)]
 mod test {
+    use indoc::indoc;
+
     use super::*;
 
     #[test]
@@ -321,5 +326,26 @@ mod test {
                 "b": 4,
             }
         );
+    }
+
+    #[test]
+    fn test_hexdump_to_bytes() {
+        let insert = indoc! {"
+            0000   c9 00 00 00 36 00 00 00 00 00 00 00 dd 07 00 00   ....6...........
+            0010   00 00 00 00 00 33 00 00 00 02 69 6e 73 65 72 74   .....3....insert
+            0020   00 0a 00 00 00 69 6e 76 65 6e 74 6f 72 79 00 08   .....inventory..
+            0030   6f 72 64 65 72 65 64 00 01 02 24 64 62 00 05 00   ordered...$db...
+            0040   00 00 74 65 73 74 00 00 01 80 00 00 00 64 6f 63   ..test.......doc
+            0050   75 6d 65 6e 74 73 00 72 00 00 00 07 5f 69 64 00   uments.r...._id.
+            0060   63 0b ac 82 29 0b 4a 69 98 af 9c ac 02 69 74 65   c...).Ji.....ite
+            0070   6d 00 07 00 00 00 63 61 6e 76 61 73 00 10 71 74   m.....canvas..qt
+            0080   79 00 64 00 00 00 04 74 61 67 73 00 13 00 00 00   y.d....tags.....
+            0090   02 30 00 07 00 00 00 63 6f 74 74 6f 6e 00 00 03   .0.....cotton...
+            00a0   73 69 7a 65 00 23 00 00 00 10 68 00 1c 00 00 00   size.#....h.....
+            00b0   01 77 00 00 00 00 00 00 c0 41 40 02 75 6f 6d 00   .w.......A@.uom.
+            00c0   03 00 00 00 63 6d 00 00 00                        ....cm...
+        "};
+        let bytes = hexdump_to_bytes(insert);
+        assert_eq!(bytes.len(), 201);
     }
 }

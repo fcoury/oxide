@@ -209,7 +209,18 @@ fn handle_op_msg(request: &Request, msg: OpMsg) -> Result<Document, CommandExecu
 
     let section = msg.sections[0].clone();
     if section.kind == 0 {
-        return run(request, &section.documents);
+        let mut documents = section.documents.clone();
+        if msg.sections.len() > 1 {
+            for section in msg.sections[1..].iter() {
+                if let Some(identifier) = section.identifier.clone() {
+                    if identifier == "documents\0" {
+                        let new_doc = section.documents[0].clone();
+                        documents[0].insert("documents", Bson::Array(vec![new_doc.into()]));
+                    }
+                }
+            }
+        }
+        return run(request, &documents);
     }
 
     if section.kind == 1 {
