@@ -1,4 +1,5 @@
 use crate::deserializer::PostgresJsonDeserializer;
+use crate::handler::Trace;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
 use crate::utils::{collapse_fields, expand_fields};
@@ -46,6 +47,44 @@ pub enum UpdateError {
 
 pub struct PgDb {
     client: PooledConnection<PostgresConnectionManager<NoTls>>,
+    tracer: Option<Box<dyn Trace>>,
+}
+
+pub struct PgDbBuilder {
+    client: Option<PooledConnection<PostgresConnectionManager<NoTls>>>,
+    tracer: Option<Box<dyn Trace>>,
+}
+
+impl PgDbBuilder {
+    pub fn default() -> Self {
+        PgDbBuilder {
+            client: None,
+            tracer: None,
+        }
+    }
+
+    pub fn with_pool(mut self, pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
+        self.client = Some(pool.get().unwrap());
+        self
+    }
+
+    pub fn with_uri(self, uri: &str) -> Self {
+        let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
+        let pool = r2d2::Pool::new(manager).unwrap();
+        self.with_pool(&pool)
+    }
+
+    pub fn with_tracer(mut self, tracer: Box<dyn Trace>) -> Self {
+        self.tracer = Some(tracer);
+        self
+    }
+
+    pub fn build(self) -> PgDb {
+        PgDb {
+            client: self.client.unwrap(),
+            tracer: self.tracer,
+        }
+    }
 }
 
 impl PgDb {
@@ -53,16 +92,26 @@ impl PgDb {
         PgDb::new_with_uri(&env::var("DATABASE_URL").unwrap())
     }
 
+    pub fn builder() -> PgDbBuilder {
+        PgDbBuilder::default()
+    }
+
     pub fn new_from_pool(pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
         let client = pool.get().unwrap();
-        PgDb { client }
+        PgDb {
+            client,
+            tracer: None,
+        }
     }
 
     pub fn new_with_uri(uri: &str) -> Self {
         let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
         let pool = r2d2::Pool::new(manager).unwrap();
         let client = pool.get().unwrap();
-        PgDb { client }
+        PgDb {
+            client,
+            tracer: None,
+        }
     }
 
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
@@ -91,7 +140,7 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>> {
         let mut sql = self.get_query(query, sp);
-        if let Some(f) = filter {
+        if let Some(f) = filter.clone() {
             let filter_doc = expand_fields(&f).unwrap();
             let filter = super::parser::parse(filter_doc)?;
             if filter != "" {
@@ -100,6 +149,7 @@ impl PgDb {
         }
 
         log::debug!("SQL: {} - {:#?}", sql, params);
+        self.trace(filter, &sql);
         self.raw_query(&sql, params)
     }
 
@@ -642,6 +692,16 @@ impl PgDb {
         match self.client.query_one(&sql, &[]) {
             Ok(row) => Ok(row),
             Err(err) => Err(eyre!("Error retrieving schema stats: {}", err)),
+        }
+    }
+
+    fn trace(&self, input: Option<Document>, sql: &str) {
+        match self.tracer.as_ref() {
+            None => {}
+            Some(tracer) => {
+                let doc = input.clone().unwrap_or(Document::new());
+                tracer.trace(&doc, sql);
+            }
         }
     }
 }

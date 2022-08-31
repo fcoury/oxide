@@ -39,8 +39,12 @@ impl<'a> Request<'a> {
     }
 
     pub fn get_client(&self) -> PgDb {
-        PgDb::new_from_pool(self.pool.clone())
+        PgDb::builder().with_pool(self.pool).build()
     }
+}
+
+pub trait Trace {
+    fn trace(&self, doc: &Document, sql: &str);
 }
 
 #[derive(Debug, Clone)]
