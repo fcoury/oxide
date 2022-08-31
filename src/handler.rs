@@ -43,10 +43,6 @@ impl<'a> Request<'a> {
     }
 }
 
-pub trait Trace {
-    fn trace(&self, doc: &Document, sql: &str);
-}
-
 #[derive(Debug, Clone)]
 pub struct Response<'a> {
     id: u32,

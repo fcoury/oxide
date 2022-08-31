@@ -1,5 +1,6 @@
 use crate::handler::{handle, Response};
 use crate::threadpool::ThreadPool;
+use crate::tracer::{DbTracer, Trace};
 use crate::wire::parse;
 use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
@@ -16,6 +17,50 @@ pub struct Server {
     listen_addr: String,
     port: u16,
     pg_url: String,
+    tracer: Option<Box<dyn Trace>>,
+}
+
+#[derive(Default)]
+pub struct ServerBuilder {
+    listen_addr: String,
+    port: u16,
+    pg_url: String,
+    tracer: Option<Box<dyn Trace>>,
+}
+
+impl ServerBuilder {
+    pub fn new() -> Self {
+        ServerBuilder::default()
+    }
+
+    pub fn build(self) -> Server {
+        Server {
+            listen_addr: self.listen_addr,
+            port: self.port,
+            pg_url: self.pg_url,
+            tracer: self.tracer,
+        }
+    }
+
+    pub fn listen(mut self, listen_addr: String, port: u16) -> Self {
+        self.listen_addr = listen_addr;
+        self.port = port;
+        self
+    }
+
+    pub fn pg_url(mut self, pg_url: String) -> Self {
+        self.pg_url = pg_url;
+        self
+    }
+
+    pub fn with_tracer(mut self, tracer: Box<dyn Trace>) -> Self {
+        self.tracer = Some(tracer);
+        self
+    }
+
+    pub fn with_db_tracer(self) -> Self {
+        self.with_tracer(Box::new(DbTracer::new()))
+    }
 }
 
 impl Server {
@@ -27,11 +72,16 @@ impl Server {
         )
     }
 
+    pub fn builder() -> ServerBuilder {
+        ServerBuilder::new()
+    }
+
     pub fn new_with_pgurl(listen_addr: String, port: u16, pg_url: String) -> Self {
         Server {
             listen_addr,
             port,
             pg_url,
+            tracer: None,
         }
     }
 

@@ -15,6 +15,7 @@ pub mod pg;
 pub mod serializer;
 pub mod server;
 pub mod threadpool;
+pub mod tracer;
 pub mod ui;
 pub mod utils;
 pub mod wire;
@@ -67,6 +68,10 @@ struct Cli {
     /// Show debugging information
     #[clap(short, long)]
     debug: bool,
+
+    /// Enables tracing commands
+    #[clap(short, long)]
+    trace: bool,
 }
 
 fn main() {
@@ -102,6 +107,7 @@ fn main() {
                 cli.postgres_url,
                 cli.web,
                 cli.web_addr,
+                cli.trace,
             );
         }
     }
@@ -112,6 +118,7 @@ fn main() {
         postgres_url: Option<String>,
         web: bool,
         web_addr: Option<String>,
+        trace: bool,
     ) {
         let ip_addr = listen_addr
             .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string()));
@@ -139,7 +146,14 @@ fn main() {
                 });
             }
 
-            Server::new_with_pgurl(ip_addr, port, pg_url).start();
+            let mut server = Server::builder().listen(ip_addr, port).pg_url(pg_url);
+
+            if trace {
+                println!(" *** THE TRACE IS ON!");
+                server = server.with_db_tracer();
+            }
+
+            server.build().start();
         } else {
             log::error!(indoc! {"
                     No PostgreSQL URL specified.

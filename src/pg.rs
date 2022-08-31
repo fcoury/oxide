@@ -1,7 +1,7 @@
 use crate::deserializer::PostgresJsonDeserializer;
-use crate::handler::Trace;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
+use crate::tracer::Trace;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
