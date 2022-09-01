@@ -435,6 +435,7 @@ impl PgDb {
             }
             let bson: Bson = Bson::Document(doc.clone()).into();
             let json = bson.into_psql_json();
+            self.trace(Some(doc.clone()), &query);
             let n = &self.exec(&query, &[&json]).unwrap();
             affected += n;
         }
