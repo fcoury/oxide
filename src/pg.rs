@@ -1,7 +1,7 @@
 use crate::deserializer::PostgresJsonDeserializer;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
-use crate::tracer::Trace;
+use crate::server::TracerType;
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
@@ -47,19 +47,19 @@ pub enum UpdateError {
 
 pub struct PgDb {
     client: PooledConnection<PostgresConnectionManager<NoTls>>,
-    tracer: Option<Box<dyn Trace>>,
+    tracer: TracerType,
 }
 
 pub struct PgDbBuilder {
     client: Option<PooledConnection<PostgresConnectionManager<NoTls>>>,
-    tracer: Option<Box<dyn Trace>>,
+    tracer: TracerType,
 }
 
 impl PgDbBuilder {
     pub fn default() -> Self {
         PgDbBuilder {
             client: None,
-            tracer: None,
+            tracer: TracerType::None,
         }
     }
 
@@ -74,8 +74,8 @@ impl PgDbBuilder {
         self.with_pool(&pool)
     }
 
-    pub fn with_tracer(mut self, tracer: Box<dyn Trace>) -> Self {
-        self.tracer = Some(tracer);
+    pub fn with_tracer(mut self, tracer: TracerType) -> Self {
+        self.tracer = tracer;
         self
     }
 
@@ -97,21 +97,13 @@ impl PgDb {
     }
 
     pub fn new_from_pool(pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
-        let client = pool.get().unwrap();
-        PgDb {
-            client,
-            tracer: None,
-        }
+        PgDb::builder().with_pool(&pool).build()
     }
 
     pub fn new_with_uri(uri: &str) -> Self {
         let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
         let pool = r2d2::Pool::new(manager).unwrap();
-        let client = pool.get().unwrap();
-        PgDb {
-            client,
-            tracer: None,
-        }
+        PgDb::builder().with_pool(&pool).build()
     }
 
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
@@ -695,14 +687,37 @@ impl PgDb {
         }
     }
 
-    fn trace(&self, input: Option<Document>, sql: &str) {
-        match self.tracer.as_ref() {
-            None => {}
-            Some(tracer) => {
-                let doc = input.clone().unwrap_or(Document::new());
-                tracer.trace(&doc, sql);
-            }
+    fn trace(&mut self, input: Option<Document>, sql: &str) {
+        println!(" *** tracer = {:?}", self.tracer);
+        if self.tracer == TracerType::None {
+            return;
         }
+
+        let doc = input.clone().unwrap_or(Document::new());
+        let str = serde_json::to_string(&doc).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&str).unwrap();
+
+        self.create_schema_if_not_exists("_oxide").unwrap();
+        self.client
+            .execute(
+                r#"
+                    CREATE TABLE IF NOT EXISTS "_oxide"."traces" (
+                        id SERIAL PRIMARY KEY,
+                        input JSONB,
+                        sql VARCHAR,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                "#,
+                &[],
+            )
+            .unwrap();
+        let _res = self
+            .client
+            .execute(
+                "INSERT INTO _oxide.traces (input, sql) VALUES ($1, $2)",
+                &[&json, &sql],
+            )
+            .unwrap();
     }
 }
 

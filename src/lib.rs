@@ -6,6 +6,5 @@ pub mod pg;
 pub mod serializer;
 pub mod server;
 pub mod threadpool;
-pub mod tracer;
 pub mod utils;
 pub mod wire;
