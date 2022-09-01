@@ -687,7 +687,7 @@ impl PgDb {
         }
     }
 
-    fn trace(&mut self, input: Option<Document>, sql: &str) {
+    pub fn trace(&mut self, input: Option<Document>, sql: &str) {
         println!(" *** tracer = {:?}", self.tracer);
         if self.tracer == TracerType::None {
             return;
