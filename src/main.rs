@@ -149,7 +149,6 @@ fn main() {
             let mut server = Server::builder().listen(ip_addr, port).pg_url(pg_url);
 
             if trace {
-                println!(" *** THE TRACE IS ON!");
                 server = server.with_db_tracer();
             }
 
