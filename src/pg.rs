@@ -234,6 +234,7 @@ impl PgDb {
     pub fn update(
         &mut self,
         sp: &SqlParam,
+        doc: &Document,
         filter: Option<&Document>,
         sort: Option<&Document>,
         update: UpdateOper,
@@ -261,6 +262,7 @@ impl PgDb {
                 "SELECT _jsonb->'_id' FROM {} {}{} LIMIT 1",
                 table_name, where_str, order_by_str
             );
+            self.trace(Some(doc.clone()), &sql, &[]);
             let rows = self.raw_query(&sql, &[]).unwrap();
             if !upsert && rows.len() < 1 {
                 return Ok(UpdateResult::Count(0));
@@ -321,11 +323,13 @@ impl PgDb {
                 };
 
                 return if returning {
+                    self.trace(Some(doc.clone()), &sql, &[&json]);
                     let res = self.raw_query(&sql, &[&json])?;
                     println!("{:?}", res);
                     // Ok(UpdateResult::Document(res))
                     todo!("Not ready yet")
                 } else {
+                    self.trace(Some(doc.clone()), &sql, &[&json]);
                     let res = self.exec(&sql, &[&json])?;
                     Ok(UpdateResult::Count(res))
                 };
@@ -334,6 +338,7 @@ impl PgDb {
 
         if returning {
             let sql = statements[0].clone();
+            self.trace(Some(doc.clone()), &sql, &[]);
             let res = self.raw_query(&sql, &[])?;
             let row = res.get(0).unwrap();
             let json: serde_json::Value = row.get(0);
@@ -345,6 +350,7 @@ impl PgDb {
             // #16 - https://github.com/fcoury/oxide/issues/16
             let mut total = 0;
             for sql in statements {
+                self.trace(Some(doc.clone()), &sql, &[]);
                 total += self.exec(&sql, &[])?;
             }
             Ok(UpdateResult::Count(total))
@@ -435,7 +441,7 @@ impl PgDb {
             }
             let bson: Bson = Bson::Document(doc.clone()).into();
             let json = bson.into_psql_json();
-            self.trace(Some(doc.clone()), &query);
+            self.trace(Some(doc.clone()), &query, &[&json]);
             let n = &self.exec(&query, &[&json]).unwrap();
             affected += n;
         }
