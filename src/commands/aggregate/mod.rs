@@ -42,7 +42,7 @@ impl Handler for Aggregate {
         match sql {
             Ok(sql) => {
                 log::debug!("SQL: {}", sql);
-                client.trace(Some(doc.clone()), &sql);
+                client.trace(Some(doc.clone()), &sql, &[]);
 
                 match client.raw_query(&sql, &[]) {
                     Ok(rows) => {

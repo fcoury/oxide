@@ -141,7 +141,7 @@ impl PgDb {
         }
 
         log::debug!("SQL: {} - {:#?}", sql, params);
-        self.trace(filter, &sql);
+        self.trace(filter, &sql, params);
         self.raw_query(&sql, params)
     }
 
@@ -688,7 +688,7 @@ impl PgDb {
         }
     }
 
-    pub fn trace(&mut self, input: Option<Document>, sql: &str) {
+    pub fn trace(&mut self, input: Option<Document>, sql: &str, params: &[&(dyn ToSql + Sync)]) {
         if self.tracer == TracerType::None {
             return;
         }
@@ -696,6 +696,8 @@ impl PgDb {
         let doc = input.clone().unwrap_or(Document::new());
         let str = serde_json::to_string(&doc).unwrap();
         let json: serde_json::Value = serde_json::from_str(&str).unwrap();
+        // FIXME: Explore a better representation of this
+        let str_params = format!("{:?}", params);
 
         self.create_schema_if_not_exists("_oxide").unwrap();
         self.client
@@ -705,6 +707,7 @@ impl PgDb {
                         id SERIAL PRIMARY KEY,
                         input JSONB,
                         sql VARCHAR,
+                        params VARCHAR,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                     )
                 "#,
@@ -714,8 +717,8 @@ impl PgDb {
         let _res = self
             .client
             .execute(
-                "INSERT INTO _oxide.traces (input, sql) VALUES ($1, $2)",
-                &[&json, &sql],
+                "INSERT INTO _oxide.traces (input, sql, params) VALUES ($1, $2, $3)",
+                &[&json, &sql, &str_params],
             )
             .unwrap();
     }
