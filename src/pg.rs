@@ -479,7 +479,7 @@ impl PgDb {
             .unwrap();
         schemas
             .into_iter()
-            .filter(|s| !s.starts_with("pg_") && !(s == "information_schema"))
+            .filter(|s| !s.starts_with("pg_") && !(s == "information_schema") && !(s == "_oxide"))
             .collect()
     }
 
