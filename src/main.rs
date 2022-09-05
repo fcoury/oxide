@@ -1,8 +1,11 @@
-use clap::{AppSettings, Parser, Subcommand};
+use clap::Parser;
 use indoc::indoc;
 use server::Server;
 use std::env;
 use std::thread;
+
+use crate::cli::Cli;
+use crate::cli::Commands;
 
 #[macro_use]
 extern crate nickel;
@@ -16,64 +19,11 @@ pub mod serializer;
 pub mod server;
 pub mod threadpool;
 
+pub mod cli;
 pub mod trace;
 pub mod ui;
 pub mod utils;
 pub mod wire;
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Start OxideDB web interface
-    Web {
-        /// Listening address, defaults to 127.0.0.1
-        #[clap(short, long)]
-        listen_addr: Option<String>,
-
-        /// Listening port, defaults to 8087
-        #[clap(short, long)]
-        port: Option<u16>,
-
-        /// PostgreSQL connection URL
-        #[clap(short = 'u', long)]
-        postgres_url: Option<String>,
-    },
-}
-
-#[derive(Parser, Debug)]
-#[clap(author, version, about)]
-#[clap(global_setting(AppSettings::ArgsNegateSubcommands))]
-struct Cli {
-    #[clap(subcommand)]
-    command: Option<Commands>,
-
-    /// Listening address, defaults to 127.0.0.1
-    #[clap(short, long)]
-    listen_addr: Option<String>,
-
-    /// Listening port, defaults to 27017
-    #[clap(short, long)]
-    port: Option<u16>,
-
-    /// PostgreSQL connection URL
-    #[clap(short = 'u', long)]
-    postgres_url: Option<String>,
-
-    /// Starts web interface
-    #[clap(short, long)]
-    web: bool,
-
-    /// Web binding address
-    #[clap(long)]
-    web_addr: Option<String>,
-
-    /// Show debugging information
-    #[clap(short, long)]
-    debug: bool,
-
-    /// Enables tracing commands
-    #[clap(short, long)]
-    trace: bool,
-}
 
 fn main() {
     dotenv::dotenv().ok();
@@ -89,6 +39,7 @@ fn main() {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, log_level),
     );
 
+    let cli_clone = cli.clone();
     match cli.command {
         Some(Commands::Web {
             listen_addr,
@@ -99,6 +50,7 @@ fn main() {
                 &listen_addr.unwrap_or("localhost".to_string()),
                 port.unwrap_or(8087),
                 postgres_url,
+                cli_clone,
             );
         }
         None => {
@@ -109,6 +61,7 @@ fn main() {
                 cli.web,
                 cli.web_addr,
                 cli.trace,
+                cli_clone,
             );
         }
     }
@@ -120,6 +73,7 @@ fn main() {
         web: bool,
         web_addr: Option<String>,
         trace: bool,
+        cli: Cli,
     ) {
         let ip_addr = listen_addr
             .unwrap_or(env::var("OXIDE_LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string()));
@@ -143,7 +97,7 @@ fn main() {
                 let web_addr = parts_vec[0].to_string();
                 let port = parts_vec[1].parse::<u16>().unwrap_or(8087);
                 thread::spawn(move || {
-                    ui::start(&web_addr, port, Some(pg_url_clone));
+                    ui::start(&web_addr, port, Some(pg_url_clone), cli);
                 });
             }
 
