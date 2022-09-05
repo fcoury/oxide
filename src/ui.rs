@@ -109,6 +109,17 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         },
     );
 
+    let uri = pg_url.clone();
+    server.get(
+        "/api/traces",
+        middleware! { |_req, _res|
+            log::info!("GET /api/traces");
+            let mut client = PgDb::new_with_uri(&uri);
+            let traces = client.get_traces();
+            json!({ "traces": traces })
+        },
+    );
+
     server.utilize(router! {
         get "/**" => |req, mut res| {
             let uri = req.path_without_query().unwrap();

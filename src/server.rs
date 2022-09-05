@@ -1,5 +1,6 @@
 use crate::handler::{handle, Response};
 use crate::threadpool::ThreadPool;
+use crate::trace::TracerType;
 use crate::wire::parse;
 use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
@@ -11,12 +12,6 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 
 #[derive(AsyncIncremental, PartialEq, Eq, Debug)]
 struct RequestId(u32);
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TracerType {
-    Db,
-    None,
-}
 
 pub struct Server {
     listen_addr: String,

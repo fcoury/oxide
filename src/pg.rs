@@ -1,7 +1,7 @@
 use crate::deserializer::PostgresJsonDeserializer;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
-use crate::server::TracerType;
+use crate::trace::{Trace, TracerType};
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
@@ -727,6 +727,28 @@ impl PgDb {
                 &[&json, &sql, &str_params],
             )
             .unwrap();
+    }
+
+    pub fn get_traces(&mut self) -> Vec<Trace> {
+        let mut traces = Vec::new();
+        let rows = self
+            .client
+            .query(
+                "SELECT id, input, sql, params, created_at FROM _oxide.traces ORDER BY id DESC",
+                &[],
+            )
+            .unwrap();
+        for row in rows {
+            let trace = Trace {
+                id: row.get(0),
+                input: row.get(1),
+                sql: row.get(2),
+                params: row.get(3),
+                created_at: row.get(4),
+            };
+            traces.push(trace);
+        }
+        traces
     }
 }
 

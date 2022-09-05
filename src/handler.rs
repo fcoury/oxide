@@ -5,7 +5,7 @@ use crate::commands::{
     Insert, IsMaster, ListCollections, ListDatabases, ListIndexes, Ping, Update, WhatsMyUri,
 };
 use crate::pg::PgDb;
-use crate::server::TracerType;
+use crate::trace::TracerType;
 use crate::wire::{OpCode, OpMsg};
 use bson::{doc, Bson, Document};
 use postgres::NoTls;

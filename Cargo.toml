@@ -8,7 +8,7 @@ version = "0.1.6"
 autoincrement = {version = "1", features = ["derive", "async"]}
 bson = {version = "2.4.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
-chrono = "0.4"
+chrono = {version = "0.4", features = ["serde"]}
 clap = {version = "3.2.8", features = ["derive"]}
 dotenv = "0.15"
 env_logger = "0.9.0"
@@ -22,7 +22,7 @@ eyre = "0.6"
 mongodb-language-model = "0.1.6"
 nickel = "0.11"
 portpicker = "0.1"
-postgres = {version = "0.19", features = ["with-serde_json-1"]}
+postgres = {version = "0.19", features = ["with-serde_json-1", "with-chrono-0_4"]}
 pretty-hex = "0.3.0"
 r2d2 = "0.8.10"
 r2d2_postgres = "0.18.1"

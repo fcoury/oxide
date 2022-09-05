@@ -16,6 +16,7 @@ pub mod serializer;
 pub mod server;
 pub mod threadpool;
 
+pub mod trace;
 pub mod ui;
 pub mod utils;
 pub mod wire;
