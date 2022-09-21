@@ -39,14 +39,20 @@ async fn run_repl() -> Result<(), AnyError> {
         js_runtime
             .execute_script("[runjs:runtime.js]", include_str!("./runtime.js"))
             .unwrap();
-        let value = js_runtime.execute_script("[runjs:repl]", &line).unwrap();
-        js_runtime.run_event_loop(false).await?;
+        match js_runtime.execute_script("[runjs:repl]", &line) {
+            Ok(value) => {
+                js_runtime.run_event_loop(false).await?;
 
-        let scope = &mut js_runtime.handle_scope();
-        let local = v8::Local::new(scope, value);
-        let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
-        if let Ok(value) = deserialized_value {
-            println!("{}", value)
+                let scope = &mut js_runtime.handle_scope();
+                let local = v8::Local::new(scope, value);
+                let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
+                if let Ok(value) = deserialized_value {
+                    println!("{}", value)
+                }
+            }
+            Err(err) => {
+                eprintln!("{}", err.to_string())
+            }
         }
     }
 }
