@@ -5,6 +5,7 @@ pub mod parser;
 pub mod pg;
 pub mod serializer;
 pub mod server;
+pub mod shell;
 pub mod threadpool;
 pub mod utils;
 pub mod wire;
