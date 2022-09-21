@@ -108,10 +108,10 @@ fn main() {
             );
         }
         Some(Commands::Shell {
-            server_addr: _,
-            server_port: _,
+            server_addr,
+            server_port,
         }) => {
-            shell::start();
+            shell::start(&server_addr, server_port);
         }
         None => {
             start(

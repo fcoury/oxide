@@ -17,12 +17,12 @@
   globalThis.console = console;
 
   globalThis.__defineGetter__("db", () => {
-    return globalThis?.state?.db;
+    return globalThis?._state?.db;
   });
 
   globalThis.use = (name) => {
-    globalThis.state = globalThis.state || {};
-    globalThis.state.db = name;
+    globalThis._state = globalThis._state || {};
+    globalThis._state.db = name;
     return name;
   };
 })(globalThis);
