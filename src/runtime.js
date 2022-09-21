@@ -5,16 +5,24 @@
     return args.map((arg) => JSON.stringify(arg)).join(" ");
   }
 
-  globalThis.console = {
+  const console = {
     log: (...args) => {
-      core.print(`[out]: ${argsToMessage(...args)}\n`, false);
+      core.print(`${argsToMessage(...args)}\n`, false);
     },
     error: (...args) => {
-      core.print(`[err]: ${argsToMessage(...args)}\n`, true);
+      core.print(`${argsToMessage(...args)}\n`, true);
     },
   };
-})(globalThis);
 
-((globalThis) => {
-  globalThis.db = { jstests_and: 1 };
+  globalThis.console = console;
+
+  globalThis.__defineGetter__("db", () => {
+    return globalThis?.state?.db;
+  });
+
+  globalThis.use = (name) => {
+    globalThis.state = globalThis.state || {};
+    globalThis.state.db = name;
+    return name;
+  };
 })(globalThis);

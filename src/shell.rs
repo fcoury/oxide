@@ -2,8 +2,9 @@ use deno_core::{error::AnyError, op, v8, Extension};
 use std::rc::Rc;
 
 #[op]
-async fn op_db(_path: String) -> Result<String, AnyError> {
-    Ok("hello".to_string())
+fn op_db(path: String) -> Result<String, AnyError> {
+    println!("got: {}", path);
+    Ok(path)
 }
 
 async fn _run_js(file_path: &str) -> Result<(), AnyError> {
@@ -33,9 +34,18 @@ async fn run_repl() -> Result<(), AnyError> {
     });
 
     let mut rl = rustyline::Editor::<()>::new()?;
+    let history = format!(
+        "{}/.history",
+        dirs::home_dir().unwrap().as_os_str().to_str().unwrap()
+    );
+    if rl.load_history(&history).is_err() {
+        eprintln!("Couldn't load history file: {}", history);
+    };
     loop {
         let line = rl.readline(">> ")?;
         rl.add_history_entry(&line);
+        rl.save_history(&history).unwrap();
+
         js_runtime
             .execute_script("[runjs:runtime.js]", include_str!("./runtime.js"))
             .unwrap();
@@ -62,9 +72,6 @@ pub fn start() {
         .enable_all()
         .build()
         .unwrap();
-    // if let Err(error) = runtime.block_on(run_js("./example.js")) {
-    //     eprintln!("error: {}", error);
-    // }
     if let Err(error) = runtime.block_on(run_repl()) {
         eprintln!("error: {}", error);
     }
