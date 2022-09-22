@@ -9,10 +9,10 @@ use mongodb::{
     options::ClientOptions,
     sync::{Client, Collection},
 };
+use serde_json::Value;
 use std::rc::Rc;
 
-#[op]
-fn op_find(col: serde_json::Value) -> Result<Vec<serde_json::Value>, AnyError> {
+fn collection(col: Value) -> Result<Collection<Document>, AnyError> {
     let col_obj = col.as_object().unwrap();
     let db_obj = col_obj.get("db").unwrap().as_object().unwrap();
 
@@ -28,7 +28,15 @@ fn op_find(col: serde_json::Value) -> Result<Vec<serde_json::Value>, AnyError> {
     let db = client.database(db_name);
     let col: Collection<Document> = db.collection(col_name);
 
-    let cursor = col.find(None, None).unwrap();
+    Ok(col)
+}
+
+#[op]
+fn op_find(col: Value, filter: Value) -> Result<Vec<Value>, AnyError> {
+    let col = collection(col)?;
+    let filter = bson::ser::to_bson(&filter).unwrap();
+    let filter = filter.as_document().unwrap();
+    let cursor = col.find(filter.clone(), None).unwrap();
     let res = cursor.collect::<Vec<_>>();
     let res = res
         .iter()
@@ -98,7 +106,7 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
 
                 let scope = &mut js_runtime.handle_scope();
                 let local = v8::Local::new(scope, value);
-                let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
+                let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
                 if let Ok(value) = deserialized_value {
                     println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 }
@@ -110,7 +118,7 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     }
 }
 
-fn eval(context: &mut JsRuntime, code: &str) -> Result<serde_json::Value, String> {
+fn eval(context: &mut JsRuntime, code: &str) -> Result<Value, String> {
     let res = context.execute_script("<anon>", code);
     match res {
         Ok(global) => {
@@ -118,7 +126,7 @@ fn eval(context: &mut JsRuntime, code: &str) -> Result<serde_json::Value, String
             let local = v8::Local::new(scope, global);
             // Deserialize a `v8` object into a Rust type using `serde_v8`,
             // in this case deserialize to a JSON `Value`.
-            let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
+            let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
 
             match deserialized_value {
                 Ok(value) => Ok(value),

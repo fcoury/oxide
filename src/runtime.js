@@ -8,8 +8,8 @@ class Collection {
     this.name = name;
   }
 
-  find() {
-    return Deno.core.opSync("op_find", this);
+  find(filter = {}) {
+    return Deno.core.opSync("op_find", this, filter);
   }
 }
 
