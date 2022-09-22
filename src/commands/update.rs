@@ -39,6 +39,7 @@ impl Handler for Update {
 
             let result = client.update(
                 &sp,
+                &doc,
                 Some(q),
                 None,
                 update_doc.unwrap(),

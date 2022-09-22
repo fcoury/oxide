@@ -38,6 +38,7 @@ impl Handler for FindAndModify {
         let res = client
             .update(
                 &sp,
+                &doc,
                 Some(query),
                 sort,
                 update_doc.unwrap(),

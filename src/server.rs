@@ -1,5 +1,6 @@
 use crate::handler::{handle, Response};
 use crate::threadpool::ThreadPool;
+use crate::trace::TracerType;
 use crate::wire::parse;
 use autoincrement::prelude::AsyncIncremental;
 use bson::{doc, Bson};
@@ -16,6 +17,54 @@ pub struct Server {
     listen_addr: String,
     port: u16,
     pg_url: String,
+    tracer: TracerType,
+}
+
+pub struct ServerBuilder {
+    listen_addr: String,
+    port: u16,
+    pg_url: String,
+    tracer: TracerType,
+}
+
+impl ServerBuilder {
+    pub fn new() -> Self {
+        ServerBuilder {
+            listen_addr: "".to_string(),
+            port: 0,
+            pg_url: "".to_string(),
+            tracer: TracerType::None,
+        }
+    }
+
+    pub fn build(self) -> Server {
+        Server {
+            listen_addr: self.listen_addr,
+            port: self.port,
+            pg_url: self.pg_url,
+            tracer: self.tracer,
+        }
+    }
+
+    pub fn listen(mut self, listen_addr: String, port: u16) -> Self {
+        self.listen_addr = listen_addr;
+        self.port = port;
+        self
+    }
+
+    pub fn pg_url(mut self, pg_url: String) -> Self {
+        self.pg_url = pg_url;
+        self
+    }
+
+    pub fn with_tracer(mut self, tracer: TracerType) -> Self {
+        self.tracer = tracer;
+        self
+    }
+
+    pub fn with_db_tracer(self) -> Self {
+        self.with_tracer(TracerType::Db)
+    }
 }
 
 impl Server {
@@ -27,11 +76,16 @@ impl Server {
         )
     }
 
+    pub fn builder() -> ServerBuilder {
+        ServerBuilder::new()
+    }
+
     pub fn new_with_pgurl(listen_addr: String, port: u16, pg_url: String) -> Self {
         Server {
             listen_addr,
             port,
             pg_url,
+            tracer: TracerType::None,
         }
     }
 
@@ -64,8 +118,9 @@ impl Server {
 
             stream.set_nodelay(true).unwrap();
 
-            pool.execute(|| {
-                handle_connection(stream, id, pg_pool);
+            let tracer = self.tracer.clone();
+            pool.execute(move || {
+                handle_connection(stream, id, pg_pool, tracer);
             });
         }
 
@@ -77,6 +132,7 @@ fn handle_connection(
     mut stream: TcpStream,
     id: RequestId,
     pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    tracer_type: TracerType,
 ) {
     let addr = stream.peer_addr().unwrap();
     log::debug!("Client connected: {}", addr);
@@ -113,7 +169,7 @@ fn handle_connection(
                 }
 
                 let op_code = op_code.unwrap();
-                let mut response = match handle(id.0, &pool, addr, &op_code) {
+                let mut response = match handle(id.0, &pool, addr, &op_code, tracer_type.clone()) {
                     Ok(reply) => reply,
                     Err(e) => {
                         log::error!("Error while handling: {}", e);

@@ -1,6 +1,7 @@
 use crate::deserializer::PostgresJsonDeserializer;
 use crate::parser::{value_to_jsonb, InvalidUpdateError, UpdateDoc, UpdateOper};
 use crate::serializer::PostgresSerializer;
+use crate::trace::{Trace, TracerType};
 use crate::utils::{collapse_fields, expand_fields};
 use bson::{Bson, Document};
 use eyre::{eyre, Result};
@@ -46,6 +47,44 @@ pub enum UpdateError {
 
 pub struct PgDb {
     client: PooledConnection<PostgresConnectionManager<NoTls>>,
+    tracer: TracerType,
+}
+
+pub struct PgDbBuilder {
+    client: Option<PooledConnection<PostgresConnectionManager<NoTls>>>,
+    tracer: TracerType,
+}
+
+impl PgDbBuilder {
+    pub fn default() -> Self {
+        PgDbBuilder {
+            client: None,
+            tracer: TracerType::None,
+        }
+    }
+
+    pub fn with_pool(mut self, pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
+        self.client = Some(pool.get().unwrap());
+        self
+    }
+
+    pub fn with_uri(self, uri: &str) -> Self {
+        let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
+        let pool = r2d2::Pool::new(manager).unwrap();
+        self.with_pool(&pool)
+    }
+
+    pub fn with_tracer(mut self, tracer: TracerType) -> Self {
+        self.tracer = tracer;
+        self
+    }
+
+    pub fn build(self) -> PgDb {
+        PgDb {
+            client: self.client.unwrap(),
+            tracer: self.tracer,
+        }
+    }
 }
 
 impl PgDb {
@@ -53,16 +92,18 @@ impl PgDb {
         PgDb::new_with_uri(&env::var("DATABASE_URL").unwrap())
     }
 
+    pub fn builder() -> PgDbBuilder {
+        PgDbBuilder::default()
+    }
+
     pub fn new_from_pool(pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Self {
-        let client = pool.get().unwrap();
-        PgDb { client }
+        PgDb::builder().with_pool(&pool).build()
     }
 
     pub fn new_with_uri(uri: &str) -> Self {
         let manager = PostgresConnectionManager::new(uri.parse().unwrap(), NoTls);
         let pool = r2d2::Pool::new(manager).unwrap();
-        let client = pool.get().unwrap();
-        PgDb { client }
+        PgDb::builder().with_pool(&pool).build()
     }
 
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
@@ -91,7 +132,7 @@ impl PgDb {
         params: &[&(dyn ToSql + Sync)],
     ) -> Result<Vec<Row>> {
         let mut sql = self.get_query(query, sp);
-        if let Some(f) = filter {
+        if let Some(f) = filter.clone() {
             let filter_doc = expand_fields(&f).unwrap();
             let filter = super::parser::parse(filter_doc)?;
             if filter != "" {
@@ -100,6 +141,7 @@ impl PgDb {
         }
 
         log::debug!("SQL: {} - {:#?}", sql, params);
+        self.trace(filter, &sql, params);
         self.raw_query(&sql, params)
     }
 
@@ -198,6 +240,7 @@ impl PgDb {
     pub fn update(
         &mut self,
         sp: &SqlParam,
+        doc: &Document,
         filter: Option<&Document>,
         sort: Option<&Document>,
         update: UpdateOper,
@@ -225,6 +268,7 @@ impl PgDb {
                 "SELECT _jsonb->'_id' FROM {} {}{} LIMIT 1",
                 table_name, where_str, order_by_str
             );
+            self.trace(Some(doc.clone()), &sql, &[]);
             let rows = self.raw_query(&sql, &[]).unwrap();
             if !upsert && rows.len() < 1 {
                 return Ok(UpdateResult::Count(0));
@@ -285,11 +329,13 @@ impl PgDb {
                 };
 
                 return if returning {
+                    self.trace(Some(doc.clone()), &sql, &[&json]);
                     let res = self.raw_query(&sql, &[&json])?;
                     println!("{:?}", res);
                     // Ok(UpdateResult::Document(res))
                     todo!("Not ready yet")
                 } else {
+                    self.trace(Some(doc.clone()), &sql, &[&json]);
                     let res = self.exec(&sql, &[&json])?;
                     Ok(UpdateResult::Count(res))
                 };
@@ -298,6 +344,7 @@ impl PgDb {
 
         if returning {
             let sql = statements[0].clone();
+            self.trace(Some(doc.clone()), &sql, &[]);
             let res = self.raw_query(&sql, &[])?;
             let row = res.get(0).unwrap();
             let json: serde_json::Value = row.get(0);
@@ -309,6 +356,7 @@ impl PgDb {
             // #16 - https://github.com/fcoury/oxide/issues/16
             let mut total = 0;
             for sql in statements {
+                self.trace(Some(doc.clone()), &sql, &[]);
                 total += self.exec(&sql, &[])?;
             }
             Ok(UpdateResult::Count(total))
@@ -399,6 +447,7 @@ impl PgDb {
             }
             let bson: Bson = Bson::Document(doc.clone()).into();
             let json = bson.into_psql_json();
+            self.trace(Some(doc.clone()), &query, &[&json]);
             let n = &self.exec(&query, &[&json]).unwrap();
             affected += n;
         }
@@ -436,7 +485,7 @@ impl PgDb {
             .unwrap();
         schemas
             .into_iter()
-            .filter(|s| !s.starts_with("pg_") && !(s == "information_schema"))
+            .filter(|s| !s.starts_with("pg_") && !(s == "information_schema") && !(s == "_oxide"))
             .collect()
     }
 
@@ -649,6 +698,63 @@ impl PgDb {
             Ok(row) => Ok(row),
             Err(err) => Err(eyre!("Error retrieving schema stats: {}", err)),
         }
+    }
+
+    pub fn trace(&mut self, input: Option<Document>, sql: &str, params: &[&(dyn ToSql + Sync)]) {
+        if self.tracer == TracerType::None {
+            return;
+        }
+
+        let doc = input.clone().unwrap_or(Document::new());
+        let str = serde_json::to_string(&doc).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&str).unwrap();
+        // FIXME: Explore a better representation of this
+        let str_params = format!("{:?}", params);
+
+        self.create_schema_if_not_exists("_oxide").unwrap();
+        self.client
+            .execute(
+                r#"
+                    CREATE TABLE IF NOT EXISTS "_oxide"."traces" (
+                        id SERIAL PRIMARY KEY,
+                        input JSONB,
+                        sql VARCHAR,
+                        params VARCHAR,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    )
+                "#,
+                &[],
+            )
+            .unwrap();
+        let _res = self
+            .client
+            .execute(
+                "INSERT INTO _oxide.traces (input, sql, params) VALUES ($1, $2, $3)",
+                &[&json, &sql, &str_params],
+            )
+            .unwrap();
+    }
+
+    pub fn get_traces(&mut self) -> Vec<Trace> {
+        let mut traces = Vec::new();
+        let rows = self
+            .client
+            .query(
+                "SELECT id, input, sql, params, created_at FROM _oxide.traces ORDER BY id DESC",
+                &[],
+            )
+            .unwrap();
+        for row in rows {
+            let trace = Trace {
+                id: row.get(0),
+                input: row.get(1),
+                sql: row.get(2),
+                params: row.get(3),
+                created_at: row.get(4),
+            };
+            traces.push(trace);
+        }
+        traces
     }
 }
 

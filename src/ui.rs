@@ -1,3 +1,4 @@
+use crate::cli::Cli;
 use crate::commands::build_sql;
 use crate::pg::{PgDb, SqlParam};
 use bson::ser;
@@ -11,7 +12,7 @@ use std::path::Path;
 #[folder = "public/"]
 struct Asset;
 
-pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
+pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>, cli: Cli) {
     let mut server = Nickel::new();
     server.options = Options::default().output_on_listen(false);
 
@@ -37,6 +38,17 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
         middleware! { |_req, _res|
             log::info!("GET /index.html (static)");
             str.clone()
+        },
+    );
+
+    server.get(
+        "/api/config",
+        middleware! { |_req, _res|
+            log::info!("GET /api/config");
+            json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "cli": cli,
+            })
         },
     );
 
@@ -106,6 +118,17 @@ pub fn start(listen_addr: &str, port: u16, postgres_url: Option<String>) {
             let collections = client.get_tables(database);
             json!({ "collections": collections })
 
+        },
+    );
+
+    let uri = pg_url.clone();
+    server.get(
+        "/api/traces",
+        middleware! { |_req, _res|
+            log::info!("GET /api/traces");
+            let mut client = PgDb::new_with_uri(&uri);
+            let traces = client.get_traces();
+            json!({ "traces": traces })
         },
     );
 

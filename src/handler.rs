@@ -5,6 +5,7 @@ use crate::commands::{
     Insert, IsMaster, ListCollections, ListDatabases, ListIndexes, Ping, Update, WhatsMyUri,
 };
 use crate::pg::PgDb;
+use crate::trace::TracerType;
 use crate::wire::{OpCode, OpMsg};
 use bson::{doc, Bson, Document};
 use postgres::NoTls;
@@ -15,6 +16,7 @@ pub struct Request<'a> {
     pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &'a OpCode,
+    tracer_type: TracerType,
 }
 
 impl<'a> Request<'a> {
@@ -22,11 +24,13 @@ impl<'a> Request<'a> {
         pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
         peer_addr: SocketAddr,
         op_code: &'a OpCode,
+        tracer_type: TracerType,
     ) -> Self {
         Request {
             pool,
             peer_addr,
             op_code,
+            tracer_type,
         }
     }
 
@@ -39,7 +43,10 @@ impl<'a> Request<'a> {
     }
 
     pub fn get_client(&self) -> PgDb {
-        PgDb::new_from_pool(self.pool.clone())
+        PgDb::builder()
+            .with_pool(self.pool)
+            .with_tracer(self.tracer_type.clone())
+            .build()
     }
 }
 
@@ -92,11 +99,13 @@ pub fn handle(
     pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &OpCode,
+    tracer_type: TracerType,
 ) -> Result<Vec<u8>, CommandExecutionError> {
     let request = Request {
         pool,
         peer_addr,
         op_code: &op_code,
+        tracer_type,
     };
     match route(&request) {
         Ok(doc) => {
