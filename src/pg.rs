@@ -140,8 +140,14 @@ impl PgDb {
         }
     }
 
-    fn add_ids_to_where(&mut self, sp: &SqlParam, limit: i32, where_str: &str) -> Result<String> {
-        let ids = self.get_matching_ids(sp, limit, None)?;
+    fn add_ids_to_where(
+        &mut self,
+        sp: &SqlParam,
+        limit: i32,
+        filter: Option<&Document>,
+        where_str: &str,
+    ) -> Result<String> {
+        let ids = self.get_matching_ids(sp, limit, filter)?;
         if ids.is_some() {
             let in_ids = format!(
                 "({})",
@@ -181,7 +187,7 @@ impl PgDb {
         // apply limit
         if let Some(limit) = limit {
             if limit > 0 {
-                where_str = self.add_ids_to_where(sp, limit, where_str.as_str())?;
+                where_str = self.add_ids_to_where(sp, limit, filter, where_str.as_str())?;
             }
         }
 
