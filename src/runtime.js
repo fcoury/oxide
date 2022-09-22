@@ -1,3 +1,41 @@
+class Collection {
+  static get(db, name) {
+    return new Collection(db, name);
+  }
+
+  constructor(db, name) {
+    this.db = db;
+    this.name = name;
+  }
+
+  find() {
+    return Deno.core.opSync("op_find", this);
+  }
+}
+
+class Db {
+  static get(global) {
+    const { db, dbAddr, dbPort } = global._state;
+    const target = new Db(db, dbAddr, dbPort);
+    const handler = {
+      get(target, prop, _receiver) {
+        if (!target.hasOwnProperty(prop)) {
+          return Collection.get(target, prop);
+        }
+        return Reflect.get(...arguments);
+      },
+    };
+
+    return new Proxy(target, handler);
+  }
+
+  constructor(name = "test", addr, port) {
+    this.name = name;
+    this.addr = addr;
+    this.port = port;
+  }
+}
+
 ((globalThis) => {
   const core = Deno.core;
 
@@ -17,7 +55,7 @@
   globalThis.console = console;
 
   globalThis.__defineGetter__("db", () => {
-    return globalThis?._state?.db;
+    return Db.get(globalThis);
   });
 
   globalThis.use = (name) => {

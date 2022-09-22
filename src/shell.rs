@@ -1,15 +1,48 @@
-use deno_core::{error::AnyError, op, v8, Extension, JsRuntime};
+use deno_core::{
+    error::AnyError,
+    op,
+    v8::{self},
+    Extension, JsRuntime,
+};
+use mongodb::{
+    bson::Document,
+    options::ClientOptions,
+    sync::{Client, Collection},
+};
 use std::rc::Rc;
 
 #[op]
-fn op_db(path: String) -> Result<String, AnyError> {
-    println!("got: {}", path);
-    Ok(path)
+fn op_find(col: serde_json::Value) -> Result<Vec<serde_json::Value>, AnyError> {
+    let col_obj = col.as_object().unwrap();
+    let db_obj = col_obj.get("db").unwrap().as_object().unwrap();
+
+    let db_host = db_obj.get("addr").unwrap().as_str().unwrap();
+    let db_name = db_obj.get("name").unwrap().as_str().unwrap();
+    let db_port = db_obj.get("port").unwrap().as_u64().unwrap();
+    let col_name = col_obj.get("name").unwrap().as_str().unwrap();
+
+    let client_uri = format!("mongodb://{db_host}:{db_port}/{db_name}");
+    let client_options = ClientOptions::parse(&client_uri).unwrap();
+    let client = Client::with_options(client_options)?;
+
+    let db = client.database(db_name);
+    let col: Collection<Document> = db.collection(col_name);
+
+    let cursor = col.find(None, None).unwrap();
+    let res = cursor.collect::<Vec<_>>();
+    let res = res
+        .iter()
+        .map(|doc| {
+            let doc = doc.as_ref().unwrap();
+            serde_json::to_value(doc).unwrap()
+        })
+        .collect::<Vec<_>>();
+    Ok(res)
 }
 
 async fn _run_js(file_path: &str) -> Result<(), AnyError> {
     let main_module = deno_core::resolve_path(file_path)?;
-    let extension = Extension::builder().ops(vec![op_db::decl()]).build();
+    let extension = Extension::builder().ops(vec![op_find::decl()]).build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
         extensions: vec![extension],
@@ -26,7 +59,7 @@ async fn _run_js(file_path: &str) -> Result<(), AnyError> {
 }
 
 async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
-    let extension = Extension::builder().ops(vec![op_db::decl()]).build();
+    let extension = Extension::builder().ops(vec![op_find::decl()]).build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
         extensions: vec![extension],
@@ -34,7 +67,7 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     });
 
     let const_str = &format!(
-        r#"((globalThis) => {{ globalThis._state = {{ db_addr: "{}", port: {}, db: "test" }}; }})(globalThis);"#,
+        r#"((globalThis) => {{ globalThis._state = {{ dbAddr: "{}", dbPort: {}, db: "test" }}; }})(globalThis);"#,
         addr, port
     );
     js_runtime
