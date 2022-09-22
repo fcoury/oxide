@@ -40,6 +40,10 @@ class Db {
   }
 }
 
+function ObjectId(value) {
+  return { $oid: value };
+}
+
 ((globalThis) => {
   const core = Deno.core;
 
