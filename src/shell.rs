@@ -100,7 +100,7 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
                 let local = v8::Local::new(scope, value);
                 let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
                 if let Ok(value) = deserialized_value {
-                    println!("{}", value)
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
                 }
             }
             Err(err) => {
