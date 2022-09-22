@@ -48,9 +48,21 @@ fn op_find(col: Value, filter: Value) -> Result<Vec<Value>, AnyError> {
     Ok(res)
 }
 
+#[op]
+fn op_insert_one(col: Value, doc: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let doc = bson::ser::to_bson(&doc).unwrap();
+    let doc = doc.as_document().unwrap();
+    let res = col.insert_one(doc.clone(), None).unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
+}
+
 async fn _run_js(file_path: &str) -> Result<(), AnyError> {
     let main_module = deno_core::resolve_path(file_path)?;
-    let extension = Extension::builder().ops(vec![op_find::decl()]).build();
+    let extension = Extension::builder()
+        .ops(vec![op_find::decl(), op_insert_one::decl()])
+        .build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
         extensions: vec![extension],
@@ -67,7 +79,9 @@ async fn _run_js(file_path: &str) -> Result<(), AnyError> {
 }
 
 async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
-    let extension = Extension::builder().ops(vec![op_find::decl()]).build();
+    let extension = Extension::builder()
+        .ops(vec![op_find::decl(), op_insert_one::decl()])
+        .build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
         extensions: vec![extension],

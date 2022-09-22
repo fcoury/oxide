@@ -11,6 +11,10 @@ class Collection {
   find(filter = {}) {
     return Deno.core.opSync("op_find", this, filter);
   }
+
+  insertOne(doc) {
+    return Deno.core.opSync("op_insert_one", this, doc);
+  }
 }
 
 class Db {
