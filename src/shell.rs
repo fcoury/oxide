@@ -58,29 +58,38 @@ fn op_insert_one(col: Value, doc: Value) -> Result<Value, AnyError> {
     Ok(res)
 }
 
-async fn _run_js(file_path: &str) -> Result<(), AnyError> {
-    let main_module = deno_core::resolve_path(file_path)?;
-    let extension = Extension::builder()
-        .ops(vec![op_find::decl(), op_insert_one::decl()])
-        .build();
-    let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-        module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-        extensions: vec![extension],
-        ..Default::default()
-    });
-    js_runtime
-        .execute_script("[runjs:runtime.js]", include_str!("./runtime.js"))
-        .unwrap();
+#[op]
+fn op_delete_one(col: Value, filter: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let filter = bson::ser::to_bson(&filter).unwrap();
+    let filter = filter.as_document().unwrap();
+    let res = col.delete_one(filter.clone(), None).unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
+}
 
-    let mod_id = js_runtime.load_main_module(&main_module, None).await?;
-    let result = js_runtime.mod_evaluate(mod_id);
-    js_runtime.run_event_loop(false).await?;
-    result.await?
+#[op]
+fn op_update_one(col: Value, filter: Value, update: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let filter = bson::ser::to_bson(&filter).unwrap();
+    let filter = filter.as_document().unwrap();
+    let update = bson::ser::to_bson(&update).unwrap();
+    let update = update.as_document().unwrap();
+    let res = col
+        .update_one(filter.clone(), update.clone(), None)
+        .unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
 }
 
 async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     let extension = Extension::builder()
-        .ops(vec![op_find::decl(), op_insert_one::decl()])
+        .ops(vec![
+            op_find::decl(),
+            op_insert_one::decl(),
+            op_update_one::decl(),
+            op_delete_one::decl(),
+        ])
         .build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(deno_core::FsModuleLoader)),

@@ -15,6 +15,14 @@ class Collection {
   insertOne(doc) {
     return Deno.core.opSync("op_insert_one", this, doc);
   }
+
+  updateOne(doc, update) {
+    return Deno.core.opSync("op_update_one", this, doc, update);
+  }
+
+  deleteOne(doc) {
+    return Deno.core.opSync("op_delete_one", this, doc);
+  }
 }
 
 class Db {
