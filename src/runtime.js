@@ -47,7 +47,10 @@ class Db {
     const target = new Db(db, dbAddr, dbPort);
     const handler = {
       get(target, prop, _receiver) {
-        if (!target.hasOwnProperty(prop) && !target[prop] === "function") {
+        if (
+          !target.hasOwnProperty(prop) &&
+          typeof target[prop] !== "function"
+        ) {
           return Collection.get(target, prop);
         }
         return Reflect.get(...arguments);
