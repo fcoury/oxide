@@ -217,29 +217,49 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     if rl.load_history(&history).is_err() {
         eprintln!("Couldn't load history file: {}", history);
     };
+
+    let mut allow_break = false;
     loop {
         let db = eval(&mut js_runtime, "_state?.db").unwrap();
         let prompt = format!("{}> ", db.as_str().unwrap());
-        let line = rl.readline(&prompt)?;
-        rl.add_history_entry(&line);
-        rl.save_history(&history).unwrap();
+        let line = rl.readline(&prompt);
+        match line {
+            Ok(line) => {
+                rl.add_history_entry(&line);
+                rl.save_history(&history).unwrap();
 
-        match js_runtime.execute_script("[runjs:repl]", &line) {
-            Ok(value) => {
-                js_runtime.run_event_loop(false).await?;
+                match js_runtime.execute_script("[runjs:repl]", &line) {
+                    Ok(value) => {
+                        js_runtime.run_event_loop(false).await?;
 
-                let scope = &mut js_runtime.handle_scope();
-                let local = v8::Local::new(scope, value);
-                let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
-                if let Ok(value) = deserialized_value {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        let scope = &mut js_runtime.handle_scope();
+                        let local = v8::Local::new(scope, value);
+                        let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
+                        if let Ok(value) = deserialized_value {
+                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("{}", err.to_string())
+                    }
                 }
             }
+            Err(rustyline::error::ReadlineError::Interrupted) => {
+                if allow_break {
+                    break;
+                }
+                allow_break = true;
+            }
+            Err(rustyline::error::ReadlineError::Eof) => {
+                break;
+            }
             Err(err) => {
-                eprintln!("{}", err.to_string())
+                println!("Error: {:?}", err);
+                break;
             }
         }
     }
+    Ok(())
 }
 
 fn eval(context: &mut JsRuntime, code: &str) -> Result<Value, String> {
