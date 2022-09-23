@@ -111,7 +111,8 @@ fn main() {
             server_addr,
             server_port,
         }) => {
-            shell::start(&server_addr, server_port);
+            let shell = shell::Shell::new(&server_addr, server_port);
+            shell.start();
         }
         None => {
             start(
