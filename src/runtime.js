@@ -16,12 +16,28 @@ class Collection {
     return Deno.core.opSync("op_insert_one", this, doc);
   }
 
+  insertMany(docs) {
+    return Deno.core.opSync("op_insert_many", this, docs);
+  }
+
   updateOne(doc, update) {
     return Deno.core.opSync("op_update_one", this, doc, update);
   }
 
+  updateMany(docs, update) {
+    return Deno.core.opSync("op_update_many", this, docs, update);
+  }
+
   deleteOne(doc) {
     return Deno.core.opSync("op_delete_one", this, doc);
+  }
+
+  deleteMany(docs) {
+    return Deno.core.opSync("op_delete_many", this, docs);
+  }
+
+  aggregate(pipeline) {
+    return Deno.core.opSync("op_aggregate", this, pipeline);
   }
 }
 

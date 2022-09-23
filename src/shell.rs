@@ -59,11 +59,38 @@ fn op_insert_one(col: Value, doc: Value) -> Result<Value, AnyError> {
 }
 
 #[op]
+fn op_insert_many(col: Value, docs: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let docs = docs.as_array().unwrap();
+    let docs = docs
+        .iter()
+        .map(|doc| {
+            let doc = bson::ser::to_bson(&doc).unwrap();
+            let doc = doc.as_document().unwrap();
+            doc.clone()
+        })
+        .collect::<Vec<_>>();
+    let res = col.insert_many(docs, None).unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
+}
+
+#[op]
 fn op_delete_one(col: Value, filter: Value) -> Result<Value, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
     let res = col.delete_one(filter.clone(), None).unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
+}
+
+#[op]
+fn op_delete_many(col: Value, filter: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let filter = bson::ser::to_bson(&filter).unwrap();
+    let filter = filter.as_document().unwrap();
+    let res = col.delete_many(filter.clone(), None).unwrap();
     let res = serde_json::to_value(&res).unwrap();
     Ok(res)
 }
@@ -82,13 +109,55 @@ fn op_update_one(col: Value, filter: Value, update: Value) -> Result<Value, AnyE
     Ok(res)
 }
 
+#[op]
+fn op_update_many(col: Value, filter: Value, update: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let filter = bson::ser::to_bson(&filter).unwrap();
+    let filter = filter.as_document().unwrap();
+    let update = bson::ser::to_bson(&update).unwrap();
+    let update = update.as_document().unwrap();
+    let res = col
+        .update_many(filter.clone(), update.clone(), None)
+        .unwrap();
+    let res = serde_json::to_value(&res).unwrap();
+    Ok(res)
+}
+
+#[op]
+fn op_aggregate(col: Value, pipeline: Value) -> Result<Vec<Value>, AnyError> {
+    let col = collection(col)?;
+    let pipeline = pipeline.as_array().unwrap();
+    let pipeline = pipeline
+        .iter()
+        .map(|doc| {
+            let doc = bson::ser::to_bson(&doc).unwrap();
+            let doc = doc.as_document().unwrap();
+            doc.clone()
+        })
+        .collect::<Vec<_>>();
+    let cursor = col.aggregate(pipeline, None).unwrap();
+    let res = cursor.collect::<Vec<_>>();
+    let res = res
+        .iter()
+        .map(|doc| {
+            let doc = doc.as_ref().unwrap();
+            serde_json::to_value(doc).unwrap()
+        })
+        .collect::<Vec<_>>();
+    Ok(res)
+}
+
 async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     let extension = Extension::builder()
         .ops(vec![
             op_find::decl(),
             op_insert_one::decl(),
+            op_insert_many::decl(),
             op_update_one::decl(),
+            op_update_many::decl(),
             op_delete_one::decl(),
+            op_delete_many::decl(),
+            op_aggregate::decl(),
         ])
         .build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
