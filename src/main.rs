@@ -14,6 +14,7 @@ pub mod parser;
 pub mod pg;
 pub mod serializer;
 pub mod server;
+pub mod shell;
 pub mod threadpool;
 pub mod ui;
 pub mod utils;
@@ -21,7 +22,7 @@ pub mod wire;
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Start OxideDB web interface
+    /// Start web interface
     Web {
         /// Listening address, defaults to 127.0.0.1
         #[clap(short, long)]
@@ -34,6 +35,17 @@ enum Commands {
         /// PostgreSQL connection URL
         #[clap(short = 'u', long)]
         postgres_url: Option<String>,
+    },
+
+    /// Start JavaScript shell
+    Shell {
+        /// Server address
+        #[clap(short = 'l', long, default_value_t = String::from("127.0.0.1"))]
+        server_addr: String,
+
+        /// Server port
+        #[clap(short = 'p', long, default_value_t = 27017)]
+        server_port: u16,
     },
 }
 
@@ -94,6 +106,13 @@ fn main() {
                 port.unwrap_or(8087),
                 postgres_url,
             );
+        }
+        Some(Commands::Shell {
+            server_addr,
+            server_port,
+        }) => {
+            let shell = shell::Shell::new(&server_addr, server_port);
+            shell.start();
         }
         None => {
             start(

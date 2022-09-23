@@ -20,7 +20,17 @@ impl Handler for ListCollections {
         let tables = client.get_tables(db);
         let collections = tables
             .into_iter()
-            .map(|t| bson!({"name": t, "type": "collection"}))
+            .map(|t| {
+                bson!({
+                    "name": t,
+                    "type": "collection",
+                    "options": {},
+                    "info": {
+                        "readOnly": false,
+                    },
+                    "idIndex": {},
+                })
+            })
             .collect();
 
         Ok(doc! {
