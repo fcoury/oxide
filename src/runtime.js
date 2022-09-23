@@ -47,7 +47,7 @@ class Db {
     const target = new Db(db, dbAddr, dbPort);
     const handler = {
       get(target, prop, _receiver) {
-        if (!target.hasOwnProperty(prop)) {
+        if (!target.hasOwnProperty(prop) && !target[prop] === "function") {
           return Collection.get(target, prop);
         }
         return Reflect.get(...arguments);
@@ -61,6 +61,10 @@ class Db {
     this.name = name;
     this.addr = addr;
     this.port = port;
+  }
+
+  listCollections() {
+    return Deno.core.opSync("op_list_collections", this);
   }
 }
 

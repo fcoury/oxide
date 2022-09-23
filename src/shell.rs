@@ -7,10 +7,26 @@ use deno_core::{
 use mongodb::{
     bson::Document,
     options::ClientOptions,
-    sync::{Client, Collection},
+    sync::{Client, Collection, Database},
 };
 use serde_json::Value;
 use std::rc::Rc;
+
+fn database(db: Value) -> Result<Database, AnyError> {
+    let db_obj = db.as_object().unwrap();
+
+    let db_host = db_obj.get("addr").unwrap().as_str().unwrap();
+    let db_name = db_obj.get("name").unwrap().as_str().unwrap();
+    let db_port = db_obj.get("port").unwrap().as_u64().unwrap();
+
+    let client_uri = format!("mongodb://{db_host}:{db_port}/{db_name}");
+    let client_options = ClientOptions::parse(&client_uri).unwrap();
+    let client = Client::with_options(client_options)?;
+
+    let db = client.database(db_name);
+
+    Ok(db)
+}
 
 fn collection(col: Value) -> Result<Collection<Document>, AnyError> {
     let col_obj = col.as_object().unwrap();
@@ -147,6 +163,21 @@ fn op_aggregate(col: Value, pipeline: Value) -> Result<Vec<Value>, AnyError> {
     Ok(res)
 }
 
+#[op]
+fn op_list_collections(db: Value) -> Result<Vec<Value>, AnyError> {
+    let db = database(db)?;
+    let cursor = db.list_collections(None, None).unwrap();
+    let res = cursor.collect::<Vec<_>>();
+    let res = res
+        .iter()
+        .map(|doc| {
+            let doc = doc.clone().unwrap();
+            serde_json::to_value(&doc).unwrap()
+        })
+        .collect::<Vec<_>>();
+    Ok(res)
+}
+
 async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
     let extension = Extension::builder()
         .ops(vec![
@@ -158,6 +189,7 @@ async fn run_repl(addr: &str, port: u16) -> Result<(), AnyError> {
             op_delete_one::decl(),
             op_delete_many::decl(),
             op_aggregate::decl(),
+            op_list_collections::decl(),
         ])
         .build();
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
