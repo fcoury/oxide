@@ -39,6 +39,14 @@ class Collection {
   aggregate(pipeline) {
     return Deno.core.opSync("op_aggregate", this, pipeline);
   }
+
+  drop() {
+    return Deno.core.opSync("op_drop", this);
+  }
+
+  save(doc) {
+    return Deno.core.opSync("op_save", this, doc);
+  }
 }
 
 class Db {
@@ -69,6 +77,11 @@ class Db {
   listCollections() {
     return Deno.core.opSync("op_list_collections", this);
   }
+  
+  getCollection(name) {
+    const { db } = Object.assign({}, this.db);
+    return new Collection(db, name);
+  }
 }
 
 function ObjectId(value) {
@@ -96,10 +109,23 @@ function ObjectId(value) {
   globalThis.__defineGetter__("db", () => {
     return Db.get(globalThis);
   });
-
-  globalThis.use = (name) => {
-    globalThis._state = globalThis._state || {};
-    globalThis._state.db = name;
-    return name;
+  
+  globalThis.assert = {
+    eq: (a, b, err) => {
+      if (a != b) {
+        console.log(err);
+        return false;
+      }
+      return true;
+    },
+    
+    throws: (fn) => {
+      try {
+        fn();
+        console.log("Expected", fn, "to throw but nothing was thrown");
+      } catch (e) {
+        return true;
+      }
+    }
   };
 })(globalThis);

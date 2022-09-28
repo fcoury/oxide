@@ -11,6 +11,7 @@ use mongodb::{
     sync::{Client, Collection, Database},
 };
 use serde_json::Value;
+use std::fs;
 use std::rc::Rc;
 
 pub struct Shell {
@@ -47,6 +48,8 @@ impl Shell {
                 op_delete_one::decl(),
                 op_delete_many::decl(),
                 op_aggregate::decl(),
+                op_drop::decl(),
+                op_save::decl(),
                 op_list_collections::decl(),
             ])
             .build();
@@ -91,6 +94,8 @@ impl Shell {
             let line = rl.readline(&prompt);
             match line {
                 Ok(line) => {
+                    let mut source = line.clone();
+                    let mut file_name = "[oxidedb:shell]".to_string();
                     allow_break = false;
 
                     rl.add_history_entry(&line);
@@ -120,11 +125,26 @@ impl Shell {
                     if tr_line.starts_with("use ") {
                         let db = tr_line.split(" ").nth(1).unwrap();
                         let cmd = &format!(r#"use("{}")"#, db.to_string());
-                        js_runtime.execute_script("[runjs:repl]", cmd).unwrap();
+                        js_runtime.execute_script(&file_name, cmd).unwrap();
                         continue;
                     }
 
-                    match js_runtime.execute_script("[runjs:repl]", &line) {
+                    if tr_line.starts_with("run ") {
+                        let file = tr_line.split_once(" ").unwrap().1;
+                        let contents = fs::read_to_string(file);
+                        match contents {
+                            Ok(src) => {
+                                file_name = file.to_owned();
+                                source = src.clone();
+                            }
+                            Err(error) => {
+                                println!("Error running {}: {}", file, error);
+                                continue;
+                            }
+                        };
+                    }
+
+                    match js_runtime.execute_script(&file_name, &source) {
                         Ok(value) => {
                             js_runtime.run_event_loop(false).await?;
 
@@ -338,6 +358,33 @@ fn op_aggregate(col: Value, pipeline: Value) -> Result<Vec<Value>, AnyError> {
             serde_json::to_value(doc).unwrap()
         })
         .collect::<Vec<_>>();
+    Ok(res)
+}
+
+#[op]
+fn op_drop(col: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    col.drop(None).unwrap();
+    Ok(Value::Bool(true))
+}
+
+#[op]
+fn op_save(col: Value, doc: Value) -> Result<Value, AnyError> {
+    let col = collection(col)?;
+    let id = doc.get("_id");
+    let doc = bson::ser::to_bson(&doc).unwrap();
+    let doc = doc.as_document().unwrap();
+    let res = match id {
+        Some(id) => {
+            let id = id.as_str().unwrap();
+            serde_json::to_value(
+                col.update_one(bson::doc! { "id": id }, doc.clone(), None)
+                    .unwrap(),
+            )
+            .unwrap()
+        }
+        None => serde_json::to_value(col.insert_one(doc.clone(), None).unwrap()).unwrap(),
+    };
     Ok(res)
 }
 
