@@ -110,6 +110,12 @@ function ObjectId(value) {
     return Db.get(globalThis);
   });
   
+  globalThis.use = (name) => {
+    globalThis._state = globalThis._state || {};
+    globalThis._state.db = name;
+    return name;
+  }
+
   globalThis.assert = {
     eq: (a, b, err) => {
       if (a != b) {
