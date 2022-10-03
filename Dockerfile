@@ -1,8 +1,8 @@
-FROM rust:1.62 AS builder
+FROM rust:1.64 AS builder
 COPY . .
 RUN cargo build --release
 
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 COPY --from=builder ./target/release/oxide ./target/release/oxide
 
 EXPOSE 27017 8087
