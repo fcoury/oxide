@@ -121,7 +121,7 @@ impl SqlStatement {
             None => "".to_string(),
         };
 
-        let where_str = if self.filters.len() > 0 {
+        let where_str = if !self.filters.is_empty() {
             format!(" WHERE {}", self.filters.join(" AND "))
         } else {
             "".to_string()

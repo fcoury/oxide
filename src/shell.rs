@@ -1,9 +1,11 @@
 use colored::*;
 use deno_core::{
     error::AnyError,
-    op,
+    extension, op2,
+    serde_v8::from_v8,
     v8::{self},
-    Extension, JsRuntime,
+    JsRuntime, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier,
+    PollEventLoopOptions, RequestedModuleType, RuntimeOptions,
 };
 use mongodb::{
     bson::Document,
@@ -11,12 +13,64 @@ use mongodb::{
     sync::{Client, Collection, Database},
 };
 use serde_json::Value;
-use std::rc::Rc;
+use std::{path::Path, rc::Rc};
+
+// Define a simple module loader to replace FsModuleLoader
+struct SimpleModuleLoader;
+
+fn load(module_specifier: &ModuleSpecifier) -> Result<ModuleSource, deno_core::anyhow::Error> {
+    let path = Path::new(module_specifier.path());
+    let code = std::fs::read_to_string(path)?;
+    let code = ModuleSourceCode::String(code.into());
+
+    Ok(deno_core::ModuleSource::new(
+        deno_core::ModuleType::JavaScript,
+        code,
+        module_specifier,
+        None,
+    ))
+}
+
+impl ModuleLoader for SimpleModuleLoader {
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        _is_main: deno_core::ResolutionKind,
+    ) -> Result<ModuleSpecifier, AnyError> {
+        deno_core::resolve_import(specifier, referrer).map_err(|e| e.into())
+    }
+
+    fn load(
+        &self,
+        module_specifier: &ModuleSpecifier,
+        _maybe_referrer: Option<&ModuleSpecifier>,
+        _is_dyn_import: bool,
+        _requested_module_type: RequestedModuleType,
+    ) -> ModuleLoadResponse {
+        ModuleLoadResponse::Sync(load(module_specifier))
+    }
+}
 
 pub struct Shell {
     db_host: String,
     db_port: u16,
 }
+
+extension!(
+    OxideExtension,
+    ops = [
+        op_find,
+        op_insert_one,
+        op_insert_many,
+        op_update_one,
+        op_update_many,
+        op_delete_one,
+        op_delete_many,
+        op_aggregate,
+        op_list_collections,
+    ]
+);
 
 impl Shell {
     pub fn new(host: &str, port: u16) -> Self {
@@ -37,26 +91,13 @@ impl Shell {
     }
 
     async fn run_repl(&self) -> Result<(), AnyError> {
-        let extension = Extension::builder()
-            .ops(vec![
-                op_find::decl(),
-                op_insert_one::decl(),
-                op_insert_many::decl(),
-                op_update_one::decl(),
-                op_update_many::decl(),
-                op_delete_one::decl(),
-                op_delete_many::decl(),
-                op_aggregate::decl(),
-                op_list_collections::decl(),
-            ])
-            .build();
-        let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-            module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
-            extensions: vec![extension],
+        let mut js_runtime = JsRuntime::new(RuntimeOptions {
+            module_loader: Some(Rc::new(SimpleModuleLoader)),
+            extensions: vec![OxideExtension::ext()],
             ..Default::default()
         });
 
-        let const_str = &format!(
+        let const_str = format!(
             r#"((globalThis) => {{ globalThis._state = {{ dbAddr: "{}", dbPort: {}, db: "test" }}; }})(globalThis);"#,
             self.db_host, self.db_port
         );
@@ -82,7 +123,7 @@ impl Shell {
             state.get("dbAddr").unwrap().as_str().unwrap(),
             state.get("dbPort").unwrap()
         );
-        println!("");
+        println!();
 
         let mut allow_break = false;
         loop {
@@ -119,24 +160,26 @@ impl Shell {
 
                     if tr_line.starts_with("use ") {
                         let db = tr_line.split(" ").nth(1).unwrap();
-                        let cmd = &format!(r#"use("{}")"#, db.to_string());
+                        let cmd = format!(r#"use("{}")"#, db);
                         js_runtime.execute_script("[runjs:repl]", cmd).unwrap();
                         continue;
                     }
 
-                    match js_runtime.execute_script("[runjs:repl]", &line) {
+                    match js_runtime.execute_script("[runjs:repl]", line) {
                         Ok(value) => {
-                            js_runtime.run_event_loop(false).await?;
+                            js_runtime
+                                .run_event_loop(PollEventLoopOptions::default())
+                                .await?;
 
                             let scope = &mut js_runtime.handle_scope();
                             let local = v8::Local::new(scope, value);
-                            let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
+                            let deserialized_value = from_v8::<Value>(scope, local);
                             if let Ok(value) = deserialized_value {
                                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
                             }
                         }
                         Err(err) => {
-                            eprintln!("{}", err.to_string())
+                            eprintln!("{}", err)
                         }
                     }
                 }
@@ -225,8 +268,12 @@ fn collection(col: Value) -> Result<Collection<Document>, AnyError> {
     Ok(col)
 }
 
-#[op]
-fn op_find(col: Value, filter: Value) -> Result<Vec<Value>, AnyError> {
+#[op2]
+#[serde]
+fn op_find(
+    #[serde] col: serde_json::Value,
+    #[serde] filter: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
@@ -242,8 +289,12 @@ fn op_find(col: Value, filter: Value) -> Result<Vec<Value>, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_insert_one(col: Value, doc: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_insert_one(
+    #[serde] col: serde_json::Value,
+    #[serde] doc: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let doc = bson::ser::to_bson(&doc).unwrap();
     let doc = doc.as_document().unwrap();
@@ -252,8 +303,12 @@ fn op_insert_one(col: Value, doc: Value) -> Result<Value, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_insert_many(col: Value, docs: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_insert_many(
+    #[serde] col: serde_json::Value,
+    #[serde] docs: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let docs = docs.as_array().unwrap();
     let docs = docs
@@ -269,8 +324,12 @@ fn op_insert_many(col: Value, docs: Value) -> Result<Value, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_delete_one(col: Value, filter: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_delete_one(
+    #[serde] col: serde_json::Value,
+    #[serde] filter: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
@@ -279,8 +338,12 @@ fn op_delete_one(col: Value, filter: Value) -> Result<Value, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_delete_many(col: Value, filter: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_delete_many(
+    #[serde] col: serde_json::Value,
+    #[serde] filter: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
@@ -289,8 +352,13 @@ fn op_delete_many(col: Value, filter: Value) -> Result<Value, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_update_one(col: Value, filter: Value, update: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_update_one(
+    #[serde] col: serde_json::Value,
+    #[serde] filter: serde_json::Value,
+    #[serde] update: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
@@ -303,8 +371,13 @@ fn op_update_one(col: Value, filter: Value, update: Value) -> Result<Value, AnyE
     Ok(res)
 }
 
-#[op]
-fn op_update_many(col: Value, filter: Value, update: Value) -> Result<Value, AnyError> {
+#[op2]
+#[serde]
+fn op_update_many(
+    #[serde] col: serde_json::Value,
+    #[serde] filter: serde_json::Value,
+    #[serde] update: serde_json::Value,
+) -> Result<serde_json::Value, AnyError> {
     let col = collection(col)?;
     let filter = bson::ser::to_bson(&filter).unwrap();
     let filter = filter.as_document().unwrap();
@@ -317,8 +390,12 @@ fn op_update_many(col: Value, filter: Value, update: Value) -> Result<Value, Any
     Ok(res)
 }
 
-#[op]
-fn op_aggregate(col: Value, pipeline: Value) -> Result<Vec<Value>, AnyError> {
+#[op2]
+#[serde]
+fn op_aggregate(
+    #[serde] col: serde_json::Value,
+    #[serde] pipeline: serde_json::Value,
+) -> Result<Vec<serde_json::Value>, AnyError> {
     let col = collection(col)?;
     let pipeline = pipeline.as_array().unwrap();
     let pipeline = pipeline
@@ -341,8 +418,9 @@ fn op_aggregate(col: Value, pipeline: Value) -> Result<Vec<Value>, AnyError> {
     Ok(res)
 }
 
-#[op]
-fn op_list_collections(db: Value) -> Result<Vec<Value>, AnyError> {
+#[op2]
+#[serde]
+fn op_list_collections(#[serde] db: serde_json::Value) -> Result<Vec<serde_json::Value>, AnyError> {
     let db = database(db)?;
     let cursor = db.list_collections(None, None).unwrap();
     let res = cursor.collect::<Vec<_>>();
@@ -357,14 +435,14 @@ fn op_list_collections(db: Value) -> Result<Vec<Value>, AnyError> {
 }
 
 fn eval(context: &mut JsRuntime, code: &str) -> Result<Value, String> {
-    let res = context.execute_script("<anon>", code);
+    let res = context.execute_script("<anon>", code.to_string());
     match res {
         Ok(global) => {
             let scope = &mut context.handle_scope();
             let local = v8::Local::new(scope, global);
             // Deserialize a `v8` object into a Rust type using `serde_v8`,
             // in this case deserialize to a JSON `Value`.
-            let deserialized_value = serde_v8::from_v8::<Value>(scope, local);
+            let deserialized_value = from_v8::<Value>(scope, local);
 
             match deserialized_value {
                 Ok(value) => Ok(value),

@@ -334,7 +334,7 @@ pub fn parse_object(field: &str, object: &Map<String, serde_json::Value>) -> Res
                                 fields = format!("->{}", fields);
                             }
                             clauses.push(format!("NOT _jsonb{} ? '{}'", fields, p));
-                            acc_parts.push(p.clone());
+                            acc_parts.push(p);
                         }
                         res.push(format!("({})", clauses.join(" OR ")));
                         continue;
