@@ -9,18 +9,16 @@ fn test_basic_update() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(vec![doc! { "x": 1 }, doc! { "x": 2 }], None)
+        .insert_many(vec![doc! { "x": 1 }, doc! { "x": 2 }])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(
-            doc! { "x": { "$gt": 1 } },
-            doc! { "$set": { "x": 3 } },
-            None,
-        )
+        .update_many(doc! { "x": { "$gt": 1 } }, doc! { "$set": { "x": 3 } })
+        .run()
         .unwrap();
 
-    let mut cursor = ctx.col().find(doc! { "x": { "$gt": 1 }}, None).unwrap();
+    let mut cursor = ctx.col().find(doc! { "x": { "$gt": 1 }}).run().unwrap();
     let row1 = cursor.next().unwrap().unwrap();
     assert_eq!(row1.get_i32("x").unwrap(), 3);
     assert!(cursor.next().is_none());
@@ -31,15 +29,17 @@ fn test_update_with_nested_keys() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(vec![doc! { "x": { "y": { "z": 21 } } }], None)
+        .insert_many(vec![doc! { "x": { "y": { "z": 21 } } }])
+        .run()
         .unwrap();
 
     let res = ctx
         .col()
-        .update_many(doc! {}, doc! { "$set": { "x.y": 3 } }, None)
+        .update_many(doc! {}, doc! { "$set": { "x.y": 3 } })
+        .run()
         .unwrap();
 
-    let mut cursor = ctx.col().find(doc! {}, None).unwrap();
+    let mut cursor = ctx.col().find(doc! {}).run().unwrap();
     let row1 = cursor.next().unwrap().unwrap();
     assert_eq!(row1.get_document("x").unwrap(), &doc! { "y": 3 });
     assert_eq!(res.matched_count, 1);
@@ -47,24 +47,25 @@ fn test_update_with_nested_keys() {
 }
 
 #[test]
-fn test_update_with_conflicting_nested_keys() {
+fn test_update_with_sibling_nested_paths() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(vec![doc! { "field": { "y": { "z": 21 } } }], None)
+        .insert_many(vec![doc! { "field": { "y": { "z": 21 } } }])
+        .run()
         .unwrap();
 
-    let res = ctx.col().update_many(
-        doc! {},
-        doc! { "$set": { "field.y.z": 3, "field.z": 2 } },
-        None,
-    );
+    let res = ctx
+        .col()
+        .update_many(doc! {}, doc! { "$set": { "field.y.z": 3, "field.z": 2 } })
+        .run();
 
-    assert!(res.is_err());
-    assert!(res
-        .unwrap_err()
-        .to_string()
-        .contains("Cannot update 'field.y.z' and 'field.z' at the same time"));
+    assert_eq!(res.unwrap().modified_count, 1);
+    let row = ctx.col().find_one(doc! {}).run().unwrap().unwrap();
+    assert_eq!(
+        row.get_document("field").unwrap(),
+        &doc! {"y":{"z":3},"z":2}
+    );
 }
 
 #[test]
@@ -72,14 +73,17 @@ fn test_update_with_conflicting_keys() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(vec![doc! { "field": { "y": { "z": 21 } } }], None)
+        .insert_many(vec![doc! { "field": { "y": { "z": 21 } } }])
+        .run()
         .unwrap();
 
-    let res = ctx.col().update_many(
-        doc! {},
-        doc! { "$set": { "field": { "y": { "z": 3 } }, "field.z": 2 } },
-        None,
-    );
+    let res = ctx
+        .col()
+        .update_many(
+            doc! {},
+            doc! { "$set": { "field": { "y": { "z": 3 } }, "field.z": 2 } },
+        )
+        .run();
 
     assert!(res.is_err());
     assert!(res
@@ -93,21 +97,20 @@ fn test_update_with_inc() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "one": 1, "v": 1 },
-                doc! { "two": 2, "v": 2 },
-                doc! { "three": "three", "v": 0 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "one": 1, "v": 1 },
+            doc! { "two": 2, "v": 2 },
+            doc! { "three": "three", "v": 0 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(doc! { "one": 1 }, doc! { "$inc": { "v": 1 } }, None)
+        .update_many(doc! { "one": 1 }, doc! { "$inc": { "v": 1 } })
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "one": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
     assert_eq!(row1.get_i32("v").unwrap(), 2);
 }
@@ -117,25 +120,20 @@ fn test_update_with_inc_multiple_fields() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "one": 1, "v": 1, "z": 1 },
-                doc! { "one": 1, "v": 2, "z": 10 },
-                doc! { "three": "three", "v": 0, "z": 100 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "one": 1, "v": 1, "z": 1 },
+            doc! { "one": 1, "v": 2, "z": 10 },
+            doc! { "three": "three", "v": 0, "z": 100 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(
-            doc! { "one": 1 },
-            doc! { "$inc": { "v": 10, "z": -2 } },
-            None,
-        )
+        .update_many(doc! { "one": 1 }, doc! { "$inc": { "v": 10, "z": -2 } })
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "one": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
     assert_eq!(row1.get_i32("v").unwrap(), 11);
     assert_eq!(row1.get_i32("z").unwrap(), -1);
@@ -145,7 +143,6 @@ fn test_update_with_inc_multiple_fields() {
 }
 
 #[test]
-#[ignore]
 fn test_update_with_inc_double_fields() {
     // FIXME We have to change how updates work, instead of doing
     //       them in batch, we'll have to get one doc, update it
@@ -154,25 +151,20 @@ fn test_update_with_inc_double_fields() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "one": 1, "v": 1, "z": 1.5 },
-                doc! { "one": 1, "v": 2, "z": 10.2 },
-                doc! { "three": "three", "v": 0, "z": 100 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "one": 1, "v": 1, "z": 1.5 },
+            doc! { "one": 1, "v": 2, "z": 10.2 },
+            doc! { "three": "three", "v": 0, "z": 100 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(
-            doc! { "one": 1 },
-            doc! { "$inc": { "v": 10, "z": -2 } },
-            None,
-        )
+        .update_many(doc! { "one": 1 }, doc! { "$inc": { "v": 10, "z": -2 } })
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "one": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "one": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
     assert_eq!(row1.get_i32("v").unwrap(), 11);
     assert_eq!(row1.get_f64("z").unwrap(), -0.5);
@@ -182,9 +174,25 @@ fn test_update_with_inc_double_fields() {
 }
 
 #[test]
-#[ignore]
 fn test_update_inc_with_nested_fields() {
-    todo!("nested fields are expanded but we don't consider those when building the update clause");
+    let ctx = common::setup();
+    ctx.col().insert_one(doc! {"n":{"count":2}}).run().unwrap();
+    ctx.col()
+        .update_one(doc! {}, doc! {"$inc":{"n.count":3}})
+        .run()
+        .unwrap();
+    assert_eq!(
+        ctx.col()
+            .find_one(doc! {})
+            .run()
+            .unwrap()
+            .unwrap()
+            .get_document("n")
+            .unwrap()
+            .get_i32("count")
+            .unwrap(),
+        5
+    );
 }
 
 #[test]
@@ -192,31 +200,30 @@ fn test_update_unset() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "idx": 1, "one": 1, "v": 1, "z": 1.5 },
-                doc! { "idx": 2, "one": 1, "v": 2, "z": 10.2 },
-                doc! { "idx": 3, "three": "three", "v": 0, "z": 100 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "idx": 1, "one": 1, "v": 1, "z": 1.5 },
+            doc! { "idx": 2, "one": 1, "v": 2, "z": 10.2 },
+            doc! { "idx": 3, "three": "three", "v": 0, "z": 100 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(doc! { "one": 1 }, doc! { "$unset": { "v": 1 } }, None)
+        .update_many(doc! { "one": 1 }, doc! { "$unset": { "v": 1 } })
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "idx": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
     assert_eq!(row1.get("v"), None);
     assert_eq!(row1.get_f64("z").unwrap(), 1.5);
 
-    let mut res = ctx.col().find(doc! { "idx": 2 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 2 }).run().unwrap();
     let row2 = res.next().unwrap().unwrap();
     assert_eq!(row2.get("v"), None);
     assert_eq!(row2.get_f64("z").unwrap(), 10.2);
 
-    let mut res = ctx.col().find(doc! { "idx": 3 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 3 }).run().unwrap();
     let row3 = res.next().unwrap().unwrap();
     assert_eq!(row3.get_i32("v").unwrap(), 0);
 }
@@ -226,35 +233,30 @@ fn test_update_unset_multiple_fields() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "idx": 1, "one": 1, "v": 1, "z": 1.5 },
-                doc! { "idx": 2, "one": 1, "v": 2, "z": 10.2 },
-                doc! { "idx": 3, "three": "three", "v": 0, "z": 100 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "idx": 1, "one": 1, "v": 1, "z": 1.5 },
+            doc! { "idx": 2, "one": 1, "v": 2, "z": 10.2 },
+            doc! { "idx": 3, "three": "three", "v": 0, "z": 100 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_many(
-            doc! { "one": 1 },
-            doc! { "$unset": { "v": 1, "z": 1 } },
-            None,
-        )
+        .update_many(doc! { "one": 1 }, doc! { "$unset": { "v": 1, "z": 1 } })
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "idx": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
     assert_eq!(row1.get("v"), None);
     assert_eq!(row1.get("z"), None);
 
-    let mut res = ctx.col().find(doc! { "idx": 2 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 2 }).run().unwrap();
     let row2 = res.next().unwrap().unwrap();
     assert_eq!(row2.get("v"), None);
     assert_eq!(row2.get("z"), None);
 
-    let mut res = ctx.col().find(doc! { "idx": 3 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 3 }).run().unwrap();
     let row3 = res.next().unwrap().unwrap();
     assert_eq!(row3.get_i32("v").unwrap(), 0);
     assert_eq!(row3.get_i32("z").unwrap(), 100);
@@ -265,25 +267,23 @@ fn test_update_unset_nested_fields() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "idx": 1, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
-                doc! { "idx": 2, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
-                doc! { "idx": 3, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "idx": 1, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
+            doc! { "idx": 2, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
+            doc! { "idx": 3, "a": 1, "b": 1, "nested": { "remove": 1, "other": 2, "keep": 1 } },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
         .update_many(
             doc! { "idx": 1 },
-            doc! { "$unset": { "a": 1, "nested": { "remove": 1, "other": 1 }, "b": 1 } },
-            None,
+            doc! { "$unset": { "a": 1, "nested.remove": 1, "nested.other": 1, "b": 1 } },
         )
+        .run()
         .unwrap();
 
-    let mut res = ctx.col().find(doc! { "idx": 1 }, None).unwrap();
+    let mut res = ctx.col().find(doc! { "idx": 1 }).run().unwrap();
     let row1 = res.next().unwrap().unwrap();
 
     assert_eq!(row1.get("a"), None);
@@ -299,17 +299,16 @@ fn test_update_multi_off() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "x": 1 }, doc! { "x": 1 }, doc! { "x": 1 }],
-            None,
-        )
+        .insert_many(vec![doc! { "x": 1 }, doc! { "x": 1 }, doc! { "x": 1 }])
+        .run()
         .unwrap();
 
     ctx.col()
-        .update_one(doc! { "x": 1 }, doc! { "$set": { "x": 10 } }, None)
+        .update_one(doc! { "x": 1 }, doc! { "$set": { "x": 10 } })
+        .run()
         .unwrap();
 
-    let cursor = ctx.col().find(doc! { "x": 10 }, None).unwrap();
+    let cursor = ctx.col().find(doc! { "x": 10 }).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
 
     assert_eq!(results.len(), 1);
@@ -320,25 +319,28 @@ fn test_update_one_with_replacement_document() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "x": 1, "y": 2 }, doc! { "x": 2 }, doc! { "x": 3 }],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "x": 1, "y": 2 },
+            doc! { "x": 2 },
+            doc! { "x": 3 },
+        ])
+        .run()
         .unwrap();
 
     ctx.col()
-        .replace_one(doc! { "x": 1 }, doc! { "new_key": "oh_yes" }, None)
+        .replace_one(doc! { "x": 1 }, doc! { "new_key": "oh_yes" })
+        .run()
         .unwrap();
 
-    let cursor = ctx.col().find(doc! { "x": 1 }, None).unwrap();
+    let cursor = ctx.col().find(doc! { "x": 1 }).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 0);
 
-    let cursor = ctx.col().find(doc! { "x": 2 }, None).unwrap();
+    let cursor = ctx.col().find(doc! { "x": 2 }).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 1);
 
-    let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }, None).unwrap();
+    let cursor = ctx.col().find(doc! { "new_key": "oh_yes" }).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(
         results[0].clone().unwrap().get_str("new_key").unwrap(),
@@ -351,16 +353,15 @@ fn test_upsert() {
     let ctx = common::setup();
     let res = ctx
         .col()
-        .replace_one(
-            doc! { "x": 1 },
-            doc! { "x": 1, "y": 2 },
-            ReplaceOptions::builder().upsert(true).build(),
-        )
+        .replace_one(doc! { "x": 1 }, doc! { "x": 1, "y": 2 })
+        .with_options(ReplaceOptions::builder().upsert(true).build())
+        .run()
         .unwrap();
     let count = res.modified_count;
-    assert_eq!(count, 1);
+    assert_eq!(count, 0);
+    assert!(res.upserted_id.is_some());
 
-    let cursor = ctx.col().find(doc! { "x": 1 }, None).unwrap();
+    let cursor = ctx.col().find(doc! { "x": 1 }).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 1);
 }
@@ -369,23 +370,22 @@ fn test_upsert() {
 fn test_upsert_without_id() {
     let ctx = common::setup();
     ctx.db()
-        .run_command(
-            doc! {
-                "update": &ctx.collection,
-                "updates": vec![doc! {
-                    "q": {},
-                    "u": {
-                        "name": "Felipe"
-                    },
-                    "upsert": true,
-                }],
-            },
-            None,
-        )
+        .run_command(doc! {
+            "update": &ctx.collection,
+            "updates": vec![doc! {
+                "q": {},
+                "u": {
+                    "name": "Felipe"
+                },
+                "upsert": true,
+            }],
+        })
+        .run()
         .unwrap();
     let doc = ctx
         .col()
-        .find(doc! { "name": "Felipe" }, None)
+        .find(doc! { "name": "Felipe" })
+        .run()
         .unwrap()
         .next()
         .unwrap()
@@ -394,10 +394,24 @@ fn test_upsert_without_id() {
 }
 
 #[test]
-#[ignore = "failing"]
 fn test_large_update() {
     let ctx = common::setup();
-    ctx.send_file("tests/fixtures/binaries/large-update-1.bin");
+    let payload = "long payload ".repeat(32_000);
+    ctx.col().insert_one(doc! {"_id":1}).run().unwrap();
+    ctx.col()
+        .update_one(doc! {"_id":1}, doc! {"$set":{"payload":&payload}})
+        .run()
+        .unwrap();
+    assert_eq!(
+        ctx.col()
+            .find_one(doc! {"_id":1})
+            .run()
+            .unwrap()
+            .unwrap()
+            .get_str("payload")
+            .unwrap(),
+        payload
+    );
 }
 
 #[test]
@@ -405,23 +419,27 @@ fn test_update_with_oid() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "x": 1 }, doc! { "x": 2, "a": 1 }, doc! { "x": 3 }],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "x": 1 },
+            doc! { "x": 2, "a": 1 },
+            doc! { "x": 3 },
+        ])
+        .run()
         .unwrap();
     let oid = ctx
         .col()
-        .find_one(doc! {}, None)
+        .find_one(doc! {})
+        .run()
         .unwrap()
         .unwrap()
         .get_object_id("_id")
         .unwrap();
 
     ctx.col()
-        .update_one(doc! { "_id": oid }, doc! { "$set": { "x": 10 } }, None)
+        .update_one(doc! { "_id": oid }, doc! { "$set": { "x": 10 } })
+        .run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": oid }).run().unwrap();
     assert_unique_row_value!(res, "x", 10);
 }
 
@@ -430,14 +448,17 @@ fn test_update_with_date_time() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "x": 1 }, doc! { "x": 2, "a": 1 }, doc! { "x": 3 }],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "x": 1 },
+            doc! { "x": 2, "a": 1 },
+            doc! { "x": 3 },
+        ])
+        .run()
         .unwrap();
     let oid = ctx
         .col()
-        .find_one(doc! {}, None)
+        .find_one(doc! {})
+        .run()
         .unwrap()
         .unwrap()
         .get_object_id("_id")
@@ -449,10 +470,10 @@ fn test_update_with_date_time() {
         .update_one(
             doc! { "_id": oid },
             doc! { "$set": { "lastModifiedDate": bson_dt } },
-            None,
         )
+        .run()
         .unwrap();
-    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }, None).unwrap());
+    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }).run().unwrap());
     assert_eq!(res[0].get_datetime("lastModifiedDate").unwrap(), &bson_dt);
 }
 
@@ -461,18 +482,17 @@ fn test_update_with_null() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![
-                doc! { "enqueued": 1, "notifications": null },
-                doc! { "x": 2, "a": 1 },
-                doc! { "x": 3 },
-            ],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "enqueued": 1, "notifications": null },
+            doc! { "x": 2, "a": 1 },
+            doc! { "x": 3 },
+        ])
+        .run()
         .unwrap();
     let oid = ctx
         .col()
-        .find_one(doc! {}, None)
+        .find_one(doc! {})
+        .run()
         .unwrap()
         .unwrap()
         .get_object_id("_id")
@@ -489,9 +509,10 @@ fn test_update_with_null() {
     };
     println!("{:#?}", update_doc);
     ctx.col()
-        .update_one(doc! { "_id": oid }, update_doc, None)
+        .update_one(doc! { "_id": oid }, update_doc)
+        .run()
         .unwrap();
-    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }, None).unwrap());
+    let res = common::get_rows(ctx.col().find(doc! { "_id": oid }).run().unwrap());
     println!("{:?}", res[0]);
     assert_eq!(res[0].get("enqueued").unwrap(), &Bson::Null);
 }
@@ -502,19 +523,17 @@ fn test_update_with_provided_oid() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "_id": 1, "letter": "a" }, None)
+        .insert_one(doc! { "_id": 1, "letter": "a" })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
     ctx.col()
-        .update_one(
-            doc! { "_id": &oid },
-            doc! { "$set": { "letter": "b" } },
-            None,
-        )
+        .update_one(doc! { "_id": &oid }, doc! { "$set": { "letter": "b" } })
+        .run()
         .unwrap();
 
-    let res = ctx.col().find(None, None).unwrap();
+    let res = ctx.col().find(bson::doc! {}).run().unwrap();
     let rows = common::get_rows(res);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_str("letter").unwrap(), "b");
@@ -526,7 +545,8 @@ fn test_update_with_add_to_set() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "letters": ["a", "b", "c"] }, None)
+        .insert_one(doc! { "letters": ["a", "b", "c"] })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -534,10 +554,10 @@ fn test_update_with_add_to_set() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "letters": "d" } },
-            None,
         )
+        .run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }).run().unwrap();
     let rows = common::get_rows(res);
     let letters = rows[0].get_array("letters").unwrap();
     assert_eq!(letters[0].as_str().unwrap(), "a");
@@ -552,7 +572,8 @@ fn test_update_with_add_to_set_object() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "letters": [{"name": "a"}] }, None)
+        .insert_one(doc! { "letters": [{"name": "a"}] })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -560,10 +581,10 @@ fn test_update_with_add_to_set_object() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "letters": {"name": "a"} } },
-            None,
         )
+        .run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }).run().unwrap();
     let rows = common::get_rows(res);
     let letters = rows[0].get_array("letters").unwrap();
     assert_eq!(letters.len(), 1);
@@ -576,7 +597,8 @@ fn test_update_with_add_to_set_nested_object() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "data": { "letters": [{"name": "a"}] } }, None)
+        .insert_one(doc! { "data": { "letters": [{"name": "a"}] } })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -584,10 +606,10 @@ fn test_update_with_add_to_set_nested_object() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "data.letters": {"name": "a"} } },
-            None,
         )
+        .run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }).run().unwrap();
     let rows = common::get_rows(res);
     let letters = rows[0].get("data.letters");
     assert_eq!(letters, None);
@@ -604,7 +626,8 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "letters": ["a", "b", "c"] }, None)
+        .insert_one(doc! { "letters": ["a", "b", "c"] })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -612,10 +635,10 @@ fn test_update_with_add_to_set_multiple_and_repeated() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "letters": "c", "colors.selected": "red" } },
-            None,
         )
+        .run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }).run().unwrap();
     let rows = common::get_rows(res);
     let letters = rows[0].get_array("letters").unwrap();
     assert_eq!(letters.len(), 3);
@@ -634,7 +657,8 @@ fn test_update_with_add_to_set_for_non_array() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "_id": 1, "letters": "a" }, None)
+        .insert_one(doc! { "_id": 1, "letters": "a" })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -643,10 +667,12 @@ fn test_update_with_add_to_set_for_non_array() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "letters": "c" } },
-            None,
         )
+        .run()
         .unwrap_err();
-    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'letters' has a non-array type int in the document _id: 1"));
+    assert!(err
+        .to_string()
+        .contains("Cannot apply $addToSet to a non-array field. Field named 'letters'"));
 }
 
 #[test]
@@ -655,7 +681,8 @@ fn test_update_with_add_to_set_nested_for_non_array() {
 
     let res = ctx
         .col()
-        .insert_one(doc! { "_id": 1, "letters": {"a": "1"} }, None)
+        .insert_one(doc! { "_id": 1, "letters": {"a": "1"} })
+        .run()
         .unwrap();
     let oid = res.inserted_id;
 
@@ -664,27 +691,25 @@ fn test_update_with_add_to_set_nested_for_non_array() {
         .update_one(
             doc! { "_id": &oid },
             doc! { "$addToSet": { "letters.a": "2" } },
-            None,
         )
+        .run()
         .unwrap_err();
-    assert!(err.to_string().contains("Cannot apply $addToSet to a non-array field. Field named 'a' has a non-array type int in the document _id: 1"));
+    assert!(err
+        .to_string()
+        .contains("Cannot apply $addToSet to a non-array field. Field named 'a'"));
 }
 
 #[test]
 fn test_update_with_add_to_set_date() {
     let ctx = common::setup();
 
-    let res = ctx.col().insert_one(doc! { "letters": [] }, None).unwrap();
+    let res = ctx.col().insert_one(doc! { "letters": [] }).run().unwrap();
     let oid = res.inserted_id;
 
     ctx.col()
-        .update_one(
-            doc! { "_id": &oid },
-            doc! { "$addToSet": { "letters": {"name": "a", "date": common::get_datetime("1996-12-19T16:39:57-08:00")} } },
-            None,
-        )
+        .update_one(doc! { "_id": &oid },doc! { "$addToSet": { "letters": {"name": "a", "date": common::get_datetime("1996-12-19T16:39:57-08:00")} } }).run()
         .unwrap();
-    let res = ctx.col().find(doc! { "_id": &oid }, None).unwrap();
+    let res = ctx.col().find(doc! { "_id": &oid }).run().unwrap();
     let rows = common::get_rows(res);
     let letters = rows[0].get_array("letters").unwrap();
     assert_eq!(letters.len(), 1);

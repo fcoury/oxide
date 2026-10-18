@@ -8,14 +8,14 @@ fn test_drop_database() {
     let db = ctx.mongodb().database("test_drop_database_1");
     let col = db.collection::<Document>("test");
 
-    col.insert_one(doc! { "x": 1 }, None).unwrap();
+    col.insert_one(doc! { "x": 1 }).run().unwrap();
 
-    let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
+    let dbs = ctx.mongodb().list_database_names().run().unwrap();
     assert!(dbs.contains(&"test_drop_database_1".to_string()));
 
-    db.drop(None).unwrap();
+    db.drop().run().unwrap();
 
-    let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
+    let dbs = ctx.mongodb().list_database_names().run().unwrap();
     assert!(!dbs.contains(&"test_drop_database_1".to_string()));
 }
 
@@ -24,11 +24,11 @@ fn test_drop_inexistent_database() {
     let ctx = common::setup();
     let db = ctx.mongodb().database("test_drop_database_2");
 
-    let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
+    let dbs = ctx.mongodb().list_database_names().run().unwrap();
     assert!(!dbs.contains(&"test_drop_database_2".to_string()));
 
-    db.drop(None).unwrap();
+    db.drop().run().unwrap();
 
-    let dbs = ctx.mongodb().list_database_names(None, None).unwrap();
+    let dbs = ctx.mongodb().list_database_names().run().unwrap();
     assert!(!dbs.contains(&"test_drop_database_2".to_string()));
 }

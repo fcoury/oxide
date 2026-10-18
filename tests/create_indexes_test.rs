@@ -9,9 +9,13 @@ fn create_indexes_test() {
 
     let model = IndexModel::builder().keys(doc! { "x": 1, "z": 1 }).build();
     let options = None;
-    ctx.col().create_index(model, options).unwrap();
+    ctx.col()
+        .create_index(model)
+        .with_options(options)
+        .run()
+        .unwrap();
 
-    let cursor = ctx.col().list_indexes(None).unwrap();
+    let cursor = ctx.col().list_indexes().run().unwrap();
     let indexes = cursor
         .collect::<Vec<_>>()
         .iter()
@@ -31,11 +35,17 @@ fn create_indexes_test_already_existing() {
     let model = IndexModel::builder().keys(doc! { "a": 1, "b": 1 }).build();
     let options = None;
     ctx.col()
-        .create_index(model.clone(), options.clone())
+        .create_index(model.clone())
+        .with_options(options.clone())
+        .run()
         .unwrap();
-    ctx.col().create_index(model, options).unwrap();
+    ctx.col()
+        .create_index(model)
+        .with_options(options)
+        .run()
+        .unwrap();
 
-    let cursor = ctx.col().list_indexes(None).unwrap();
+    let cursor = ctx.col().list_indexes().run().unwrap();
     let indexes = cursor
         .collect::<Vec<_>>()
         .iter()
@@ -56,9 +66,13 @@ fn create_nested_index() {
         .keys(doc! { "a.z": 1, "b.c.d": 1 })
         .build();
     let options = None;
-    ctx.col().create_index(model, options).unwrap();
+    ctx.col()
+        .create_index(model)
+        .with_options(options)
+        .run()
+        .unwrap();
 
-    let cursor = ctx.col().list_indexes(None).unwrap();
+    let cursor = ctx.col().list_indexes().run().unwrap();
     let indexes = cursor
         .collect::<Vec<_>>()
         .iter()

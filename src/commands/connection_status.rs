@@ -12,7 +12,7 @@ impl Handler for ConnectionStatus {
     fn handle(
         &self,
         _request: &Request,
-        _msg: &Vec<Document>,
+        _msg: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
           "authInfo": {

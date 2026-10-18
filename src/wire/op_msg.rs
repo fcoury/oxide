@@ -1,10 +1,8 @@
 use crate::handler::{Request, Response};
-use crate::utils::to_cstring;
 use crate::wire::Replyable;
 use crate::wire::{OpCode, UnknownMessageKindError, CHECKSUM_PRESENT, HEADER_SIZE, OP_MSG};
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use pretty_hex::pretty_hex;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
@@ -30,7 +28,8 @@ impl OpMsgSection {
     pub fn from_bytes(
         mut bytes: Vec<u8>,
     ) -> Result<(OpMsgSection, Vec<u8>), UnknownMessageKindError> {
-        parse_section(&mut bytes)
+        let (section, size) = parse_section(&bytes)?;
+        Ok((section, bytes.split_off(size)))
     }
 }
 
@@ -53,79 +52,66 @@ impl OpMsg {
         }
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<OpMsg, UnknownMessageKindError> {
-        let mut cursor = Cursor::new(bytes);
-        let mut header_buffer: Vec<u8> = vec![0u8; HEADER_SIZE as usize];
-        cursor.read_exact(&mut header_buffer).unwrap();
-
-        let header = MsgHeader::from_bytes(header_buffer).unwrap();
-        let flags = cursor.read_u32::<LittleEndian>().unwrap();
-
-        let mut bytes: Vec<u8> = vec![];
-        cursor.read_to_end(&mut bytes).unwrap();
-
-        let mut sections = vec![];
-        loop {
-            let (section, remaining) = parse_section(&mut bytes).unwrap();
-            bytes = remaining;
+    pub fn from_bytes(bytes: &[u8]) -> eyre::Result<OpMsg> {
+        if bytes.len() < 21 {
+            eyre::bail!("truncated OP_MSG");
+        }
+        let header = MsgHeader::from_bytes(bytes[..16].to_vec())?;
+        if header.message_length as usize != bytes.len()
+            || bytes.len() > super::MAX_MSG_LEN as usize
+        {
+            eyre::bail!("invalid OP_MSG length");
+        }
+        let flags = u32::from_le_bytes(bytes[16..20].try_into()?);
+        if flags & !(super::MORE_TO_COME | super::EXHAUST_ALLOWED) != 0 {
+            eyre::bail!("unsupported OP_MSG flags or checksum");
+        }
+        let mut offset = 20;
+        let mut sections = Vec::new();
+        let mut body = false;
+        let mut identifiers = std::collections::HashSet::new();
+        while offset < bytes.len() {
+            if sections.len() == 4 {
+                eyre::bail!("too many OP_MSG sections");
+            }
+            let (section, size) = parse_section(&bytes[offset..])?;
+            if section.kind == 0 {
+                if body {
+                    eyre::bail!("duplicate command body");
+                }
+                body = true;
+            } else if !identifiers.insert(section.identifier.clone()) {
+                eyre::bail!("duplicate sequence identifier");
+            }
             sections.push(section);
-            if bytes.is_empty() {
-                break;
-            }
-            if (bytes.len() as u64) <= 4 {
-                break;
-            }
+            offset += size;
         }
-
-        let mut checksum = None;
-        if flags & CHECKSUM_PRESENT != 0 {
-            checksum = Some(cursor.read_u32::<LittleEndian>().unwrap());
+        if !body {
+            eyre::bail!("missing command body");
         }
-
         Ok(OpMsg {
             header,
             flags,
             sections,
-            checksum,
+            checksum: None,
         })
     }
 }
 
 impl Replyable for OpMsg {
     fn reply(&self, res: Response) -> Result<Vec<u8>, UnknownMessageKindError> {
-        // FIXME extract this serialization of a document to a helper
-        let bson_vec = ser::to_vec(&res.get_doc()).unwrap();
-        let bson_data: &[u8] = &bson_vec;
-        let message_length = HEADER_SIZE + 5 + bson_data.len() as u32;
-
-        if let OpCode::OpMsg(op_msg) = res.get_op_code().to_owned() {
-            let header = op_msg.header.get_response(res.get_id(), message_length);
-
-            if self.sections.len() > 0 && self.sections[0].kind == 0 {
-                return Ok(OpMsg::new_with_body_kind(
-                    header,
-                    self.flags,
-                    self.checksum,
-                    res.get_doc(),
-                )
-                .to_vec());
-            } else if self.sections.len() > 0 && self.sections[0].kind == 1 {
-                return Ok(OpMsg::new_with_body_kind(
-                    header,
-                    self.flags,
-                    self.checksum,
-                    res.get_doc(),
-                )
-                .to_vec());
-            }
+        let bson = ser::to_vec(res.get_doc())?;
+        if bson.len() > super::MAX_DOCUMENT_LEN as usize {
+            eyre::bail!("reply exceeds BSON limit");
         }
-
-        log::error!(
-            "Received unsupported section for msg = {:?}",
-            res.get_op_code()
-        );
-
-        Err(UnknownMessageKindError)
+        let header = self
+            .header
+            .get_response(res.get_id(), HEADER_SIZE + 5 + bson.len() as u32);
+        let mut bytes = header.to_vec();
+        bytes.extend_from_slice(&0_u32.to_le_bytes());
+        bytes.push(0);
+        bytes.extend(bson);
+        Ok(bytes)
     }
 }
 
@@ -135,11 +121,11 @@ impl Serializable for OpMsg {
         writer.write_all(&self.header.to_vec()).unwrap();
         writer.write_u32::<LittleEndian>(self.flags).unwrap();
         for section in &self.sections {
-            writer.write(&[section.kind]).unwrap();
+            writer.write_all(&[section.kind]).unwrap();
             for doc in &section.documents {
                 let bson_vec = ser::to_vec(&doc).unwrap();
                 let bson_data: &[u8] = &bson_vec;
-                writer.write(bson_data).unwrap();
+                writer.write_all(bson_data).unwrap();
             }
         }
         if (self.flags & CHECKSUM_PRESENT) != 0 {

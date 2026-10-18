@@ -12,25 +12,27 @@ impl Handler for CreateIndexes {
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
+        crate::commands::check_options(&docs[0], &["createIndexes", "indexes"])?;
         let doc = &docs[0];
-        let db = doc.get_str("$db").unwrap();
-        let collection = doc.get_str("createIndexes").unwrap();
-        let indexes = doc.get_array("indexes").unwrap();
+        let db = doc.get_str("$db")?;
+        let collection = doc.get_str("createIndexes")?;
+        let indexes = doc.get_array("indexes")?;
         let sp = SqlParam::new(db, collection);
 
-        let mut client = request.get_client();
+        let mut client = request.get_client()?;
 
-        client.create_schema_if_not_exists(&sp.db).unwrap();
-        client
-            .create_table_if_not_exists(&sp.db, &sp.collection)
-            .unwrap();
+        client.create_schema_if_not_exists(&sp.db)?;
+        client.create_table_if_not_exists(&sp.db, &sp.collection)?;
 
         for index in indexes {
-            client
-                .create_index(&sp, index.as_document().unwrap())
-                .unwrap();
+            client.create_index(
+                &sp,
+                index
+                    .as_document()
+                    .ok_or_else(|| CommandExecutionError::new("index must be a document".into()))?,
+            )?;
         }
 
         Ok(doc! {

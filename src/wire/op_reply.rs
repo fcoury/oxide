@@ -47,10 +47,11 @@ impl Serializable for OpReply {
             .write_u32::<LittleEndian>(self.number_returned)
             .unwrap();
 
-        // FIXME support multiple documents
-        let bson_vec = ser::to_vec(&self.documents[0]).unwrap();
-        let bson_data: &[u8] = &bson_vec;
-        writer.write(bson_data).unwrap();
+        for doc in &self.documents {
+            writer
+                .write_all(&ser::to_vec(doc).expect("valid reply document"))
+                .unwrap();
+        }
 
         writer.into_inner()
     }

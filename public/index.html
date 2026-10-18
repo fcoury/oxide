@@ -1,19 +1,29 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/logo.png" />
-  <script src="https://unpkg.com/prettier@2.7.1/standalone.js"></script>
-  <script src="https://unpkg.com/prettier@2.7.1/parser-graphql.js"></script>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OxideDB - Interface</title>
-  <script type="module" crossorigin src="index.js"></script>
-</head>
-
-<body>
-  <div id="root"></div>
-
-</body>
-
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oxide pipeline workbench</title>
+<style>
+body{font:16px system-ui;margin:40px auto;max-width:960px;padding:0 20px;color:#e9e9e9;background:#16191d}h1{font-size:28px}label{display:block;margin:16px 0 6px}input,textarea,button{font:inherit;color:inherit;background:#252a31;border:1px solid #525c69;border-radius:5px;padding:10px;box-sizing:border-box}input,textarea{width:100%}textarea,pre{font:14px ui-monospace,monospace}textarea{height:220px}button{margin:16px 10px 0 0;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;background:#252a31}.names{display:flex;gap:20px}.names>div{flex:1}small{color:#aeb8c5}
+</style>
+<h1>Oxide pipeline workbench</h1>
+<p>Preview SQL or run a read-only aggregation pipeline.</p>
+<label for="token">Access token</label><input id="token" type="password" autocomplete="off"><small>The token stays in this page until you close it.</small>
+<div class="names"><div><label for="database">Database</label><input id="database" value="test"></div><div><label for="collection">Collection</label><input id="collection" value="items"></div></div>
+<label for="pipeline">Pipeline (JSON)</label><textarea id="pipeline" spellcheck="false">[{"$limit": 20}]</textarea>
+<button id="convert">Preview SQL</button><button id="run">Run pipeline</button>
+<pre id="result" role="status">Ready.</pre>
+<script>
+for (const action of ['convert','run']) document.getElementById(action).onclick = async () => {
+  const result = document.getElementById('result');
+  try {
+    const payload = {database:document.getElementById('database').value,collection:document.getElementById('collection').value,pipeline:JSON.parse(document.getElementById('pipeline').value)};
+    result.textContent = 'Working…';
+    const response = await fetch('/api/'+action,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+document.getElementById('token').value},body:JSON.stringify(payload)});
+    const text = await response.text();
+    if (!response.ok) throw Error(response.status+' '+text);
+    const data = JSON.parse(text);
+    result.textContent = data.sql ? data.sql+'\n\nParameters:\n'+JSON.stringify(data.parameters,null,2) : JSON.stringify(data.rows,null,2);
+  } catch (error) { result.textContent = error.message; }
+};
+</script>
 </html>

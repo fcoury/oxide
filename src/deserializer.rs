@@ -1,83 +1,129 @@
-use bson::{ser, Bson};
-use chrono::{TimeZone, Utc};
+use bson::Bson;
+use eyre::{bail, eyre, Result};
 use serde_json::Value;
 
 pub trait PostgresJsonDeserializer {
-    fn from_psql_json(&self) -> Bson;
+    fn to_bson(&self) -> Result<Bson>;
 }
 
 impl PostgresJsonDeserializer for Value {
-    fn from_psql_json(&self) -> Bson {
-        match self {
-            serde_json::Value::String(s) => Bson::String(s.to_string()),
-            serde_json::Value::Number(n) => {
-                let s = n.to_string();
-                if s.contains(".") {
-                    Bson::Double(n.as_f64().unwrap())
+    fn to_bson(&self) -> Result<Bson> {
+        Ok(match self {
+            Value::String(s) => Bson::String(s.clone()),
+            Value::Bool(b) => Bson::Boolean(*b),
+            Value::Null => Bson::Null,
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    i32::try_from(i).map(Bson::Int32).unwrap_or(Bson::Int64(i))
                 } else {
-                    if let Some(n) = n.as_i64() {
-                        Bson::Int32(n.try_into().unwrap())
-                    } else if let Some(n) = n.as_f64() {
-                        Bson::Double(n)
-                    } else {
-                        panic!("Unsupported number type while attempting to deserialize Value::Number for {}", n);
-                    }
+                    Bson::Double(n.as_f64().ok_or_else(|| eyre!("invalid number"))?)
                 }
             }
-            serde_json::Value::Bool(b) => Bson::Boolean(b.to_owned()),
-            serde_json::Value::Null => Bson::Null,
-            serde_json::Value::Array(a) => {
-                Bson::Array(a.into_iter().map(|v| v.from_psql_json()).collect())
+            Value::Array(a) => Bson::Array(a.iter().map(Self::to_bson).collect::<Result<_>>()?),
+            Value::Object(o) if o.len() == 1 && o.contains_key("$i") => Bson::Int64(
+                o["$i"]
+                    .as_str()
+                    .ok_or_else(|| eyre!("invalid int64 tag"))?
+                    .parse()?,
+            ),
+            Value::Object(o) if o.len() == 1 && o.contains_key("$f") => {
+                Bson::Double(match &o["$f"] {
+                    Value::Number(n) => n.as_f64().ok_or_else(|| eyre!("invalid double tag"))?,
+                    Value::String(s) => s.parse()?,
+                    _ => bail!("invalid double tag"),
+                })
             }
-            serde_json::Value::Object(o) => {
-                if o.contains_key("$o") {
-                    return Bson::ObjectId(
-                        bson::oid::ObjectId::parse_str(o["$o"].as_str().unwrap().to_string())
-                            .unwrap(),
+            Value::Object(o) if o.len() == 1 && o.contains_key("$d") => {
+                Bson::DateTime(bson::DateTime::from_millis(
+                    o["$d"].as_i64().ok_or_else(|| eyre!("invalid date tag"))?,
+                ))
+            }
+            Value::Object(o) if o.len() == 1 && o.contains_key("$o") => {
+                Bson::ObjectId(bson::oid::ObjectId::parse_str(
+                    o["$o"]
+                        .as_str()
+                        .ok_or_else(|| eyre!("invalid ObjectId tag"))?,
+                )?)
+            }
+            Value::Object(o) if o.len() == 1 && o.contains_key("$b") => {
+                let bytes: Vec<u8> = serde_json::from_value(o["$b"].clone())?;
+                let mut d: bson::Document = bson::from_slice(&bytes)?;
+                d.remove("v").ok_or_else(|| eyre!("invalid BSON tag"))?
+            }
+            Value::Object(o) => {
+                let mut doc = bson::Document::new();
+                for (key, value) in o {
+                    if key.starts_with('$') && !key.starts_with("$$") {
+                        bail!("unknown storage tag {key}");
+                    }
+                    doc.insert(
+                        key.strip_prefix("$$")
+                            .map(|k| format!("${k}"))
+                            .unwrap_or_else(|| key.clone()),
+                        value.to_bson()?,
                     );
                 }
-                if o.contains_key("$d") {
-                    return Bson::DateTime(Utc.timestamp_millis(o["$d"].as_i64().unwrap()).into());
-                }
-                if o.contains_key("$f") {
-                    return Bson::Double(o["$f"].as_f64().unwrap());
-                }
-                if o.contains_key("$j") {
-                    if o.contains_key("s") {
-                        return Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope {
-                            code: o["$j"].as_str().unwrap().to_string(),
-                            scope: ser::to_document(&o["s"]).unwrap(),
-                        });
-                    } else {
-                        return Bson::JavaScriptCode(o["$j"].as_str().unwrap().to_string());
-                    }
-                }
-                if o.contains_key("$r") {
-                    return Bson::RegularExpression(bson::Regex {
-                        pattern: o["$r"].as_str().unwrap().to_string(),
-                        options: o["o"].as_str().unwrap().to_string(),
-                    });
-                }
-                let mut m = bson::Document::new();
-                for (k, v) in o {
-                    m.insert(k, v.from_psql_json());
-                }
-                Bson::Document(m)
+                Bson::Document(doc)
             }
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serializer::PostgresSerializer;
+    use bson::{doc, spec::BinarySubtype, Binary, Regex};
 
     #[test]
-    fn test_deserialize_date() {
-        let json = r#"{"$d":1546300800000}"#;
-        let bson: serde_json::Value = serde_json::from_str(json).unwrap();
-        let bson = bson.from_psql_json();
-        println!("{:?}", bson);
-        assert_eq!(bson, Bson::DateTime(Utc.timestamp(1546300800, 0).into()));
+    fn bson_round_trips_without_tag_collisions() {
+        let values = vec![
+            Bson::Int32(1),
+            Bson::Int64(1),
+            Bson::Int64(i64::MAX),
+            Bson::Double(1.5),
+            Bson::Double(f64::INFINITY),
+            Bson::DateTime(bson::DateTime::from_millis(i64::MIN)),
+            Bson::ObjectId(bson::oid::ObjectId::new()),
+            Bson::RegularExpression(Regex {
+                pattern: "a'".into(),
+                options: "im".into(),
+            }),
+            Bson::Binary(Binary {
+                subtype: BinarySubtype::Uuid,
+                bytes: vec![0; 16],
+            }),
+            Bson::Decimal128(bson::Decimal128::from_bytes([7; 16])),
+            Bson::Timestamp(bson::Timestamp {
+                time: 5,
+                increment: 2,
+            }),
+            Bson::Document(
+                doc! {"$o": "not-an-id", "$$i": 1, "$numberLong": "2", "nested": [{"$f": "text"}]},
+            ),
+            Bson::JavaScriptCodeWithScope(bson::JavaScriptCodeWithScope {
+                code: "x".into(),
+                scope: doc! {"$o": "literal"},
+            }),
+            Bson::MinKey,
+            Bson::MaxKey,
+        ];
+        for value in values {
+            assert_eq!(value.clone().into_psql_json().to_bson().unwrap(), value);
+        }
+        assert!(
+            matches!(Bson::Double(f64::NAN).into_psql_json().to_bson().unwrap(), Bson::Double(f) if f.is_nan())
+        );
+    }
+
+    #[test]
+    fn malformed_tags_return_errors() {
+        for value in [
+            serde_json::json!({"$i": "bad"}),
+            serde_json::json!({"$o":"bad"}),
+            serde_json::json!({"$b":[256]}),
+        ] {
+            assert!(value.to_bson().is_err());
+        }
     }
 }

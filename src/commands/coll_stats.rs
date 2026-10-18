@@ -13,21 +13,22 @@ impl Handler for CollStats {
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
+        crate::commands::check_options(&docs[0], &["collStats"])?;
         let doc = &docs[0];
-        let sp = SqlParam::from(&doc, "collStats");
+        let sp = SqlParam::from(doc, "collStats")?;
 
-        let mut client = request.get_client();
-        let stats = client.schema_stats(&sp.db, Some(&sp.collection)).unwrap();
+        let mut client = request.get_client()?;
+        let stats = client.schema_stats(&sp.db, Some(&sp.collection))?;
 
         Ok(doc! {
             "ns": sp.to_string(),
-            "count": Bson::Int32(stats.get("RowCount")),
-            "size": Bson::Int32(stats.get("TotalSize")),
-            "storageSize": Bson::Int32(stats.get("RelationSize")),
-            "totalIndexSize": Bson::Int32(stats.get("IndexSize")),
-            "totalSize": Bson::Int32(stats.get("TotalSize")),
+            "count": Bson::Int64(stats.get("RowCount")),
+            "size": Bson::Int64(stats.get("TotalSize")),
+            "storageSize": Bson::Int64(stats.get("RelationSize")),
+            "totalIndexSize": Bson::Int64(stats.get("IndexSize")),
+            "totalSize": Bson::Int64(stats.get("TotalSize")),
             "scaleFactor": Bson::Int32(1),
             "ok": Bson::Double(1.0),
         })

@@ -8,21 +8,20 @@ fn test_create_basic() {
 
     ctx.db()
         .collection::<Document>(&ctx.collection)
-        .drop(None)
+        .drop()
+        .run()
         .unwrap();
 
-    let names = ctx.db().list_collection_names(None).unwrap();
+    let names = ctx.db().list_collection_names().run().unwrap();
     assert!(!names.contains(&ctx.collection));
 
     ctx.db()
-        .run_command(
-            doc! {
-                "create": ctx.clone().collection,
-            },
-            None,
-        )
+        .run_command(doc! {
+            "create": ctx.clone().collection,
+        })
+        .run()
         .unwrap();
 
-    let names = ctx.db().list_collection_names(None).unwrap();
+    let names = ctx.db().list_collection_names().run().unwrap();
     assert!(names.contains(&ctx.collection));
 }

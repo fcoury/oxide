@@ -7,14 +7,16 @@ fn test_delete_basic() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "x": 1 }, doc! { "x": 2, "a": 1 }, doc! { "x": 3 }],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "x": 1 },
+            doc! { "x": 2, "a": 1 },
+            doc! { "x": 3 },
+        ])
+        .run()
         .unwrap();
 
-    ctx.col().delete_many(doc! { "a": 1 }, None).unwrap();
-    let cursor = ctx.col().find(doc! {}, None).unwrap();
+    ctx.col().delete_many(doc! { "a": 1 }).run().unwrap();
+    let cursor = ctx.col().find(doc! {}).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 2);
 }
@@ -25,14 +27,16 @@ fn test_delete_one() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(
-            vec![doc! { "a": 1 }, doc! { "x": 2, "a": 1 }, doc! { "a": 1 }],
-            None,
-        )
+        .insert_many(vec![
+            doc! { "a": 1 },
+            doc! { "x": 2, "a": 1 },
+            doc! { "a": 1 },
+        ])
+        .run()
         .unwrap();
 
-    ctx.col().delete_one(doc! { "a": 1 }, None).unwrap();
-    let cursor = ctx.col().find(doc! {}, None).unwrap();
+    ctx.col().delete_one(doc! { "a": 1 }).run().unwrap();
+    let cursor = ctx.col().find(doc! {}).run().unwrap();
     let results = cursor.collect::<Vec<_>>();
     assert_eq!(results.len(), 2);
 }
@@ -44,7 +48,8 @@ fn test_delete_inexistent() {
     let res = ctx
         .db()
         .collection::<Document>("this_doesnt_exist")
-        .delete_many(doc! { "x": 1 }, None)
+        .delete_many(doc! { "x": 1 })
+        .run()
         .unwrap();
 
     assert_eq!(res.deleted_count, 0);

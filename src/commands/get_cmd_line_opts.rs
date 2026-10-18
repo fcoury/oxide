@@ -12,7 +12,7 @@ impl Handler for GetCmdLineOpts {
     fn handle(
         &self,
         _request: &Request,
-        _msg: &Vec<Document>,
+        _msg: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
             "argv": Bson::Array(vec![Bson::String("oxidedb".to_string())]),

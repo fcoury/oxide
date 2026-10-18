@@ -27,7 +27,7 @@ impl Handler for GetParameter {
     fn handle(
         &self,
         _request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = docs[0].clone();
 

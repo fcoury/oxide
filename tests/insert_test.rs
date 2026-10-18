@@ -10,10 +10,11 @@ fn test_basic_insert() {
     let ctx = common::setup();
 
     ctx.col()
-        .insert_many(vec![doc! { "x": 1 }, doc! { "x": 2 }], None)
+        .insert_many(vec![doc! { "x": 1 }, doc! { "x": 2 }])
+        .run()
         .unwrap();
 
-    let mut cursor = ctx.col().find(None, None).unwrap();
+    let mut cursor = ctx.col().find(bson::doc! {}).run().unwrap();
     let row1 = cursor.next().unwrap().unwrap();
     assert_eq!(row1.get_i32("x").unwrap(), 1);
     let row2 = cursor.next().unwrap().unwrap();
@@ -25,19 +26,18 @@ fn test_basic_insert() {
 fn test_insert_without_id() {
     let ctx = common::setup();
     ctx.db()
-        .run_command(
-            doc! {
-                "insert": &ctx.collection,
-                "documents": vec![doc! {
-                    "name": "Felipe"
-                }]
-            },
-            None,
-        )
+        .run_command(doc! {
+            "insert": &ctx.collection,
+            "documents": vec![doc! {
+                "name": "Felipe"
+            }]
+        })
+        .run()
         .unwrap();
     let doc = ctx
         .col()
-        .find(doc! { "name": "Felipe" }, None)
+        .find(doc! { "name": "Felipe" })
+        .run()
         .unwrap()
         .next()
         .unwrap()
@@ -46,7 +46,7 @@ fn test_insert_without_id() {
 }
 
 #[test]
-fn test_raw_kind2_op_msg_insert() {
+fn test_raw_session_command_is_explicitly_rejected() {
     let ctx = common::setup();
 
     // FIXME count() is not working because it needs the aggregation pipeline
@@ -57,7 +57,8 @@ fn test_raw_kind2_op_msg_insert() {
             .mongodb()
             .database("test")
             .collection::<Document>("col")
-            .find(None, None)
+            .find(bson::doc! {})
+            .run()
             .unwrap();
         let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
         rows.len()
@@ -78,8 +79,15 @@ fn test_raw_kind2_op_msg_insert() {
         0090   74 65 73 74 00 00                                 test..
     "};
 
-    ctx.send(&hexdump_to_bytes(kind2insert));
-    assert_eq!(count_documents(ctx), count + 1);
+    let reply = ctx.send(&hexdump_to_bytes(kind2insert));
+    let oxide::wire::OpCode::OpMsg(reply) = oxide::wire::parse(&reply).unwrap() else {
+        panic!("expected OP_MSG")
+    };
+    assert!(reply.sections[0].documents[0]
+        .get_str("errmsg")
+        .unwrap()
+        .contains("unsupported option lsid"));
+    assert_eq!(count_documents(ctx), count);
 }
 
 #[test]
@@ -92,7 +100,8 @@ fn test_raw_jetbrains_idea_insert() {
             .mongodb()
             .database("test")
             .collection::<Document>("inventory")
-            .find(None, None)
+            .find(bson::doc! {})
+            .run()
             .unwrap();
         let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
         rows.len()

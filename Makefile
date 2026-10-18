@@ -1,17 +1,10 @@
-NAME = oxide
-
 check:
-	cargo check
-
+	cargo check --locked --all-features
 start:
-	./scripts/start.sh
-
+	cargo run --locked
 debug:
-	./scripts/start.sh --debug
-
+	cargo run --locked -- --debug
 test:
-	# cargo nextest run
-	cargo test
-
+	cargo test --locked --all-features
 web:
-	./scripts/start.sh web
+	cargo run --locked --features web -- web

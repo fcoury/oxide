@@ -12,11 +12,12 @@ impl Handler for Drop {
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
-        let mut client = request.get_client();
-        let sp = SqlParam::from(&docs[0], "drop");
-        client.drop_table(&sp).unwrap();
+        crate::commands::check_options(&docs[0], &["drop"])?;
+        let mut client = request.get_client()?;
+        let sp = SqlParam::from(&docs[0], "drop")?;
+        client.drop_table(&sp)?;
 
         Ok(doc! {
             "nIndexesWas": Bson::Int32(1), // TODO

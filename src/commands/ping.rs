@@ -14,7 +14,7 @@ impl Handler for Ping {
     fn handle(
         &self,
         _request: &Request,
-        _msg: &Vec<Document>,
+        _msg: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
           "ok": Bson::Double(1.into())

@@ -1,7 +1,6 @@
 #![allow(dead_code, unused_imports)]
 use bson::{doc, ser, Bson, Document};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use pretty_hex::*;
 use std::ffi::CString;
 use std::io::{BufRead, Cursor, Read, Write};
 
@@ -35,8 +34,7 @@ pub struct OpCodeNotImplementedError {
     op_code: u32,
 }
 
-#[derive(Debug, Clone)]
-pub struct UnknownMessageKindError;
+pub type UnknownMessageKindError = eyre::Report;
 
 #[derive(Debug, Clone)]
 pub struct MsgHeader {
@@ -47,12 +45,15 @@ pub struct MsgHeader {
 }
 
 impl MsgHeader {
-    pub fn from_bytes(bytes: Vec<u8>) -> Result<MsgHeader, UnknownMessageKindError> {
+    pub fn from_bytes(bytes: Vec<u8>) -> eyre::Result<MsgHeader> {
+        if bytes.len() < HEADER_SIZE as usize {
+            eyre::bail!("truncated message header");
+        }
         let mut cursor = Cursor::new(bytes);
-        let message_length = cursor.read_u32::<LittleEndian>().unwrap();
-        let request_id = cursor.read_u32::<LittleEndian>().unwrap();
-        let response_to = cursor.read_u32::<LittleEndian>().unwrap();
-        let op_code = cursor.read_u32::<LittleEndian>().unwrap();
+        let message_length = cursor.read_u32::<LittleEndian>()?;
+        let request_id = cursor.read_u32::<LittleEndian>()?;
+        let response_to = cursor.read_u32::<LittleEndian>()?;
+        let op_code = cursor.read_u32::<LittleEndian>()?;
         Ok(MsgHeader {
             message_length,
             request_id,
@@ -90,11 +91,11 @@ pub enum OpCode {
 impl OpCode {
     pub fn reply(&self, response: Response) -> Result<Vec<u8>, UnknownMessageKindError> {
         match self {
-            OpCode::OpMsg(op_msg) => Ok(op_msg.reply(response).unwrap()),
-            OpCode::OpQuery(op_query) => Ok(op_query.reply(response).unwrap()),
+            OpCode::OpMsg(op_msg) => op_msg.reply(response),
+            OpCode::OpQuery(op_query) => op_query.reply(response),
             _ => {
                 log::error!("Unknown message during reply - {:#?}", self);
-                Err(UnknownMessageKindError)
+                Err(eyre::eyre!("unsupported reply opcode"))
             }
         }
     }
@@ -110,40 +111,32 @@ pub trait Serializable {
     fn to_vec(&self) -> Vec<u8>;
 }
 
-pub fn parse(buffer: &[u8]) -> Result<OpCode, OpCodeNotImplementedError> {
-    let mut cursor = Cursor::new(buffer);
-    let header = MsgHeader::parse(&mut cursor);
-
-    if header.op_code == OP_MSG {
-        let mut msg_buffer: Vec<u8> = vec![0; header.message_length as usize];
-        cursor.set_position(0);
-        cursor.read_exact(&mut msg_buffer).unwrap();
-
-        Ok(OpCode::OpMsg(OpMsg::from_bytes(&msg_buffer).unwrap()))
-    } else if header.op_code == OP_QUERY {
-        Ok(OpCode::OpQuery(OpQuery::parse(header, &mut cursor)))
-    } else {
-        Err(OpCodeNotImplementedError {
-            op_code: header.op_code,
-        })
+pub fn parse(buffer: &[u8]) -> eyre::Result<OpCode> {
+    let header = MsgHeader::from_bytes(
+        buffer
+            .get(..16)
+            .ok_or_else(|| eyre::eyre!("truncated header"))?
+            .to_vec(),
+    )?;
+    if header.message_length < HEADER_SIZE
+        || header.message_length > MAX_MSG_LEN
+        || header.message_length as usize != buffer.len()
+    {
+        eyre::bail!("invalid message length");
+    }
+    match header.op_code {
+        OP_MSG => Ok(OpCode::OpMsg(OpMsg::from_bytes(buffer)?)),
+        OP_QUERY => {
+            let mut cursor = Cursor::new(buffer);
+            cursor.set_position(16);
+            Ok(OpCode::OpQuery(OpQuery::parse(header, &mut cursor)?))
+        }
+        _ => eyre::bail!("unsupported opcode {}", header.op_code),
     }
 }
 
 impl MsgHeader {
     fn new(message_length: u32, request_id: u32, response_to: u32, op_code: u32) -> MsgHeader {
-        MsgHeader {
-            message_length,
-            request_id,
-            response_to,
-            op_code,
-        }
-    }
-
-    fn parse(cursor: &mut Cursor<&[u8]>) -> MsgHeader {
-        let message_length = cursor.read_u32::<LittleEndian>().unwrap();
-        let request_id = cursor.read_u32::<LittleEndian>().unwrap();
-        let response_to = cursor.read_u32::<LittleEndian>().unwrap();
-        let op_code = cursor.read_u32::<LittleEndian>().unwrap();
         MsgHeader {
             message_length,
             request_id,

@@ -14,7 +14,7 @@ impl Handler for Hello {
     fn handle(
         &self,
         _request: &Request,
-        _msg: &Vec<Document>,
+        _msg: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let local_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -24,7 +24,7 @@ impl Handler for Hello {
             "isWritablePrimary": Bson::Boolean(true),
             "maxBsonObjectSize": MAX_DOCUMENT_LEN,
             "maxMessageSizeBytes": MAX_MSG_LEN,
-            "maxWriteBatchSize": 100000,
+            "maxWriteBatchSize": 10000,
             "localTime": Bson::DateTime(bson::DateTime::from_millis(local_time.try_into().unwrap())),
             "minWireVersion": 0,
             "maxWireVersion": 13,

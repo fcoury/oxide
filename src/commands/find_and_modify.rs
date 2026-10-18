@@ -1,117 +1,68 @@
-use crate::handler::{CommandExecutionError, Request};
-use crate::parser::parse_update;
-use crate::pg::UpdateResult;
-use crate::{commands::Handler, pg::SqlParam};
+use crate::{
+    commands::{check_options, Handler},
+    handler::{CommandExecutionError, Request},
+    parser::parse_update,
+    pg::{optional_bool, SqlParam},
+};
 use bson::{doc, Bson, Document};
-
-pub struct FindAndModify {}
-
+pub struct FindAndModify;
 impl Handler for FindAndModify {
     fn new() -> Self {
-        FindAndModify {}
+        Self
     }
-
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
-        let db = doc.get_str("$db").unwrap();
-        let collection = doc.get_str("findAndModify").unwrap();
-        let sp = SqlParam::new(db, collection);
-        let query = doc.get_document("query").unwrap();
-        let sort = match doc.get_document("sort") {
-            Ok(sort_doc) => Some(sort_doc),
-            _ => None,
+        check_options(
+            doc,
+            &[
+                "findAndModify",
+                "query",
+                "sort",
+                "update",
+                "upsert",
+                "new",
+                "remove",
+            ],
+        )?;
+        let sp = SqlParam::from(doc, "findAndModify")?;
+        let query = match doc.get("query") {
+            None => Document::new(),
+            Some(Bson::Document(d)) => d.clone(),
+            _ => {
+                return Err(CommandExecutionError::new(
+                    "query must be a document".into(),
+                ))
+            }
         };
-        let raw_update = doc.get_document("update").unwrap();
-        let update_doc = parse_update(raw_update);
-        let upsert = doc.get_bool("upsert").unwrap_or(false);
-        let new = doc.get_bool("new").unwrap_or(false);
-
-        log::debug!("findAndModify doc = {:#?}", doc);
-
-        let mut client = request.get_client();
-        client.create_table_if_not_exists(db, collection).unwrap();
-
-        let res = client
-            .update(
-                &sp,
-                Some(query),
-                sort,
-                update_doc.unwrap(),
-                false,
-                false,
-                true,
-            )
-            .unwrap();
-
-        match res {
-            UpdateResult::Count(total) => {
-                if total == 0 {
-                    if upsert {
-                        let mut obj = query.clone();
-                        obj.extend(extract_operator_values(&raw_update));
-
-                        let res = client.insert_doc(sp, &obj).unwrap();
-                        let mut doc = doc! {
-                            "value": null,
-                            "lastErrorObject": {
-                                "updatedExisting": false,
-                                "upserted": res.get_object_id("_id").unwrap().to_string(),
-                                "n": 1,
-                            },
-                            "ok": 1.0,
-                        };
-                        if new {
-                            doc.insert("value", res.clone());
-                        }
-
-                        return Ok(doc);
-                    } else {
-                        return Ok(doc! {
-                            "value": null,
-                            "ok": Bson::Double(1.0),
-                        });
-                    }
-                } else {
-                    unreachable!(
-                        "Unexpected numeric result for a findAndUpdate command: {:#?}",
-                        doc
-                    );
-                }
+        let sort = match doc.get("sort") {
+            None => None,
+            Some(Bson::Document(d)) => Some(d),
+            _ => return Err(CommandExecutionError::new("sort must be a document".into())),
+        };
+        let upsert = optional_bool(doc, "upsert", false)?;
+        let new = optional_bool(doc, "new", false)?;
+        let mut client = request.get_client()?;
+        if optional_bool(doc, "remove", false)? {
+            if doc.contains_key("update") || upsert || new {
+                return Err(CommandExecutionError::new(
+                    "remove cannot be combined with update, upsert, or new".into(),
+                ));
             }
-            UpdateResult::Document(value) => Ok(doc! {
-                "n": Bson::Int64(1),
-                "value": value,
-                "ok": Bson::Double(1.0),
-            }),
+            let value = client.find_and_remove(&sp, &query, sort)?;
+            return Ok(
+                doc! {"ok":1.0,"lastErrorObject":{"n":i32::from(value.is_some())},"value":value},
+            );
         }
-    }
-}
-
-fn extract_operator_values(doc: &Document) -> Document {
-    let mut res = Document::new();
-    for (key, value) in doc {
-        if key.starts_with("$") {
-            if let Some(value) = value.as_document() {
-                res.extend(value.clone());
-            }
+        let update = parse_update(doc.get_document("update")?)?;
+        let result = client.update(&sp, Some(&query), sort, update, upsert, false)?;
+        let mut last = doc! {"n":(result.matched+u64::from(result.upserted.is_some())) as i64,"updatedExisting":result.matched>0};
+        if let Some(id) = result.upserted {
+            last.insert("upserted", id);
         }
-    }
-    res
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_operator_values() {
-        assert_eq!(
-            extract_operator_values(&doc! { "$inc": { "score": 1 }, "$set": { "name": "abc" } }),
-            doc! { "score": 1, "name": "abc" }
-        );
+        Ok(doc! {"ok":1.0,"value":if new{result.after}else{result.before},"lastErrorObject":last})
     }
 }

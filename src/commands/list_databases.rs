@@ -12,15 +12,16 @@ impl Handler for ListDatabases {
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
-        let name_only = doc.get_bool("nameOnly").unwrap_or(false);
-        let mut client = request.get_client();
+        crate::commands::check_options(doc, &["listDatabases", "nameOnly"])?;
+        let name_only = crate::pg::optional_bool(doc, "nameOnly", false)?;
+        let mut client = request.get_client()?;
 
         let mut total_size: i64 = 0;
         let mut databases: Vec<bson::Bson> = vec![];
-        for schema in client.get_schemas() {
+        for schema in client.get_schemas()? {
             if schema.starts_with("pg_") || schema == "information_schema" {
                 continue;
             }
@@ -28,8 +29,8 @@ impl Handler for ListDatabases {
                 databases.push(doc!["name": schema].into());
             } else {
                 let mut size: i64 = 0;
-                for table in client.get_tables(&schema) {
-                    let db_size = client.get_table_size(&schema, &table);
+                for table in client.get_tables(&schema)? {
+                    let db_size = client.get_table_size(&schema, &table)?;
                     size += db_size;
                     total_size += db_size;
                 }

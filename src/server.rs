@@ -1,145 +1,173 @@
-use crate::handler::{handle, Response};
-use crate::threadpool::ThreadPool;
-use crate::wire::parse;
-use autoincrement::prelude::AsyncIncremental;
-use bson::{doc, Bson};
-use byteorder::{ByteOrder, LittleEndian};
+use crate::{
+    cursor::Cursors,
+    handler::{handle_with_cursors, Response},
+    threadpool::ThreadPool,
+    wire::{self, OpCode},
+};
+use bson::doc;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
-use std::env;
-use std::io::prelude::*;
-use std::net::{Shutdown, TcpListener, TcpStream};
-
-#[derive(AsyncIncremental, PartialEq, Eq, Debug)]
-struct RequestId(u32);
-
+use std::{
+    env,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
+static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 pub struct Server {
     listen_addr: String,
     port: u16,
     pg_url: String,
 }
-
 impl Server {
     pub fn new(listen_addr: String, port: u16) -> Self {
         Self::new_with_pgurl(
             listen_addr,
             port,
-            env::var("DATABASE_URL").unwrap_or("postgres:://localhost:5432/oxide".to_string()),
+            env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost:5432/oxide".into()),
         )
     }
-
     pub fn new_with_pgurl(listen_addr: String, port: u16, pg_url: String) -> Self {
-        Server {
+        Self {
             listen_addr,
             port,
             pg_url,
         }
     }
-
     pub fn start(&self) {
-        let uri = &self.pg_url;
-        let sanitized_uri = format!(
-            "postgres://*****:*****@{}",
-            uri.split("@").collect::<Vec<_>>()[1]
-        );
-        log::info!("Connecting to {}...", sanitized_uri);
-        let manager = PostgresConnectionManager::new(self.pg_url.parse().unwrap(), NoTls);
-        if let Ok(pool) = r2d2::Pool::new(manager) {
-            self.start_with_pool(pool);
-        } else {
-            log::error!("Failed to connect to PostgreSQL.");
+        if let Err(error) = self.try_start() {
+            log::error!("server startup failed: {error}");
         }
     }
-
-    pub fn start_with_pool(&self, pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) {
-        let addr = format!("{}:{}", self.listen_addr, self.port);
-        let listener = TcpListener::bind(&addr).unwrap();
-        let pool = ThreadPool::new(100);
-        let generator = RequestId::init();
-
-        log::info!("OxideDB listening on {}...", addr);
+    pub fn try_start(&self) -> eyre::Result<()> {
+        let manager = PostgresConnectionManager::new(self.pg_url.parse()?, NoTls);
+        let pool = r2d2::Pool::builder()
+            .max_size(10)
+            .connection_timeout(Duration::from_secs(5))
+            .build(manager)?;
+        self.serve(
+            TcpListener::bind((self.listen_addr.as_str(), self.port))?,
+            pool,
+        )
+    }
+    pub fn start_with_pool(&self, pool: r2d2::Pool<PostgresConnectionManager<NoTls>>) {
+        if let Err(error) = TcpListener::bind((self.listen_addr.as_str(), self.port))
+            .map_err(eyre::Report::from)
+            .and_then(|listener| self.serve(listener, pool))
+        {
+            log::error!("server failed: {error}");
+        }
+    }
+    pub fn serve(
+        &self,
+        listener: TcpListener,
+        pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    ) -> eyre::Result<()> {
+        let workers = ThreadPool::new(32);
+        let cursors = Arc::new(Mutex::new(Cursors::default()));
+        log::info!("OxideDB listening on {}", listener.local_addr()?);
         for stream in listener.incoming() {
-            let stream = stream.unwrap();
-            let id = generator.pull();
-            let pg_pool = pg_pool.clone();
-
-            stream.set_nodelay(true).unwrap();
-
-            pool.execute(|| {
-                handle_connection(stream, id, pg_pool);
+            let stream = match stream {
+                Ok(stream) => stream,
+                Err(error) => {
+                    log::warn!("accept failed: {error}");
+                    continue;
+                }
+            };
+            stream.set_nodelay(true)?;
+            stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(30)))?;
+            let pool = pg_pool.clone();
+            let cursors = cursors.clone();
+            workers.execute(move || {
+                if let Err(error) = handle_connection(stream, pool, cursors) {
+                    log::debug!("connection closed: {error}");
+                }
             });
         }
-
-        log::info!("Shutting down.");
+        Ok(())
+    }
+}
+fn handle_connection(
+    mut stream: TcpStream,
+    pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    cursors: Arc<Mutex<Cursors>>,
+) -> eyre::Result<()> {
+    let addr = stream.peer_addr()?;
+    loop {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut length = [0_u8; 4];
+        match read_before(&mut stream, &mut length, deadline) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
+        let size = i32::from_le_bytes(length);
+        if size < wire::HEADER_SIZE as i32 || size > wire::MAX_MSG_LEN as i32 {
+            eyre::bail!("invalid frame length");
+        }
+        let mut buffer = vec![0; size as usize];
+        buffer[..4].copy_from_slice(&length);
+        read_before(&mut stream, &mut buffer[4..], deadline)?;
+        let opcode = wire::parse(&buffer)?;
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // A final containment boundary keeps unexpected implementation panics
+        // from permanently reducing serving capacity. Validation returns errors.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            handle_with_cursors(id, &pool, addr, &opcode, &cursors)
+        }));
+        let response=match result{
+            Ok(Ok(response))=>response,
+            Ok(Err(error))=>opcode.reply(Response::new(id,&opcode,vec![doc!{"ok":0.0,"errmsg":error.message,"code":error.code,"codeName":error.code_name}]))?,
+            Err(_)=>{log::error!("unexpected command panic");opcode.reply(Response::new(id,&opcode,vec![doc!{"ok":0.0,"errmsg":"internal command error","code":1,"codeName":"InternalError"}]))?}
+        };
+        if matches!(&opcode,OpCode::OpMsg(msg)if msg.flags&wire::MORE_TO_COME!=0) {
+            continue;
+        }
+        if response.len() > wire::MAX_MSG_LEN as usize {
+            eyre::bail!("response exceeds wire limit");
+        }
+        let mut remaining = response.as_slice();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !remaining.is_empty() {
+            let timeout = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|d| !d.is_zero())
+                .ok_or_else(|| eyre::eyre!("reply deadline elapsed"))?;
+            stream.set_write_timeout(Some(timeout))?;
+            match stream.write(remaining) {
+                Ok(0) => eyre::bail!("connection closed during reply"),
+                Ok(written) => remaining = &remaining[written..],
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
     }
 }
 
-fn handle_connection(
-    mut stream: TcpStream,
-    id: RequestId,
-    pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
-) {
-    let addr = stream.peer_addr().unwrap();
-    log::debug!("Client connected: {}", addr);
-
-    loop {
-        let mut size_buffer = [0; 4];
-        let read = stream.peek(&mut size_buffer).unwrap();
-        let size = LittleEndian::read_u32(&size_buffer);
-        if size == 0 {
-            stream.flush().unwrap();
-            break;
+// The deadline spans the entire frame, so a slow trickle cannot reset it.
+fn read_before(
+    stream: &mut TcpStream,
+    mut buffer: &mut [u8],
+    deadline: Instant,
+) -> std::io::Result<()> {
+    while !buffer.is_empty() {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "frame deadline elapsed")
+            })?;
+        stream.set_read_timeout(Some(remaining))?;
+        match stream.read(buffer) {
+            Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
+            Ok(n) => buffer = &mut buffer[n..],
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
         }
-        let mut buffer = vec![0; size as usize];
-
-        match stream.read_exact(&mut buffer) {
-            Ok(_read) => {
-                use std::time::Instant;
-                let now = Instant::now();
-
-                let op_code = parse(&buffer);
-                log::trace!("{} {}bytes: {:?}", addr, read, op_code);
-                if op_code.is_err() {
-                    log::error!(
-                        "Could not understand - {} {} bytes: {:?}",
-                        addr,
-                        read,
-                        op_code
-                    );
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    stream.write(&[0x00, 0x00, 0x00, 0x00]).unwrap();
-                    return;
-                }
-
-                let op_code = op_code.unwrap();
-                let mut response = match handle(id.0, &pool, addr, &op_code) {
-                    Ok(reply) => reply,
-                    Err(e) => {
-                        log::error!("Error while handling: {}", e);
-                        let err = doc! {
-                            "ok": Bson::Double(0.0),
-                            "errmsg": Bson::String(format!("{}", e)),
-                            "code": Bson::Int32(59),
-                            "codeName": "CommandNotFound",
-                        };
-                        let request = Response::new(id.0, &op_code, vec![err]);
-                        op_code.reply(request).unwrap()
-                    }
-                };
-
-                response.flush().unwrap();
-
-                let elapsed = now.elapsed();
-                log::trace!("Processed {}bytes in {:.2?}\n", response.len(), elapsed);
-
-                stream.write_all(&response).unwrap();
-            }
-            Err(e) => {
-                log::error!("Error on request id {}: {}", id.0, e);
-                stream.shutdown(Shutdown::Both).unwrap();
-                return;
-            }
-        };
     }
+    Ok(())
 }

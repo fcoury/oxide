@@ -13,16 +13,18 @@ impl Handler for Create {
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
+        crate::commands::check_options(&docs[0], &["create"])?;
         let doc = &docs[0];
-        let db = doc.get_str("$db").unwrap();
-        let collection = doc.get_str("create").unwrap();
+        let db = doc.get_str("$db")?;
+        let collection = doc.get_str("create")?;
         let sp = SqlParam::new(db, collection);
+        sp.validate()?;
 
-        let mut client = request.get_client();
+        let mut client = request.get_client()?;
 
-        client.create_schema_if_not_exists(&sp.db).unwrap();
+        client.create_schema_if_not_exists(&sp.db)?;
 
         let r = client.create_table(sp.clone());
         match r {

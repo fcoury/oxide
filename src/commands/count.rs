@@ -1,59 +1,66 @@
-#![allow(dead_code)]
-use crate::commands::Handler;
-use crate::handler::{CommandExecutionError, Request};
-use crate::pg::SqlParam;
+use crate::{
+    commands::{check_options, Handler},
+    handler::{CommandExecutionError, Request},
+    parser,
+    pg::{integer, SqlParam},
+};
 use bson::{doc, Bson, Document};
-
-pub struct Count {}
-
+pub struct Count;
 impl Handler for Count {
     fn new() -> Self {
-        Count {}
+        Self
     }
-
     fn handle(
         &self,
         request: &Request,
-        docs: &Vec<Document>,
+        docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
-        let db = doc.get_str("$db").unwrap();
-        let collection = doc.get_str("count").unwrap();
-        let sp = SqlParam::new(db, collection);
-
-        let mut client = request.get_client();
-
-        // returns empty if db or collection doesn't exist
-        if !client.table_exists(db, collection).unwrap() {
-            return Ok(doc! {
-                "n": 0,
-                "ok": Bson::Double(1.0),
-            });
-        }
-
-        let filter = if doc.contains_key("filter") {
-            Some(doc.get_document("filter").unwrap().clone())
-        } else {
-            None
+        check_options(doc, &["count", "query", "skip", "limit"])?;
+        let sp = SqlParam::from(doc, "count")?;
+        let filter = match doc.get("query") {
+            None => Document::new(),
+            Some(Bson::Document(d)) => d.clone(),
+            _ => {
+                return Err(CommandExecutionError::new(
+                    "query must be a document".into(),
+                ))
+            }
         };
-
-        let r = client.query("SELECT COUNT(*) FROM %table%", sp, filter, &[]);
-        match r {
-            Ok(rows) => {
-                let row = rows.iter().next().unwrap();
-                let n: i64 = row.get(0);
-                Ok(doc! {
-                    "n": Bson::Int32(n as i32),
-                    "ok": Bson::Double(1.0),
-                })
-            }
-            Err(error) => {
-                log::error!("Error during count: {:?} - doc: {}", error, &doc);
-                Err(CommandExecutionError::new(format!(
-                    "error during count: {:?}",
-                    error
-                )))
-            }
+        let mut sql = parser::compile(&filter)?;
+        let skip = doc.get("skip").map(integer).transpose()?.unwrap_or(0);
+        let limit = doc
+            .get("limit")
+            .map(integer)
+            .transpose()?
+            .unwrap_or(0)
+            .checked_abs()
+            .ok_or_else(|| CommandExecutionError::new("limit is out of range".into()))?;
+        if skip < 0 {
+            return Err(CommandExecutionError::new(
+                "skip must be nonnegative".into(),
+            ));
         }
+        let mut pg = request.get_client()?;
+        let count: i64 = if sp.exists(&mut pg)? {
+            sql.text = format!(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM {sp} WHERE {} {} OFFSET {skip}) AS counted",
+                sql.text,
+                if limit == 0 {
+                    String::new()
+                } else {
+                    format!("LIMIT {limit}")
+                }
+            );
+            pg.raw_query(&sql.text, &sql.refs())?[0]
+                .try_get(0)
+                .map_err(eyre::Report::from)?
+        } else {
+            0
+        };
+        let count = i32::try_from(count)
+            .map(Bson::Int32)
+            .unwrap_or(Bson::Int64(count));
+        Ok(doc! {"ok":1.0,"n":count})
     }
 }

@@ -4,14 +4,17 @@ use crate::commands::{
     Delete, Drop, DropDatabase, Find, FindAndModify, GetCmdLineOpts, GetParameter, Handler, Hello,
     Insert, IsMaster, ListCollections, ListDatabases, ListIndexes, Ping, Update, WhatsMyUri,
 };
+use crate::cursor::Cursors;
 use crate::pg::PgDb;
 use crate::wire::{OpCode, OpMsg};
 use bson::{doc, Bson, Document};
 use postgres::NoTls;
 use r2d2_postgres::PostgresConnectionManager;
 use std::net::SocketAddr;
+use std::sync::Mutex;
 
 pub struct Request<'a> {
+    pub cursors: &'a Mutex<Cursors>,
     pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &'a OpCode,
@@ -22,8 +25,10 @@ impl<'a> Request<'a> {
         pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
         peer_addr: SocketAddr,
         op_code: &'a OpCode,
+        cursors: &'a Mutex<Cursors>,
     ) -> Self {
         Request {
+            cursors,
             pool,
             peer_addr,
             op_code,
@@ -38,8 +43,8 @@ impl<'a> Request<'a> {
         self.op_code
     }
 
-    pub fn get_client(&self) -> PgDb {
-        PgDb::new_from_pool(self.pool.clone())
+    pub fn get_client(&self) -> Result<PgDb, CommandExecutionError> {
+        Ok(PgDb::try_from_pool(self.pool)?)
     }
 }
 
@@ -71,6 +76,8 @@ impl<'a> Response<'a> {
 #[derive(Debug, Clone)]
 pub struct CommandExecutionError {
     pub message: String,
+    pub code: i32,
+    pub code_name: String,
 }
 
 impl std::error::Error for CommandExecutionError {}
@@ -83,7 +90,39 @@ impl std::fmt::Display for CommandExecutionError {
 
 impl CommandExecutionError {
     pub fn new(message: String) -> Self {
-        CommandExecutionError { message }
+        CommandExecutionError {
+            message,
+            code: 2,
+            code_name: "BadValue".into(),
+        }
+    }
+}
+
+impl From<eyre::Report> for CommandExecutionError {
+    fn from(error: eyre::Report) -> Self {
+        if let Some(error) = error.downcast_ref::<postgres::Error>() {
+            if error.code() == Some(&postgres::error::SqlState::UNIQUE_VIOLATION) {
+                return Self {
+                    message: "duplicate key".into(),
+                    code: 11000,
+                    code_name: "DuplicateKey".into(),
+                };
+            }
+            if let Some(db) = error.as_db_error() {
+                return Self::new(db.message().to_owned());
+            }
+        }
+        Self::new(error.to_string())
+    }
+}
+impl From<bson::document::ValueAccessError> for CommandExecutionError {
+    fn from(error: bson::document::ValueAccessError) -> Self {
+        Self::new(error.to_string())
+    }
+}
+impl From<crate::parser::InvalidUpdateError> for CommandExecutionError {
+    fn from(error: crate::parser::InvalidUpdateError) -> Self {
+        Self::new(error.to_string())
     }
 }
 
@@ -93,32 +132,102 @@ pub fn handle(
     peer_addr: SocketAddr,
     op_code: &OpCode,
 ) -> Result<Vec<u8>, CommandExecutionError> {
-    let request = Request {
+    handle_with_cursors(
+        id,
         pool,
         peer_addr,
-        op_code: &op_code,
+        op_code,
+        &Mutex::new(Cursors::default()),
+    )
+}
+
+pub fn handle_with_cursors(
+    id: u32,
+    pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    peer_addr: SocketAddr,
+    op_code: &OpCode,
+    cursors: &Mutex<Cursors>,
+) -> Result<Vec<u8>, CommandExecutionError> {
+    let request = Request {
+        cursors,
+        pool,
+        peer_addr,
+        op_code,
     };
     match route(&request) {
         Ok(doc) => {
             log::trace!("Sending response: {:#?}", doc);
             let response = Response {
                 id,
-                op_code: &op_code,
+                op_code,
                 docs: vec![doc],
             };
-            Ok(op_code.reply(response).unwrap())
+            op_code.reply(response).map_err(CommandExecutionError::from)
         }
         Err(e) => Err(e),
     }
 }
 
-fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecutionError> {
-    let command = docs[0].keys().next().unwrap();
+fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutionError> {
+    let command = docs
+        .first()
+        .and_then(|doc| doc.keys().next())
+        .ok_or_else(|| CommandExecutionError::new("empty command".into()))?;
 
     log::debug!("OP_MSG command: {}", command);
     log::trace!("Received document: {:#?}", docs);
 
-    if command == "find" {
+    if command == "getMore" || command == "killCursors" {
+        let doc = &docs[0];
+        let db = doc.get_str("$db")?;
+        let collection = doc.get_str(if command == "getMore" {
+            "collection"
+        } else {
+            "killCursors"
+        })?;
+        let ns = format!("{db}.{collection}");
+        let mut cursors = request
+            .cursors
+            .lock()
+            .map_err(|_| CommandExecutionError::new("cursor lock unavailable".into()))?;
+        if command == "getMore" {
+            crate::commands::check_options(doc, &["getMore", "collection", "batchSize"])?;
+            let id = crate::pg::integer(
+                doc.get("getMore")
+                    .ok_or_else(|| CommandExecutionError::new("missing getMore".into()))?,
+            )?;
+            let batch = match doc.get("batchSize") {
+                Some(value) => crate::pg::integer(value)?,
+                None => 101,
+            };
+            if batch <= 0 {
+                return Err(CommandExecutionError::new(
+                    "getMore batchSize must be positive".into(),
+                ));
+            }
+            return cursors
+                .more(id, &ns, (batch as usize).min(crate::pg::MAX_QUERY_ROWS))
+                .map_err(|e| CommandExecutionError {
+                    message: e.to_string(),
+                    code: 43,
+                    code_name: "CursorNotFound".into(),
+                });
+        }
+        crate::commands::check_options(doc, &["killCursors", "cursors"])?;
+        let mut killed = Vec::new();
+        let mut missing = Vec::new();
+        for value in doc.get_array("cursors")? {
+            let id = crate::pg::integer(value)?;
+            if cursors.kill(id, &ns) {
+                killed.push(id);
+            } else {
+                missing.push(id);
+            }
+        }
+        Ok(
+            doc! {"ok":1.0,"cursorsKilled":killed,"cursorsNotFound":missing,"cursorsAlive":[],"cursorsUnknown":[]},
+        )
+    } else if command == "find" {
         Find::new().handle(request, docs)
     } else if command == "findAndModify" {
         FindAndModify::new().handle(request, docs)
@@ -177,16 +286,13 @@ fn run(request: &Request, docs: &Vec<Document>) -> Result<Document, CommandExecu
     }
 }
 
-fn run_op_query(
-    request: &Request,
-    docs: &Vec<Document>,
-) -> Result<Document, CommandExecutionError> {
+fn run_op_query(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutionError> {
     let empty = "".to_string();
     let command = docs[0].keys().next().unwrap_or(&empty);
 
     log::debug!("OP_QUERY Command: {}", command);
 
-    if command == "" || command == "isMaster" || command == "ismaster" {
+    if command.is_empty() || command == "isMaster" || command == "ismaster" {
         IsMaster::new().handle(request, docs)
     } else {
         log::error!("Got unknown OP_QUERY command: {}", command);
@@ -200,90 +306,41 @@ fn run_op_query(
 }
 
 fn handle_op_msg(request: &Request, msg: OpMsg) -> Result<Document, CommandExecutionError> {
-    if msg.sections.len() < 1 {
-        log::error!("Received OP_MSG with no sections:\n{:#?}", msg);
+    let bodies = msg
+        .sections
+        .iter()
+        .filter(|s| s.kind == 0)
+        .collect::<Vec<_>>();
+    if bodies.len() != 1 || bodies[0].documents.len() != 1 {
         return Err(CommandExecutionError::new(
-            "OP_MSG must have at least one section, received none".to_string(),
+            "OP_MSG requires exactly one command body".into(),
         ));
     }
-
-    let section = msg.sections[0].clone();
-    if section.kind == 0 {
-        let mut documents = section.documents.clone();
-        if msg.sections.len() > 1 {
-            for section in msg.sections[1..].iter() {
-                if let Some(identifier) = section.identifier.clone() {
-                    if identifier == "documents\0" {
-                        let new_doc = section.documents[0].clone();
-                        documents[0].insert("documents", Bson::Array(vec![new_doc.into()]));
-                    }
-                }
-            }
-        }
-        return run(request, &documents);
-    }
-
-    if section.kind == 1 {
-        if section.identifier.is_none() {
-            log::error!(
-                "Received a kind 1 section from OP_MSG with no identifier:\n{:#?}",
-                msg
-            );
+    let mut command = bodies[0].documents[0].clone();
+    let mut names = std::collections::HashSet::new();
+    for section in msg.sections.iter().filter(|s| s.kind == 1) {
+        let identifier = section
+            .identifier
+            .as_deref()
+            .unwrap_or("")
+            .trim_end_matches('\0');
+        if !["documents", "updates", "deletes"].contains(&identifier)
+            || command.contains_key(identifier)
+            || !names.insert(identifier)
+        {
             return Err(CommandExecutionError::new(
-                "all kind 1 sections on OP_MSG must have an identifier, received none".to_string(),
+                "invalid or duplicate document sequence".into(),
             ));
         }
-
-        let mut identifier = section.identifier.unwrap();
-        identifier.pop();
-
-        if identifier == "documents" {
-            if msg.sections.len() < 2 {
-                log::error!(
-                    "Received a document kind 1 section with no matching kind 0:\n{:#?}",
-                    msg
-                );
-                return Err(CommandExecutionError::new(
-                    "OP_MSG with a kind 1 documents section must also have at least one kind 0 section, received none".to_string(),
-                ));
-            }
-
-            let mut doc = msg.sections[1].documents[0].clone();
-            doc.insert(identifier, section.documents.clone());
-            return run(request, &vec![doc]);
-        }
-
-        log::error!(
-            "Received unknown kind 1 section identifier from OP_MSG:\n{:#?}",
-            msg
-        );
-        return Err(CommandExecutionError::new(
-            format!(
-                "received unknown kind 1 section identifier from OP_MSG: {}",
-                identifier
-            )
-            .to_string(),
-        ));
+        command.insert(identifier, section.documents.clone());
     }
-
-    log::error!(
-        "Received unknown section from OP_MSG: {}\n{:#?}",
-        section.kind,
-        msg
-    );
-    Err(CommandExecutionError::new(
-        format!(
-            "received unknown section kind from OP_MSG: {}",
-            section.kind
-        )
-        .to_string(),
-    ))
+    run(request, &[command])
 }
 
 fn route(request: &Request) -> Result<Document, CommandExecutionError> {
     match request.op_code {
         OpCode::OpMsg(msg) => handle_op_msg(request, msg.clone()),
-        OpCode::OpQuery(query) => run_op_query(request, &vec![query.query.clone()]),
+        OpCode::OpQuery(query) => run_op_query(request, std::slice::from_ref(&query.query)),
         _ => {
             log::error!("Unroutable opcode received: {:?}", request.op_code);
             Err(CommandExecutionError::new(format!(
