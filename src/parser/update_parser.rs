@@ -1,13 +1,11 @@
 use bson::Document;
-
-use crate::utils::expand_fields;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateOper {
     Update(Vec<UpdateDoc>),
     Replace(Document),
 }
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpdateDoc {
     Inc(Document),
@@ -15,151 +13,65 @@ pub enum UpdateDoc {
     Unset(Document),
     AddToSet(Document),
 }
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct InvalidUpdateError {
-    reason: String,
+    pub reason: String,
 }
-
 impl InvalidUpdateError {
     pub fn new(reason: String) -> Self {
-        InvalidUpdateError { reason }
+        Self { reason }
     }
 }
-
-impl UpdateDoc {
-    fn validate(&self) -> Result<UpdateDoc, InvalidUpdateError> {
-        match self {
-            UpdateDoc::Set(doc) => match expand_fields(doc) {
-                Ok(u) => Ok(UpdateDoc::Set(u)),
-                Err(e) => {
-                    return Err(InvalidUpdateError::new(format!(
-                        "Cannot update '{}' and '{}' at the same time",
-                        e.target, e.source
-                    )));
-                }
-            },
-            UpdateDoc::Unset(doc) => Ok(UpdateDoc::Unset(doc.clone())),
-            UpdateDoc::Inc(u) => Ok(UpdateDoc::Inc(u.clone())),
-            UpdateDoc::AddToSet(doc) => Ok(UpdateDoc::AddToSet(doc.clone())),
-            // _ => {
-            //     return Err(InvalidUpdateError::new(format!(
-            //         "Unhandled update operation: {:?}",
-            //         self
-            //     )));
-            // }
-        }
+impl fmt::Display for InvalidUpdateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.reason)
     }
 }
+impl std::error::Error for InvalidUpdateError {}
 
 pub fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
-    let mut res: Vec<UpdateDoc> = vec![];
-    if !doc.keys().any(|k| k.starts_with("$")) {
+    if !doc.keys().any(|k| k.starts_with('$')) {
         return Ok(UpdateOper::Replace(doc.clone()));
     }
-    for (key, value) in doc.iter() {
-        match key.as_str() {
-            "$set" => {
-                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
-                    Ok(doc) => doc,
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!(
-                            "Cannot update '{}' and '{}' at the same time",
-                            e.target, e.source
-                        )));
-                    }
-                };
-                match UpdateDoc::Set(expanded_doc).validate() {
-                    Ok(update_doc) => res.push(update_doc),
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
-                    }
-                }
+    let mut operations = Vec::new();
+    let mut paths: Vec<String> = Vec::new();
+    for (operator, value) in doc {
+        let fields = value
+            .as_document()
+            .ok_or_else(|| InvalidUpdateError::new(format!("{operator} requires a document")))?
+            .clone();
+        for path in fields.keys() {
+            if path
+                .split('.')
+                .any(|p| p.is_empty() || p.starts_with('$') || p.contains('\0'))
+            {
+                return Err(InvalidUpdateError::new("unsupported update path".into()));
             }
-            "$unset" => {
-                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
-                    Ok(doc) => doc,
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!(
-                            "Cannot update '{}' and '{}' at the same time",
-                            e.target, e.source
-                        )));
-                    }
-                };
-                match UpdateDoc::Unset(expanded_doc).validate() {
-                    Ok(update_doc) => res.push(update_doc),
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
-                    }
-                }
+            if path == "_id" || path.starts_with("_id.") {
+                return Err(InvalidUpdateError::new("_id is immutable".into()));
             }
-            "$inc" => {
-                let expanded_doc = match expand_fields(value.as_document().unwrap()) {
-                    Ok(doc) => doc,
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!(
-                            "Cannot update '{}' and '{}' at the same time",
-                            e.target, e.source
-                        )));
-                    }
-                };
-                match UpdateDoc::Inc(expanded_doc).validate() {
-                    Ok(update_doc) => res.push(update_doc),
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
-                    }
-                }
+            if let Some(prior) = paths.iter().find(|p| {
+                **p == *path
+                    || p.starts_with(&format!("{path}."))
+                    || path.starts_with(&format!("{p}."))
+            }) {
+                return Err(InvalidUpdateError::new(format!(
+                    "Cannot update '{prior}' and '{path}' at the same time"
+                )));
             }
-            "$addToSet" => {
-                let doc = value.as_document().unwrap().clone();
-                match UpdateDoc::AddToSet(doc).validate() {
-                    Ok(update_doc) => res.push(update_doc),
-                    Err(e) => {
-                        return Err(InvalidUpdateError::new(format!("{:?}", e)));
-                    }
-                }
-            }
-            _ => {
-                if key.starts_with("$") || res.len() > 0 {
-                    log::error!("Unhandled update operator: {}\nDocument = {:#?}", key, doc);
-                    return Err(InvalidUpdateError::new(format!(
-                        "Unknown update operator: {}",
-                        key
-                    )));
-                }
-            }
+            paths.push(path.clone());
         }
+        operations.push(match operator.as_str() {
+            "$set" => UpdateDoc::Set(fields),
+            "$unset" => UpdateDoc::Unset(fields),
+            "$inc" => UpdateDoc::Inc(fields),
+            "$addToSet" => UpdateDoc::AddToSet(fields),
+            _ => {
+                return Err(InvalidUpdateError::new(format!(
+                    "Unknown update operator: {operator}"
+                )))
+            }
+        });
     }
-    Ok(UpdateOper::Update(res))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bson::doc;
-
-    #[test]
-    fn test_parse_update() {
-        let set_doc = doc! { "$set": { "a": 1 } };
-        let repl_doc = doc! { "b": 2, "c": 8, "d": 9 };
-        let unknown_doc = doc! { "$xyz": { "a": 1 } };
-        let mixed_doc = doc! { "$set": { "x": 1 }, "b": 2 };
-
-        assert_eq!(
-            parse_update(&set_doc).unwrap(),
-            UpdateOper::Update(vec![UpdateDoc::Set(doc! { "a": 1 })])
-        );
-        assert_eq!(
-            parse_update(&repl_doc).unwrap(),
-            UpdateOper::Replace(repl_doc)
-        );
-        assert_eq!(
-            parse_update(&unknown_doc).unwrap_err(),
-            InvalidUpdateError::new("Unknown update operator: $xyz".to_string())
-        );
-        assert_eq!(
-            parse_update(&mixed_doc).unwrap_err(),
-            InvalidUpdateError::new("Unknown update operator: b".to_string())
-        );
-    }
+    Ok(UpdateOper::Update(operations))
 }

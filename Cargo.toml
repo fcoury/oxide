@@ -4,49 +4,43 @@ edition = "2021"
 name = "oxide"
 version = "0.1.7"
 
+[features]
+default = []
+shell = []
+web = ["dep:axum", "dep:tokio"]
+
 [dependencies]
-autoincrement = {version = "1", features = ["derive", "async"]}
+axum = {version = "0.8", optional = true}
+tokio = {version = "1", features = ["rt", "time", "net", "sync"], optional = true}
 bson = {version = "2.4.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
-chrono = "0.4"
-clap = {version = "3.2.8", features = ["derive"]}
-dotenv = "0.15"
-env_logger = "0.9.0"
-futures = "0.3"
-indoc = "1.0.6"
+clap = {version = "4", features = ["derive"]}
+dotenvy = "0.15"
+env_logger = "0.11"
 log = "0.4"
-# mongodb = {version = "2.1", features = ["tokio-sync"], default-features = false}
-# mongodb-language-model = {path = "../mongodb-language-model-rust"}
-color-eyre = "0.6"
-colored = "2.0.0"
-deno_core = "0.149.0"
-dirs = "4.0.0"
 eyre = "0.6"
-mongodb-language-model = "0.1.6"
-nickel = "0.11"
-portpicker = "0.1"
+postgres-protocol = "0.6"
 postgres = {version = "0.19", features = ["with-serde_json-1"]}
-pretty-hex = "0.3.0"
 r2d2 = "0.8.10"
 r2d2_postgres = "0.18.1"
 regex = "1"
-rust-embed = "6.4.0"
-rustyline = "10.0.0"
-serde = "1"
+sha2 = "0.10"
+serde = {version = "1", features = ["derive"]}
 serde_json = {version = "1", features = ["preserve_order"]}
-serde_v8 = "0.62.0"
-sql_lexer = "0.9.3"
-tokio = {version = "1.19.2", features = ["full"]}
 
-[dependencies.mongodb]
-default-features = false
-features = ["sync"]
-version = "2.3.0"
+[dev-dependencies]
+chrono = "0.4"
+indoc = "1.0.6"
+mongodb = {version = "3", features = ["sync", "bson-2"]}
 
-[dependencies.uuid]
+[dev-dependencies.uuid]
 features = [
   "v4", # Lets you generate random UUIDs
   "fast-rng", # Use a faster (but still sufficiently random) RNG
   "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
 ]
 version = "1.1.2"
+
+[dev-dependencies.tower]
+version = "0.5"
+features = ["util"]

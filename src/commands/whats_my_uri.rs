@@ -9,11 +9,7 @@ impl Handler for WhatsMyUri {
         WhatsMyUri {}
     }
 
-    fn handle(
-        &self,
-        req: &Request,
-        _msg: &Vec<Document>,
-    ) -> Result<Document, CommandExecutionError> {
+    fn handle(&self, req: &Request, _msg: &[Document]) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
           "ok": Bson::Double(1.0),
           "you": req.peer_addr().to_string(),

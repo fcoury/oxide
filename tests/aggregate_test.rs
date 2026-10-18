@@ -26,7 +26,7 @@ fn test_match() {
         }
     };
 
-    let res = col.aggregate(vec![pipeline], None).unwrap();
+    let res = col.aggregate(vec![pipeline]).run().unwrap();
     assert_unique_row_value!(res, "age", 30);
 }
 
@@ -53,7 +53,7 @@ fn test_match_regex() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     let row = rows.get(0).unwrap();
     assert_eq!(row.get_str("name").unwrap(), "John");
@@ -82,7 +82,7 @@ fn test_match_nested_regex() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     let row = rows.get(0).unwrap();
     let name = row.get_document("name").unwrap();
@@ -113,7 +113,7 @@ fn test_match_regex_ignore_case() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     let row = rows.get(0).unwrap();
     let name = row.get_document("name").unwrap();
@@ -154,7 +154,7 @@ fn test_group() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     let ny_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "New York")
@@ -211,7 +211,7 @@ fn test_match_group() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     let ny_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "New York")
@@ -267,7 +267,7 @@ fn test_group_match() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     let ann_arbor_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "Ann Arbor")
@@ -277,8 +277,10 @@ fn test_group_match() {
 
 #[test]
 fn test_group_with_date() {
-    let dt1 = Utc.ymd(2020, 1, 1).and_hms_milli(10, 0, 1, 444);
-    let dt2 = Utc.ymd(2021, 12, 12).and_hms_milli(10, 42, 19, 0);
+    let dt1 =
+        Utc.with_ymd_and_hms(2020, 1, 1, 10, 0, 1).unwrap() + chrono::Duration::milliseconds(444);
+    let dt2 =
+        Utc.with_ymd_and_hms(2021, 12, 12, 10, 42, 19).unwrap() + chrono::Duration::milliseconds(0);
 
     let col = insert!(
         doc! {
@@ -315,16 +317,16 @@ fn test_group_with_date() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let first_date_row = rows
         .iter()
-        .find(|r| r.get_str("_id").unwrap() == "2020-01-01")
+        .find(|r| r.get_str("_id").unwrap() == "2020")
         .unwrap();
     assert_eq!(first_date_row.get_i32("qtd_sum").unwrap(), 4);
     assert_eq!(first_date_row.get_f64("price_avg").unwrap(), 25.49);
     let second_date_row = rows
         .iter()
-        .find(|r| r.get_str("_id").unwrap() == "2021-12-12")
+        .find(|r| r.get_str("_id").unwrap() == "2021")
         .unwrap();
     assert_eq!(second_date_row.get_i32("qtd_sum").unwrap(), 2);
     assert_eq!(second_date_row.get_f64("price_avg").unwrap(), 14.49);
@@ -351,7 +353,7 @@ fn test_order() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     let first_row = rows.get(0).unwrap();
     let second_row = rows.get(1).unwrap();
     assert_eq!(29, first_row.get_i32("age").unwrap());
@@ -363,7 +365,7 @@ fn test_order() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate(vec![pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate(vec![pipeline]).run().unwrap());
     let first_row = rows.get(0).unwrap();
     let second_row = rows.get(1).unwrap();
     assert_eq!(30, first_row.get_i32("age").unwrap());
@@ -372,8 +374,10 @@ fn test_order() {
 
 #[test]
 fn test_group_with_sort() {
-    let dt1 = Utc.ymd(2020, 1, 1).and_hms_milli(10, 0, 1, 444);
-    let dt2 = Utc.ymd(2021, 12, 12).and_hms_milli(10, 42, 19, 0);
+    let dt1 =
+        Utc.with_ymd_and_hms(2020, 1, 1, 10, 0, 1).unwrap() + chrono::Duration::milliseconds(444);
+    let dt2 =
+        Utc.with_ymd_and_hms(2021, 12, 12, 10, 42, 19).unwrap() + chrono::Duration::milliseconds(0);
 
     let col = insert!(
         doc! {
@@ -417,16 +421,16 @@ fn test_group_with_sort() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     let first_date_row = rows
         .iter()
-        .find(|r| r.get_str("_id").unwrap() == "2020-01-01")
+        .find(|r| r.get_str("_id").unwrap() == "2020")
         .unwrap();
     assert_eq!(first_date_row.get_i32("qtd_sum").unwrap(), 4);
     assert_eq!(first_date_row.get_f64("price_avg").unwrap(), 25.49);
     let second_date_row = rows
         .iter()
-        .find(|r| r.get_str("_id").unwrap() == "2021-12-12")
+        .find(|r| r.get_str("_id").unwrap() == "2021")
         .unwrap();
     assert_eq!(second_date_row.get_i32("qtd_sum").unwrap(), 2);
     assert_eq!(second_date_row.get_f64("price_avg").unwrap(), 14.49);
@@ -463,7 +467,7 @@ fn test_group_with_multiply() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "main")
@@ -507,7 +511,7 @@ fn test_group_with_subtract() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "main")
@@ -551,7 +555,7 @@ fn test_group_with_add() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "main")
@@ -595,7 +599,7 @@ fn test_group_with_divide() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("_id").unwrap() == "main")
@@ -635,7 +639,7 @@ fn test_simple_additive_projection() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("store").unwrap() == "main")
@@ -672,7 +676,7 @@ fn test_simple_exclusive_projection() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let main_row = rows
         .iter()
         .find(|r| r.get_str("store").unwrap() == "main")
@@ -704,7 +708,7 @@ fn test_match_date() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     assert_eq!(1, rows.len());
     assert_eq!(2, rows[0].get_i32("value").unwrap());
 }
@@ -762,7 +766,7 @@ fn test_match_group_project() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     assert_eq!(rows.len(), 2);
     let new_york_row = rows
         .iter()
@@ -792,11 +796,15 @@ fn test_project_id_exclusion() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let row = rows[0].clone();
     assert_eq!(
-        row.keys().into_iter().collect::<Vec<&String>>(),
-        vec!["name", "city", "pick"]
+        row.keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        ["name", "city", "pick"]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
     );
 }
 
@@ -820,7 +828,7 @@ fn test_project_literal() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let row = rows[0].clone();
     assert_eq!(row.get("literal_num").unwrap().as_i32().unwrap(), 1);
     assert_eq!(row.get("literal_bool").unwrap().as_bool().unwrap(), true);
@@ -846,7 +854,7 @@ fn test_project_rename() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let row = rows[0].clone();
     let atributos = row.get_document("atributos").unwrap();
     assert_eq!(row.get_str("nome").unwrap(), "John");
@@ -867,7 +875,7 @@ fn test_project_array() {
         }
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     let row = rows[0].clone();
     let my_array = row.get_array("myArray").unwrap();
     assert_eq!(my_array.len(), 5);
@@ -891,7 +899,7 @@ fn test_count_stage() {
         "$count": "count"
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_i32("count").unwrap(), 1);
 }
@@ -916,7 +924,7 @@ fn test_count_match() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_i32("count").unwrap(), 1);
 
@@ -931,7 +939,7 @@ fn test_count_match() {
         },
     ];
 
-    let rows = common::get_rows(col.aggregate(pipelines, None).unwrap());
+    let rows = common::get_rows(col.aggregate(pipelines).run().unwrap());
     assert_eq!(rows.len(), 0);
 }
 
@@ -952,7 +960,7 @@ fn test_skip() {
         "$skip": 1
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_str("name").unwrap(), "Jake");
 }
@@ -974,7 +982,7 @@ fn test_limit() {
         "$limit": 1
     };
 
-    let rows = common::get_rows(col.aggregate([pipeline], None).unwrap());
+    let rows = common::get_rows(col.aggregate([pipeline]).run().unwrap());
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].get_str("name").unwrap(), "John");
 }

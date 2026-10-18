@@ -3,7 +3,7 @@ use crate::wire::MAX_DOCUMENT_LEN;
 use crate::{commands::Handler, handler::Request};
 use bson::{doc, Bson, Document};
 
-const MONGO_DB_VERSION: &str = "5.0.42";
+const MONGO_DB_VERSION: &str = "5.0.0";
 
 pub struct BuildInfo {}
 
@@ -15,17 +15,19 @@ impl Handler for BuildInfo {
     fn handle(
         &self,
         _request: &Request,
-        _msg: &Vec<Document>,
+        _msg: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         Ok(doc! {
             "version": MONGO_DB_VERSION,
-            "gitVersion": "30cf72e1380e1732c0e24016f092ed58e38eeb58", // FIXME: get this from git
+            "gitVersion": "unknown",
+            "oxideVersion": env!("CARGO_PKG_VERSION"),
+            "storageVersion": crate::serializer::STORAGE_VERSION,
             "modules": Bson::Array(vec![]),
             "sysInfo": "deprecated",
             "versionArray": Bson::Array(vec![
                 Bson::Int32(5),
                 Bson::Int32(0),
-                Bson::Int32(42),
+                Bson::Int32(0),
                 Bson::Int32(0),
             ]),
             "bits": Bson::Int32(64),

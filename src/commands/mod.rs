@@ -26,7 +26,7 @@ mod ping;
 mod update;
 mod whats_my_uri;
 
-pub use self::aggregate::build_sql;
+pub use self::aggregate::compile_sql;
 pub use self::aggregate::Aggregate;
 pub use self::build_info::BuildInfo;
 pub use self::coll_stats::CollStats;
@@ -57,6 +57,73 @@ pub trait Handler {
     fn handle(
         &self,
         request: &Request,
-        msg: &Vec<Document>,
+        msg: &[Document],
     ) -> Result<Document, CommandExecutionError>;
+}
+
+/// Parse the cursor options shared by aggregation and catalog commands.
+pub fn cursor_batch_size(doc: &Document) -> Result<usize, CommandExecutionError> {
+    let size = match doc.get("cursor") {
+        None => 101,
+        Some(bson::Bson::Document(cursor)) => {
+            if cursor.keys().any(|key| key != "batchSize") {
+                return Err(CommandExecutionError::new(
+                    "unsupported cursor option".into(),
+                ));
+            }
+            cursor
+                .get("batchSize")
+                .map(crate::pg::integer)
+                .transpose()?
+                .unwrap_or(101)
+        }
+        _ => {
+            return Err(CommandExecutionError::new(
+                "cursor must be a document".into(),
+            ))
+        }
+    };
+    if size < 0 {
+        return Err(CommandExecutionError::new(
+            "batchSize must be nonnegative".into(),
+        ));
+    }
+    Ok(size.min(crate::pg::MAX_QUERY_ROWS as i64) as usize)
+}
+
+/// Reject options for which this server cannot honor the requested semantics.
+pub fn check_options(doc: &Document, allowed: &[&str]) -> Result<(), CommandExecutionError> {
+    for key in doc.keys() {
+        if key == "$db" || key == "comment" || allowed.contains(&key.as_str()) {
+            continue;
+        }
+        if key == "$readPreference" {
+            let preference = doc.get_document(key)?;
+            if preference.len() == 1
+                && [
+                    "primary",
+                    "primaryPreferred",
+                    "secondary",
+                    "secondaryPreferred",
+                    "nearest",
+                ]
+                .contains(&preference.get_str("mode")?)
+            {
+                continue; // A standalone server has no replica selection to perform.
+            }
+        }
+        if key == "writeConcern" {
+            let concern = doc.get_document(key)?;
+            if concern
+                .iter()
+                .all(|(k, v)| k == "w" && matches!(v, bson::Bson::Int32(1) | bson::Bson::Int64(1)))
+            {
+                continue;
+            }
+        }
+        return Err(CommandExecutionError::new(format!(
+            "unsupported option {key}"
+        )));
+    }
+    Ok(())
 }

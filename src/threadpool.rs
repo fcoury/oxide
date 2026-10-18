@@ -5,7 +5,7 @@ use std::thread;
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Message>,
+    sender: mpsc::SyncSender<Message>,
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
@@ -26,7 +26,7 @@ impl ThreadPool {
     pub fn new(size: usize) -> ThreadPool {
         assert!(size > 0);
 
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(size);
 
         let receiver = Arc::new(Mutex::new(receiver));
 
@@ -45,7 +45,8 @@ impl ThreadPool {
     {
         let job = Box::new(f);
 
-        self.sender.send(Message::NewJob(job)).unwrap();
+        // A full pool rejects the new connection once the bounded admission queue is full.
+        let _ = self.sender.try_send(Message::NewJob(job));
     }
 }
 
@@ -83,7 +84,7 @@ impl Worker {
                 Message::NewJob(job) => {
                     log::trace!("Worker {} got a job; executing.", id);
 
-                    job();
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
                 }
                 Message::Terminate => {
                     log::trace!("Worker {} was told to terminate.", id);

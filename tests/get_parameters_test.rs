@@ -8,10 +8,8 @@ fn get_parameters_selected_params_test() {
 
     let res = ctx
         .db()
-        .run_command(
-            doc! { "getParameter": 1, "acceptApiVersion2": 1, "authSchemaVersion": 1 },
-            None,
-        )
+        .run_command(doc! { "getParameter": 1, "acceptApiVersion2": 1, "authSchemaVersion": 1 })
+        .run()
         .unwrap();
     assert_eq!(
         res,
@@ -29,14 +27,12 @@ fn test_get_parameters_selected_params_with_details() {
 
     let res = ctx
         .db()
-        .run_command(
-            doc! {
-                "getParameter": doc! { "showDetails":true },
-                "featureCompatibilityVersion": 1,
-                "quiet": 1
-            },
-            None,
-        )
+        .run_command(doc! {
+            "getParameter": doc! { "showDetails":true },
+            "featureCompatibilityVersion": 1,
+            "quiet": 1
+        })
+        .run()
         .unwrap();
     assert_eq!(
         res,
@@ -62,7 +58,8 @@ fn test_get_parameters_all() {
 
     let res = ctx
         .db()
-        .run_command(doc! { "getParameter": "*" }, None)
+        .run_command(doc! { "getParameter": "*" })
+        .run()
         .unwrap();
     assert_eq!(
         res,
@@ -84,10 +81,8 @@ fn test_get_parameters_all_with_details() {
 
     let res = ctx
         .db()
-        .run_command(
-            doc! { "getParameter": doc!{ "allParameters": true, "showDetails": true } },
-            None,
-        )
+        .run_command(doc! { "getParameter": doc!{ "allParameters": true, "showDetails": true } })
+        .run()
         .unwrap();
     assert_eq!(
         res,

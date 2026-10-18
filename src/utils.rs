@@ -1,10 +1,7 @@
 #![allow(dead_code)]
-use crate::deserializer::PostgresJsonDeserializer;
 use bson::{doc, Bson, Document};
-use postgres::Row;
 use regex::Regex;
 use serde_json::{json, Map, Value};
-use std::ffi::CString;
 
 #[derive(Debug, Clone)]
 pub struct KeyConflictError {
@@ -24,20 +21,13 @@ impl std::fmt::Display for KeyConflictError {
     }
 }
 
-pub fn to_cstring(buffer: Vec<u8>) -> String {
-    let str = unsafe { CString::from_vec_unchecked(buffer) }
-        .to_string_lossy()
-        .to_string();
-    return str;
-}
-
 pub fn hexstring_to_bytes(hexstr: &str) -> Vec<u8> {
     let re = Regex::new(r"((\d|[a-f]){2})").unwrap();
     let mut bytes: Vec<u8> = vec![];
     for cap in re.captures_iter(hexstr) {
         bytes.push(u8::from_str_radix(cap.get(1).unwrap().as_str(), 16).unwrap());
     }
-    return bytes;
+    bytes
 }
 
 pub fn hexdump_to_bytes(op_msg_hexstr: &str) -> Vec<u8> {
@@ -97,9 +87,7 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
             if expanded.contains_key(ikey) {
                 let target = keys
                     .iter()
-                    .find(|k| {
-                        k.to_string() == ikey.to_string() || k.starts_with(&format!("{}.", ikey))
-                    })
+                    .find(|k| **k == ikey || k.starts_with(&format!("{}.", ikey)))
                     .unwrap();
                 return Err(KeyConflictError {
                     source: key.to_string(),
@@ -110,7 +98,7 @@ pub fn expand_fields(doc: &Document) -> Result<Document, KeyConflictError> {
         } else {
             expanded.insert(key, value);
         }
-        keys.push(&key);
+        keys.push(key);
     }
     Ok(expanded)
 }
@@ -135,9 +123,7 @@ pub fn expand_doc(in_doc: &Document) -> Document {
     let mut doc = doc! {};
     for (key, value) in in_doc.iter() {
         if key.contains(".") {
-            let mut parts = key.splitn(2, ".");
-            let k = parts.next().unwrap();
-            let rest = parts.next().unwrap();
+            let (k, rest) = key.split_once('.').unwrap();
 
             let mut tmp_doc = match doc.get(k) {
                 Some(d) => match d.as_document() {
@@ -186,9 +172,7 @@ pub fn expand_object(obj: &Map<String, Value>) -> Result<Map<String, Value>, Key
             if expanded.contains_key(ikey) {
                 let target = keys
                     .iter()
-                    .find(|k| {
-                        k.to_string() == ikey.to_string() || k.starts_with(&format!("{}.", ikey))
-                    })
+                    .find(|k| **k == ikey || k.starts_with(&format!("{}.", ikey)))
                     .unwrap();
                 return Err(KeyConflictError {
                     source: key.to_string(),
@@ -202,7 +186,7 @@ pub fn expand_object(obj: &Map<String, Value>) -> Result<Map<String, Value>, Key
         } else {
             expanded.insert(key.to_owned(), value.to_owned());
         }
-        keys.push(&key);
+        keys.push(key);
     }
     Ok(expanded)
 }
@@ -274,18 +258,11 @@ mod tests {
     }
 }
 
-pub fn pg_rows_to_bson(rows: Vec<Row>) -> Vec<Bson> {
-    let mut res: Vec<Bson> = vec![];
-    for row in rows.iter() {
-        let json_value: serde_json::Value = row.get(0);
-        let bson_value = json_value.from_psql_json();
-        res.push(bson_value);
-    }
-    res
-}
-
 pub fn field_to_jsonb(key: &str) -> String {
-    format!("_jsonb->'{}'", key)
+    format!(
+        "_jsonb->{}",
+        crate::sql::literal(&crate::serializer::encode_key(key))
+    )
 }
 
 pub fn convert_if_numeric(field: &str) -> String {

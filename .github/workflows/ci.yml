@@ -1,60 +1,50 @@
 name: CI
-
-# This workflow run tests and build for each push
-
 on:
+  pull_request:
   push:
-    branches:
-      - master
-      - 'feature-**'
-      - 'fix-**'
-
+    branches: [master, 'fcoury/**', 'feature-**', 'fix-**']
+permissions:
+  contents: read
 jobs:
-
-  test_oxide:
+  test:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres
+        image: postgres:16.15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ['5432:5432']
+      mongo:
+        image: mongo:8.0.34
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+        ports: ['27018:27017']
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432
+      MONGODB_REFERENCE_URL: mongodb://127.0.0.1:27018
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Install cargo-nextest
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: cargo-nextest
-          locked: true
-
-      - name: Toolchain info
-        run: |
-          cargo --version --verbose
-          rustc --version
-          cargo clippy --version
-
-      - name: Test
-        run: |
-          make test
-  # build_oxide:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v2
-
-  #     - name: Build Docker
-  #       run: |
-  #         make docker
-  #     - name: Docker image info
-  #       run: |
-  #         docker images
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show
+      - name: Core builds without frontends
+        run: cargo build --locked --no-default-features
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Core, frontends, and integration tests
+        run: cargo test --locked --all-features
+      - name: MongoDB differential contract
+        run: cargo test --locked --test differential_test -- --ignored
+      - name: Correctness lint
+        run: cargo clippy --locked --lib --all-features -- -D clippy::correctness
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      - run: cargo audit --deny warnings

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Build the requested target and name the artifact after that exact target.
+# Uploading is a separate, explicit action.
+set -euo pipefail
+repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_dir"
+target="${1:?usage: scripts/package <rust-target-triple>}"
+case "$target" in *[!a-zA-Z0-9_-]*|'') echo 'invalid target triple' >&2; exit 2;; esac
+cargo build --locked --release --no-default-features --target "$target"
+version="$(cargo pkgid --offline | sed 's/.*[#@]//')"
+binary=oxide
+case "$target" in *windows*) binary=oxide.exe;; esac
+build_dir="${CARGO_TARGET_DIR:-target}/$target/release"
+test -f "$build_dir/$binary"
+mkdir -p dist
+archive="oxide_${version}_${target}.tar.gz"
+COPYFILE_DISABLE=1 tar -czf "dist/$archive" -C "$build_dir" "$binary"
+(cd dist && if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$archive" > "$archive.sha256sum"
+else
+    shasum -a 256 "$archive" > "$archive.sha256sum"
+fi)
+printf '%s\n' "$repo_dir/dist/$archive"

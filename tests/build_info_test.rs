@@ -7,12 +7,9 @@ mod common;
 fn test_build_info() {
     let ctx = common::setup();
 
-    let res = ctx.db().run_command(doc! { "buildInfo": 1 }, None).unwrap();
-    assert_eq!(res.get_str("version").unwrap(), "5.0.42");
-    assert_eq!(
-        res.get_str("gitVersion").unwrap(),
-        "30cf72e1380e1732c0e24016f092ed58e38eeb58"
-    );
+    let res = ctx.db().run_command(doc! { "buildInfo": 1 }).run().unwrap();
+    assert_eq!(res.get_str("version").unwrap(), "5.0.0");
+    assert_eq!(res.get_str("gitVersion").unwrap(), "unknown");
     assert_eq!(res.get_array("modules").unwrap(), &[]);
     assert_eq!(res.get_str("sysInfo").unwrap(), "deprecated");
     assert_eq!(
@@ -20,7 +17,7 @@ fn test_build_info() {
         &[
             Bson::Int32(5),
             Bson::Int32(0),
-            Bson::Int32(42),
+            Bson::Int32(0),
             Bson::Int32(0)
         ]
     );

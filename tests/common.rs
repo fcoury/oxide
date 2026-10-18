@@ -6,14 +6,15 @@ use oxide::pg::PgDb;
 use oxide::server::Server;
 use r2d2::Pool;
 use r2d2_postgres::{postgres::NoTls, PostgresConnectionManager};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpStream};
-use std::sync::Once;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, thread};
 
-static INIT: Once = Once::new();
+static SERVERS: OnceLock<Mutex<HashMap<String, (u16, mongodb::sync::Client)>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct TestContext {
@@ -54,11 +55,15 @@ impl TestContext {
         let mut stream = TcpStream::connect(&format!("localhost:{}", self.port)).unwrap();
         stream.write_all(bytes).unwrap();
         stream.flush().unwrap();
-        let mut buffer = [0u8; 1024];
-        stream.read(&mut buffer).unwrap();
+        let mut length = [0u8; 4];
+        stream.read_exact(&mut length).unwrap();
+        let size = i32::from_le_bytes(length) as usize;
+        assert!((16..=48_000_000).contains(&size));
+        let mut buffer = vec![0; size];
+        buffer[..4].copy_from_slice(&length);
+        stream.read_exact(&mut buffer[4..]).unwrap();
         stream.shutdown(Shutdown::Write).unwrap();
-
-        buffer[..].to_vec()
+        buffer
     }
 
     pub fn send_file(&self, filename: &str) -> Vec<u8> {
@@ -72,54 +77,50 @@ impl TestContext {
     }
 }
 
-pub fn initialize(pool: Pool<PostgresConnectionManager<NoTls>>) {
-    INIT.call_once(|| {
-        let mut pg = PgDb::new_from_pool(pool);
-        pg.exec(
-            indoc::indoc! {"
-                DO $$ DECLARE
-                    r RECORD;
-                BEGIN
-                    FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = 'db_test') LOOP
-                        EXECUTE 'DROP INDEX IF EXISTS db_test.' || quote_ident(r.indexname) || ' CASCADE';
-                    END LOOP;
-
-                    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'db_test') LOOP
-                        EXECUTE 'DROP TABLE IF EXISTS db_test.' || quote_ident(r.tablename) || ' CASCADE';
-                    END LOOP;
-                END $$;
-            "},
-            &[],
-        )
-        .unwrap();
-    });
-}
-
+// One server and driver pool per PostgreSQL database, not per test. Tests
+// isolate collections; the suite must point at a disposable PostgreSQL instance.
 pub fn setup_with_pg_db(name: &str, drop: bool) -> TestContext {
-    // static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-    // let id = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-
     let _ = env_logger::builder().is_test(true).try_init();
-    dotenv::dotenv().ok();
-
-    if drop {
-        PgDb::new().drop_db(name).unwrap();
-    }
-
-    PgDb::new().create_db_if_not_exists(name).unwrap();
-
-    let pg_url = format!("{}/{}", env::var("TEST_DATABASE_URL").unwrap(), name);
-    let port: u16 = portpicker::pick_unused_port().unwrap();
-
-    let manager = PostgresConnectionManager::new(pg_url.parse().unwrap(), NoTls);
-    let pool = r2d2::Pool::builder().max_size(2).build(manager).unwrap();
-    initialize(pool.clone());
-
-    thread::spawn(move || {
-        Server::new("localhost".to_string(), port).start_with_pool(pool);
+    let mut servers = SERVERS.get_or_init(Default::default).lock().unwrap();
+    let (port, mongodb) = servers.entry(name.into()).or_insert_with(|| {
+        let name = format!("{name}_{}", std::process::id());
+        if drop {
+            PgDb::try_with_uri(&std::env::var("DATABASE_URL").unwrap())
+                .unwrap()
+                .drop_db(&name)
+                .unwrap();
+        }
+        PgDb::try_with_uri(&std::env::var("DATABASE_URL").unwrap())
+            .unwrap()
+            .create_db_if_not_exists(&name)
+            .unwrap();
+        let pg_url = format!(
+            "{}/{}",
+            env::var("TEST_DATABASE_URL")
+                .expect("set TEST_DATABASE_URL to a disposable PostgreSQL instance"),
+            name
+        );
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let manager = PostgresConnectionManager::new(pg_url.parse().unwrap(), NoTls);
+        let pool = Pool::builder().max_size(4).build(manager).unwrap();
+        thread::spawn(move || {
+            Server::new("127.0.0.1".into(), port)
+                .serve(listener, pool)
+                .unwrap()
+        });
+        let client = mongodb::sync::Client::with_uri_str(format!(
+            "mongodb://127.0.0.1:{port}/?maxPoolSize=8&serverSelectionTimeoutMS=5000"
+        ))
+        .unwrap();
+        (port, client)
     });
-
-    TestContext::new(port, "db_test".to_string())
+    TestContext {
+        db: "db_test".into(),
+        collection: format!("test_{}", uuid::Uuid::new_v4()),
+        mongodb: mongodb.clone(),
+        port: *port,
+    }
 }
 
 pub fn setup() -> TestContext {
@@ -151,12 +152,9 @@ macro_rules! insert {
         {
             let ctx = common::setup();
             ctx.col()
-                .insert_many(
-                    vec![
+                .insert_many(vec![
                         $( $x, )*
-                    ],
-                    None,
-                )
+                    ]).run()
                 .unwrap();
             ctx.col()
         }
@@ -166,7 +164,7 @@ macro_rules! insert {
 #[macro_export]
 macro_rules! assert_row_count {
     ( $col:expr, $query:expr, $exp:expr ) => {{
-        let cursor = $col.find($query, None).unwrap();
+        let cursor = $col.find($query).run().unwrap();
         let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
         assert_eq!($exp, rows.len());
     }};
