@@ -2,7 +2,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master, 'fcoury/**', 'feature-**', 'fix-**']
+    branches: [main, 'fcoury/**', 'feature-**', 'fix-**']
 permissions:
   contents: read
 jobs:
