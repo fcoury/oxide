@@ -16,12 +16,18 @@ enum Commands {
         postgres_url: Option<String>,
     },
     #[cfg(feature = "shell")]
-    /// Launch the installed MongoDB Shell (mongosh)
+    /// Start the embedded Oxide JavaScript shell
     Shell {
         #[arg(short = 'l', long, default_value = "127.0.0.1")]
         server_addr: String,
         #[arg(short = 'p', long, default_value_t = 27017)]
         server_port: u16,
+        /// Evaluate JavaScript and exit (without reading or writing history)
+        #[arg(long)]
+        eval: Option<String>,
+        /// Disable loading and saving interactive command history
+        #[arg(long)]
+        no_history: bool,
     },
 }
 
@@ -72,7 +78,9 @@ fn main() -> Result<()> {
         Some(Commands::Shell {
             server_addr,
             server_port,
-        }) => oxide::shell::start(&server_addr, server_port),
+            eval,
+            no_history,
+        }) => oxide::shell::start(&server_addr, server_port, eval.as_deref(), no_history),
         None => {
             let host = cli
                 .listen_addr

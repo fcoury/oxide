@@ -39,6 +39,10 @@ impl TestContext {
         }
     }
 
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
     pub fn mongodb(&self) -> &mongodb::sync::Client {
         &self.mongodb
     }
