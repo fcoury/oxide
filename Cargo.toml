@@ -6,12 +6,20 @@ version = "0.1.7"
 
 [features]
 default = []
-shell = []
+shell = ["dep:rquickjs", "dep:rustyline", "dep:mongodb", "dep:ctrlc", "dep:dirs", "dep:base64", "dep:tokio", "dep:tree-sitter", "dep:tree-sitter-javascript"]
 web = ["dep:axum", "dep:tokio"]
 
 [dependencies]
+tree-sitter = {version = "0.25", optional = true}
+tree-sitter-javascript = {version = "0.25", optional = true}
+rquickjs = {version = "0.14", features = ["macro"], optional = true}
+rustyline = {version = "17", optional = true}
+mongodb = {version = "3", features = ["bson-2"], optional = true}
+ctrlc = {version = "3", optional = true}
+dirs = {version = "6", optional = true}
+base64 = {version = "0.22", optional = true}
 axum = {version = "0.8", optional = true}
-tokio = {version = "1", features = ["rt", "time", "net", "sync"], optional = true}
+tokio = {version = "1", features = ["rt", "time", "net", "sync", "macros"], optional = true}
 bson = {version = "2.4.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
 clap = {version = "4", features = ["derive"]}

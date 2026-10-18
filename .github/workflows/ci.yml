@@ -39,9 +39,24 @@ jobs:
       - name: Core, frontends, and integration tests
         run: cargo test --locked --all-features
       - name: MongoDB differential contract
-        run: cargo test --locked --test differential_test -- --ignored
+        run: cargo test --locked --all-features --test differential_test --test shell_test -- --ignored
       - name: Correctness lint
         run: cargo clippy --locked --lib --all-features -- -D clippy::correctness
+  shell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show
+      - name: Embedded shell and BSON tests
+        run: 'cargo test --locked --features shell --lib shell::'
+      - name: Standalone shell executable
+        shell: bash
+        run: cargo run --locked --features shell -- shell --eval 'NumberLong("9223372036854775807")'
   audit:
     runs-on: ubuntu-latest
     steps:

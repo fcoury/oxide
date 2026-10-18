@@ -51,6 +51,15 @@ To migrate:
 
 There is intentionally no in-place migration command or automatic schema rewrite.
 
+## Embedded shell
+
+The optional `shell` feature uses QuickJS-NG and a MongoDB client; neither is
+compiled into the default core build. The owned shell retains the original eager
+array API and speaks the same wire protocol as external clients. See the
+[README](../README.md#oxide-shell) for supported commands, BSON constructors,
+resource limits, and cancellation behavior. Native release archives include the
+shell, while the server container stays core-only.
+
 ## Release and verification policy
 
 Core and optional features compile separately. CI runs on pull requests, pins Rust/PostgreSQL/MongoDB versions, exercises a current MongoDB driver, runs differential tests, and audits the complete lockfile without ignored advisories. The primary sources for selecting database pins are the [PostgreSQL version policy](https://www.postgresql.org/support/versioning/) and [MongoDB 8.0 release notes](https://www.mongodb.com/docs/manual/release-notes/8.0/).

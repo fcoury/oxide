@@ -18,19 +18,90 @@ The default listener is `127.0.0.1:27017`. `--listen-addr`, `--port`, and `--pos
 
 The wire server has no authentication or TLS. Keep it on loopback or behind an access-controlled development network. PostgreSQL connections currently use `NoTls`; use a local socket or trusted local connection. Use a dedicated PostgreSQL role and database, never a shared application schema.
 
-Connect with [MongoDB Shell](https://www.mongodb.com/docs/mongodb-shell/connect/):
+## Oxide shell
+
+Our JavaScript shell embeds QuickJS-NG through `rquickjs`. It needs no installed
+Deno, Node.js, or `mongosh`. Start the server first, then open another terminal:
 
 ```sh
-mongosh 'mongodb://127.0.0.1:27017/?directConnection=true'
+cargo run --locked --features shell -- shell --database demo
+# Connect to another host/port:
+cargo run --locked --features shell -- shell --server-addr 127.0.0.1 --server-port 27017 --database demo
+# Evaluate a script and exit with a nonzero status on failure:
+cargo run --locked --features shell -- shell --database demo --eval 'db.items.find({active: true})'
 ```
 
-An optional convenience command launches the installed `mongosh` executable:
+Native release archives include the shell; run `oxide shell`. The default Cargo
+build and the Docker image remain core-only. External MongoDB clients, including
+`mongosh`, can also connect to the server's wire port.
 
-```sh
-cargo run --locked --features shell -- shell
+The banner shows the target host, port, and initial database; the prompt always
+shows the current database. The default is `test`; `--database demo` selects `demo`
+in interactive, `--eval`, and piped modes. Use the **same database** in both
+clients, for example `oxide shell --database demo` and
+`mongosh 'mongodb://127.0.0.1:27017/demo?directConnection=true&retryWrites=false'`.
+
+```js
+use demo
+db.items.insertOne({name: "sample", count: NumberLong("9223372036854775807")})
+const rows = db.items.find({name: "sample"})
+rows[0].count.toString()
+show collections
 ```
 
-The previous embedded Deno/V8 shell was removed. `mongosh` must be installed separately.
+The shell preserves variables between commands, supports `use`, `show databases`,
+`show collections`, and saves interactive history in `~/.oxide_history`
+(unless `--no-history` is passed).
+Ctrl-C cancels the current input, JavaScript execution, or database wait; Ctrl-D
+or `exit` leaves the shell. An interrupted or timed-out write may already have
+reached the server: check its outcome before repeating it.
+Ordinary errors retain variables. If a failed or interrupted command leaves
+pending Promise jobs, the shell discards the JavaScript session so those jobs
+cannot resume later. It reports the reset, clears variables, and restores the
+initial database (`--database`, or `test`).
+
+Interactive editing includes JavaScript syntax colors, matching brackets, and
+multiline history. Incomplete expressions continue on Enter with an `…` hint
+and automatic indentation; a second Enter on a blank continuation line submits
+the text for evaluation. Bracketed paste stays in the edit buffer until you
+submit it. Normal readline navigation and word deletion are preserved.
+Tab completes BSON constructors, database/collection methods, and collection
+names in the current database. Collection names refresh between commands with
+a 200 ms deadline; unavailable metadata leaves static completion working.
+Completion never evaluates your input. Set `NO_COLOR=1` to disable colors.
+
+Supported helpers are `find`, `findOne`, `insertOne`, `insertMany`, `updateOne`,
+`updateMany`, `replaceOne`, `deleteOne`, `deleteMany`, and `aggregate`.
+`find(filter, options)` accepts the server's find options such as `sort`, `limit`,
+`projection`, and `batchSize`. As in the original Oxide shell, `find` and
+`aggregate` return arrays, with a limit of 10,000 documents and 8 MiB per result.
+`db.runCommand(document)` exposes the server's command API; raw cursors are closed
+at the end of each evaluation. Server compatibility limits still apply.
+
+Use `ObjectId`, `ISODate`/`Date`, `NumberInt`, `NumberLong`, `NumberDouble`,
+`NumberDecimal`, and `BinData(subtype, base64)` for BSON values. Large integers
+must use a string with `NumberLong` or a BigInt within the signed 64-bit range.
+Returned BSON scalars preserve their types when reused in writes and filters;
+`toString()` and `toJSON()` expose their values. Ordinary objects containing keys
+such as `$oid` remain ordinary documents. Doubles are wrapped to retain their
+BSON type, including integral doubles and negative zero.
+
+Interactive results, `print`, and `console.log` display BSON values as
+`ObjectId('…')`, `NumberLong('…')`, `ISODate("…")`, and other constructors.
+This only changes presentation; types and stored values stay intact.
+Inspection avoids invoking getters and marks cycles, depth beyond 10, and
+output beyond 1,000 visited values or a 64 Ki-character content budget instead
+of expanding indefinitely.
+Less common BSON types and dates outside JavaScript's range retain Extended JSON.
+Scripts (`--eval` and piped input) retain their existing JSON/Extended JSON output
+without colors.
+
+This is a small native shell, not full `mongosh` compatibility: there is no npm or
+Deno API, fluent cursor API, or top-level `await`. Piped input
+executes one command per line and stops on the first error; `--eval` accepts an
+entire script. JavaScript has a 64 MiB engine heap limit, BSON conversion has a
+16 MiB work budget and 64-level depth limit, and database waits time out after
+30 seconds. These bounds are not a sandbox for untrusted scripts.
 
 ## Local pipeline workbench
 

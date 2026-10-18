@@ -11,8 +11,11 @@ pub fn document(bytes: &[u8]) -> Result<(Document, usize)> {
         bail!("invalid BSON size");
     }
     let size = size as usize;
-    validate_depth(bson::raw::RawDocument::from_bytes(&bytes[..size])?, 0)?;
-    let doc = Document::from_reader(&mut &bytes[..size])?;
+    let raw = bson::raw::RawDocument::from_bytes(&bytes[..size])?;
+    validate_depth(raw, 0)?;
+    // Convert raw BSON directly. Serde's BSON visitor interprets nested $oid /
+    // $date-shaped documents as Extended JSON even though the wire is typed.
+    let doc = Document::try_from(raw)?;
     Ok((doc, size))
 }
 pub fn cstring(bytes: &[u8]) -> Result<(String, usize)> {
@@ -101,4 +104,24 @@ fn validate_value(value: bson::raw::RawBsonRef<'_>, depth: usize) -> Result<()> 
         _ => (),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::document;
+    use bson::doc;
+
+    #[test]
+    fn wire_documents_do_not_interpret_extended_json_field_names() {
+        let original = doc! {
+            "literal": {"$oid": "ordinary object"},
+            "validLooking": {"$oid": "507f1f77bcf86cd799439011"},
+            "array": [{"$numberLong": "123"}, {"$date": "not a date"}],
+            "actualId": bson::oid::ObjectId::new(),
+        };
+        let bytes = bson::to_vec(&original).unwrap();
+        let (decoded, length) = document(&bytes).unwrap();
+        assert_eq!(length, bytes.len());
+        assert_eq!(decoded, original);
+    }
 }
