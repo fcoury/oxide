@@ -14,6 +14,20 @@ pub(super) struct Transport {
 }
 
 impl Transport {
+    /// Refresh completion outside the editor. An unavailable server cannot hold
+    /// up each keystroke; a failed refresh leaves the same-database cache intact.
+    pub fn collection_names(&self, database: &str) -> Option<Vec<String>> {
+        self.runtime.block_on(async {
+            tokio::time::timeout(
+                Duration::from_millis(200),
+                self.client.database(database).list_collection_names(),
+            )
+            .await
+            .ok()?
+            .ok()
+        })
+    }
+
     pub fn new(options: ClientOptions, interrupted: watch::Receiver<bool>) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

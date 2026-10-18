@@ -124,11 +124,13 @@
     globalThis.db = database(name);
     return `switched to db ${name}`;
   };
-  globalThis.__oxideFormat = function (value) {
+  const formatJSON = function (value) {
     if (value === undefined) return undefined;
     if (typeof value === 'function') return String(value);
     return JSON.stringify(value, (_, v) => typeof v === 'bigint' ? { $numberLong: String(v) } : v, 2);
   };
+  globalThis.__oxideFormat = globalThis.__oxideInteractive ? globalThis.__oxideInspect : formatJSON;
+  delete globalThis.__oxideInteractive;
   globalThis.print = (...args) => write(args.map(v => typeof v === 'string' ? v : __oxideFormat(v)).join(' '));
   globalThis.console = { log: print, error: print };
   use('test');

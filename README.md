@@ -24,16 +24,22 @@ Our JavaScript shell embeds QuickJS-NG through `rquickjs`. It needs no installed
 Deno, Node.js, or `mongosh`. Start the server first, then open another terminal:
 
 ```sh
-cargo run --locked --features shell -- shell
+cargo run --locked --features shell -- shell --database demo
 # Connect to another host/port:
-cargo run --locked --features shell -- shell --server-addr 127.0.0.1 --server-port 27017
+cargo run --locked --features shell -- shell --server-addr 127.0.0.1 --server-port 27017 --database demo
 # Evaluate a script and exit with a nonzero status on failure:
-cargo run --locked --features shell -- shell --eval 'db.items.find({active: true})'
+cargo run --locked --features shell -- shell --database demo --eval 'db.items.find({active: true})'
 ```
 
 Native release archives include the shell; run `oxide shell`. The default Cargo
 build and the Docker image remain core-only. External MongoDB clients, including
 `mongosh`, can also connect to the server's wire port.
+
+The banner shows the target host, port, and initial database; the prompt always
+shows the current database. The default is `test`; `--database demo` selects `demo`
+in interactive, `--eval`, and piped modes. Use the **same database** in both
+clients, for example `oxide shell --database demo` and
+`mongosh 'mongodb://127.0.0.1:27017/demo?directConnection=true&retryWrites=false'`.
 
 ```js
 use demo
@@ -51,7 +57,18 @@ or `exit` leaves the shell. An interrupted or timed-out write may already have
 reached the server: check its outcome before repeating it.
 Ordinary errors retain variables. If a failed or interrupted command leaves
 pending Promise jobs, the shell discards the JavaScript session so those jobs
-cannot resume later. It reports the reset, clears variables, and selects `test`.
+cannot resume later. It reports the reset, clears variables, and restores the
+initial database (`--database`, or `test`).
+
+Interactive editing includes JavaScript syntax colors, matching brackets, and
+multiline history. Incomplete expressions continue on Enter with an `…` hint
+and automatic indentation; a second Enter on a blank continuation line submits
+the text for evaluation. Bracketed paste stays in the edit buffer until you
+submit it. Normal readline navigation and word deletion are preserved.
+Tab completes BSON constructors, database/collection methods, and collection
+names in the current database. Collection names refresh between commands with
+a 200 ms deadline; unavailable metadata leaves static completion working.
+Completion never evaluates your input. Set `NO_COLOR=1` to disable colors.
 
 Supported helpers are `find`, `findOne`, `insertOne`, `insertMany`, `updateOne`,
 `updateMany`, `replaceOne`, `deleteOne`, `deleteMany`, and `aggregate`.
@@ -69,8 +86,18 @@ Returned BSON scalars preserve their types when reused in writes and filters;
 such as `$oid` remain ordinary documents. Doubles are wrapped to retain their
 BSON type, including integral doubles and negative zero.
 
+Interactive results, `print`, and `console.log` display BSON values as
+`ObjectId('…')`, `NumberLong('…')`, `ISODate("…")`, and other constructors.
+This only changes presentation; types and stored values stay intact.
+Inspection avoids invoking getters and marks cycles, depth beyond 10, and
+output beyond 1,000 visited values or a 64 Ki-character content budget instead
+of expanding indefinitely.
+Less common BSON types and dates outside JavaScript's range retain Extended JSON.
+Scripts (`--eval` and piped input) retain their existing JSON/Extended JSON output
+without colors.
+
 This is a small native shell, not full `mongosh` compatibility: there is no npm or
-Deno API, fluent cursor API, top-level `await`, or multiline editor. Piped input
+Deno API, fluent cursor API, or top-level `await`. Piped input
 executes one command per line and stops on the first error; `--eval` accepts an
 entire script. JavaScript has a 64 MiB engine heap limit, BSON conversion has a
 16 MiB work budget and 64-level depth limit, and database waits time out after

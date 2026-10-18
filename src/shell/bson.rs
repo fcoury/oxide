@@ -46,6 +46,37 @@ pub fn error(ctx: &Ctx<'_>, message: impl std::fmt::Display) -> rquickjs::Error 
     Exception::throw_type(ctx, &message.to_string())
 }
 
+/// Inspect only genuine native BSON scalars, never ordinary $oid-shaped objects.
+pub fn inspect_scalar(value: Value<'_>, budget: usize) -> Option<String> {
+    let scalar = value.as_object()?.clone().into_class::<Scalar>().ok()?;
+    let scalar = scalar.borrow();
+    Some(match &scalar.value {
+        Bson::ObjectId(id) => format!("ObjectId('{}')", id.to_hex()),
+        Bson::Int64(n) => format!("NumberLong('{n}')"),
+        Bson::Double(n) => {
+            let text = if *n == f64::INFINITY {
+                "Infinity".into()
+            } else if *n == f64::NEG_INFINITY {
+                "-Infinity".into()
+            } else {
+                n.to_string()
+            };
+            format!("NumberDouble('{text}')")
+        }
+        Bson::Decimal128(n) => format!("NumberDecimal('{n}')"),
+        Bson::Binary(binary) if binary.bytes.len().div_ceil(3) * 4 + 20 > budget => {
+            format!("BinData({}, [Truncated])", u8::from(binary.subtype))
+        }
+        Bson::Binary(binary) => format!(
+            "BinData({}, '{}')",
+            u8::from(binary.subtype),
+            STANDARD.encode(&binary.bytes)
+        ),
+        // Out-of-range dates have no valid ISODate representation in JavaScript.
+        other => other.clone().into_canonical_extjson().to_string(),
+    })
+}
+
 pub fn scalar<'js>(ctx: Ctx<'js>, kind: String, text: String, subtype: u8) -> Result<Value<'js>> {
     let value = match kind.as_str() {
         "ObjectId" => Bson::ObjectId(if text.is_empty() {

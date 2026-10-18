@@ -22,6 +22,9 @@ enum Commands {
         server_addr: String,
         #[arg(short = 'p', long, default_value_t = 27017)]
         server_port: u16,
+        /// Initial database (also shown in the connection banner and prompt)
+        #[arg(long, default_value = "test")]
+        database: String,
         /// Evaluate JavaScript and exit (without reading or writing history)
         #[arg(long)]
         eval: Option<String>,
@@ -78,9 +81,16 @@ fn main() -> Result<()> {
         Some(Commands::Shell {
             server_addr,
             server_port,
+            database,
             eval,
             no_history,
-        }) => oxide::shell::start(&server_addr, server_port, eval.as_deref(), no_history),
+        }) => oxide::shell::start(
+            &server_addr,
+            server_port,
+            &database,
+            eval.as_deref(),
+            no_history,
+        ),
         None => {
             let host = cli
                 .listen_addr

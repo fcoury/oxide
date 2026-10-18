@@ -6,10 +6,12 @@ version = "0.1.7"
 
 [features]
 default = []
-shell = ["dep:rquickjs", "dep:rustyline", "dep:mongodb", "dep:ctrlc", "dep:dirs", "dep:base64", "dep:tokio"]
+shell = ["dep:rquickjs", "dep:rustyline", "dep:mongodb", "dep:ctrlc", "dep:dirs", "dep:base64", "dep:tokio", "dep:tree-sitter", "dep:tree-sitter-javascript"]
 web = ["dep:axum", "dep:tokio"]
 
 [dependencies]
+tree-sitter = {version = "0.25", optional = true}
+tree-sitter-javascript = {version = "0.25", optional = true}
 rquickjs = {version = "0.14", features = ["macro"], optional = true}
 rustyline = {version = "17", optional = true}
 mongodb = {version = "3", features = ["bson-2"], optional = true}

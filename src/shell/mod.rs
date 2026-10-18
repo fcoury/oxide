@@ -1,12 +1,14 @@
 //! Optional, embedded JavaScript shell. Database access always uses the wire protocol.
 mod bson;
+mod editor;
 mod transport;
 
 use eyre::{eyre, Result, WrapErr};
 use mongodb::options::{ClientOptions, ServerAddress};
 use rquickjs::{CatchResultExt, Context, Ctx, Function, Runtime, Value};
-use rustyline::{error::ReadlineError, DefaultEditor};
+use rustyline::error::ReadlineError;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::{
     io::{self, BufRead, IsTerminal},
     time::Duration,
@@ -19,18 +21,50 @@ pub struct Shell {
     runtime: Runtime,
     interrupted: watch::Sender<bool>,
     transport: Rc<transport::Transport>,
+    initial_database: String,
+    output: Output,
+}
+
+#[derive(Clone)]
+enum Output {
+    Json,
+    Interactive {
+        syntax: Arc<editor::Syntax>,
+        color: bool,
+    },
+}
+impl Output {
+    fn render(&self, text: &str) -> String {
+        match self {
+            Self::Interactive {
+                syntax,
+                color: true,
+            } => syntax.highlight(text, None),
+            _ => text.into(),
+        }
+    }
 }
 
 impl Shell {
     pub fn new(options: ClientOptions) -> Result<Self> {
+        Self::with_output(options, Output::Json)
+    }
+
+    fn with_output(options: ClientOptions, output: Output) -> Result<Self> {
+        let database = options
+            .default_database
+            .clone()
+            .unwrap_or_else(|| "test".into());
         let (interrupted, receiver) = watch::channel(false);
         let transport = Rc::new(transport::Transport::new(options, receiver)?);
-        Self::with_transport(transport, interrupted)
+        Self::with_transport(transport, interrupted, database, output)
     }
 
     fn with_transport(
         transport: Rc<transport::Transport>,
         interrupted: watch::Sender<bool>,
+        initial_database: String,
+        output: Output,
     ) -> Result<Self> {
         let runtime = Runtime::new()?;
         runtime.set_memory_limit(64 * 1024 * 1024);
@@ -54,11 +88,30 @@ impl Shell {
                 .set("__oxideSize", Function::new(ctx.clone(), bson::size)?)?;
             ctx.globals()
                 .set("__oxideScalar", Function::new(ctx.clone(), bson::scalar)?)?;
+            let interactive = matches!(output, Output::Interactive { .. });
+            ctx.globals().set("__oxideInteractive", interactive)?;
+            if interactive {
+                ctx.globals().set(
+                    "__oxideInspectScalar",
+                    Function::new(ctx.clone(), bson::inspect_scalar)?,
+                )?;
+                ctx.eval::<(), _>(include_str!("inspect.js"))
+                    .catch(&ctx)
+                    .map_err(|e| eyre!(e.to_string()))?;
+            }
+            let printer = output.clone();
             ctx.globals().set(
                 "__oxidePrint",
-                Function::new(ctx.clone(), |line: String| println!("{line}"))?,
+                Function::new(ctx.clone(), move |line: String| {
+                    println!("{}", printer.render(&line))
+                })?,
             )?;
             ctx.eval::<(), _>(include_str!("runtime.js"))
+                .catch(&ctx)
+                .map_err(|e| eyre!(e.to_string()))?;
+            ctx.globals()
+                .get::<_, Function>("use")?
+                .call::<_, Value>((initial_database.as_str(),))
                 .catch(&ctx)
                 .map_err(|e| eyre!(e.to_string()))?;
             Ok(())
@@ -72,6 +125,8 @@ impl Shell {
             runtime,
             interrupted,
             transport,
+            initial_database,
+            output,
         })
     }
 
@@ -81,7 +136,7 @@ impl Shell {
         // A failed allocation during the previous reset must never let stale
         // jobs resume. Retry initialization before accepting any more user code.
         if self.runtime.is_job_pending() {
-            *self = Self::with_transport(self.transport.clone(), self.interrupted.clone())?;
+            self.reset()?;
         }
         self.interrupted.send_replace(false);
         let result = self.context.with(|ctx| {
@@ -113,12 +168,23 @@ impl Shell {
             // QuickJS cannot discard jobs individually. Running them under an
             // interrupt still permits short callbacks to enqueue more jobs.
             // Recreate only the interpreter, keeping the client and Ctrl-C handle.
-            *self = Self::with_transport(self.transport.clone(), self.interrupted.clone())?;
-            return result.wrap_err(
-                "JavaScript session reset to discard pending Promise jobs; variables cleared and database reset to test",
-            );
+            self.reset()?;
+            return result.wrap_err(format!(
+                "JavaScript session reset to discard pending Promise jobs; variables cleared and database reset to {}",
+                self.initial_database,
+            ));
         }
         result
+    }
+
+    fn reset(&mut self) -> Result<()> {
+        *self = Self::with_transport(
+            self.transport.clone(),
+            self.interrupted.clone(),
+            self.initial_database.clone(),
+            self.output.clone(),
+        )?;
+        Ok(())
     }
 
     /// The caller may signal Ctrl-C without touching the JavaScript context.
@@ -135,7 +201,13 @@ impl Shell {
     }
 }
 
-pub fn start(host: &str, port: u16, eval: Option<&str>, no_history: bool) -> Result<()> {
+pub fn start(
+    host: &str,
+    port: u16,
+    database: &str,
+    eval: Option<&str>,
+    no_history: bool,
+) -> Result<()> {
     let options = ClientOptions::builder()
         .hosts(vec![ServerAddress::Tcp {
             host: host.into(),
@@ -146,8 +218,27 @@ pub fn start(host: &str, port: u16, eval: Option<&str>, no_history: bool) -> Res
         .connect_timeout(Duration::from_secs(5))
         .retry_reads(false)
         .retry_writes(false)
+        .default_database(database.to_owned())
         .build();
-    let mut shell = Shell::new(options)?;
+    let interactive = eval.is_none() && io::stdin().is_terminal();
+    let color = io::stdout().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::env::var("TERM").as_deref() != Ok("dumb");
+    let output = if interactive {
+        Output::Interactive {
+            syntax: Arc::new(editor::Syntax::new()?),
+            color,
+        }
+    } else {
+        Output::Json
+    };
+    let mut shell = Shell::with_output(options, output.clone())?;
+    // Rustyline installs a SIGINT handler when constructing its Unix terminal.
+    // Install ours afterwards so Ctrl-C also cancels code between readline calls.
+    let editor = match &output {
+        Output::Interactive { syntax, color } => Some(editor::editor(syntax.clone(), *color)?),
+        Output::Json => None,
+    };
     let signal = shell.interrupt_handle();
     ctrlc::set_handler(move || {
         signal.send_replace(true);
@@ -171,7 +262,7 @@ pub fn start(host: &str, port: u16, eval: Option<&str>, no_history: bool) -> Res
         }
         return Ok(());
     }
-    let mut editor = DefaultEditor::new()?;
+    let mut editor = editor.expect("interactive input has an editor");
     let history = if no_history {
         None
     } else {
@@ -184,9 +275,15 @@ pub fn start(host: &str, port: u16, eval: Option<&str>, no_history: bool) -> Res
             }
         }
     }
-    println!("OxideDB Shell — mongodb://{host}:{port}\nType exit or press Ctrl-D to leave.");
+    println!("OxideDB Shell — target mongodb://{host}:{port}/{database}\nTab completes; incomplete JavaScript continues on Enter. Ctrl-C cancels; Ctrl-D or exit leaves.");
     loop {
-        let prompt = format!("{}> ", shell.database().unwrap_or_else(|_| "oxide".into()));
+        let database = shell
+            .database()
+            .unwrap_or_else(|_| shell.initial_database.clone());
+        if let Some(helper) = editor.helper_mut() {
+            helper.refresh(&database, shell.transport.collection_names(&database));
+        }
+        let prompt = format!("{database}> ");
         match editor.readline(&prompt) {
             Ok(line) if line.trim() == "exit" => break,
             Ok(line) => {
@@ -195,7 +292,7 @@ pub fn start(host: &str, port: u16, eval: Option<&str>, no_history: bool) -> Res
                 }
                 editor.add_history_entry(line.as_str())?;
                 match shell.eval(&line) {
-                    Ok(Some(output)) => println!("{output}"),
+                    Ok(Some(value)) => println!("{}", output.render(&value)),
                     Ok(None) => {}
                     Err(error) => eprintln!("{error}"),
                 }

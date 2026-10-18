@@ -116,6 +116,107 @@ fn conversion_rejects_lossy_and_unbounded_inputs() {
 }
 
 #[test]
+fn interactive_inspection_preserves_bson_identity_and_script_json() {
+    let mut shell = session(1);
+    assert_eq!(
+        shell
+            .eval("ObjectId('507f1f77bcf86cd799439011')")
+            .unwrap()
+            .as_deref(),
+        Some("{\n  \"$oid\": \"507f1f77bcf86cd799439011\"\n}")
+    );
+    let syntax = Arc::new(editor::Syntax::new().unwrap());
+    shell.output = Output::Interactive {
+        syntax,
+        color: false,
+    };
+    shell.initial_database = "demo".into();
+    shell.reset().unwrap();
+    assert_eq!(shell.database().unwrap(), "demo");
+    for (source, expected) in [
+        (
+            "ObjectId('507f1f77bcf86cd799439011')",
+            "ObjectId('507f1f77bcf86cd799439011')",
+        ),
+        ("({$oid:'literal'})", "{ $oid: \"literal\" }"),
+        (
+            "NumberLong('9223372036854775807')",
+            "NumberLong('9223372036854775807')",
+        ),
+        (
+            "NumberLong('-9223372036854775808')",
+            "NumberLong('-9223372036854775808')",
+        ),
+        ("NumberDouble('-0')", "NumberDouble('-0')"),
+        ("NumberDouble('Infinity')", "NumberDouble('Infinity')"),
+        ("NumberDouble('-Infinity')", "NumberDouble('-Infinity')"),
+        ("NumberDouble('NaN')", "NumberDouble('NaN')"),
+        (
+            "NumberDecimal('123.4567890123456789012345678901234')",
+            "NumberDecimal('123.4567890123456789012345678901234')",
+        ),
+        ("BinData(128,'AP8D')", "BinData(128, 'AP8D')"),
+        (
+            "ISODate('2026-01-02T03:04:05Z')",
+            "ISODate(\"2026-01-02T03:04:05.000Z\")",
+        ),
+        ("9223372036854775808n", "9223372036854775808n"),
+        (
+            r#"({'odd key': 'line\n\u001b[31m'})"#,
+            r#"{ "odd key": "line\n\u001b[31m" }"#,
+        ),
+        (
+            "(() => {const x = {}; x.self=x; return x})()",
+            "{ self: [Circular] }",
+        ),
+        (
+            "({get bad() {throw Error('must not run')}})",
+            "{ bad: [Getter/Setter] }",
+        ),
+        ("[,,42,,]", "[ <2 empty items>, 42, <1 empty items> ]"),
+        ("(() => {const r=/hi/gi; Object.defineProperty(r,'source',{get(){throw Error('must not run')}}); r.toString=()=>{throw Error('must not run')}; return r})()", "/hi/gi"),
+    ] {
+        assert_eq!(
+            shell.eval(source).unwrap().as_deref(),
+            Some(expected),
+            "{source}"
+        );
+    }
+    assert!(shell
+        .eval("Array(2000).fill(1)")
+        .unwrap()
+        .unwrap()
+        .contains("[Truncated]"));
+    assert!(shell
+        .eval("(() => {let x={}; for(let i=0;i<20;i++) x={a:x}; return x})()")
+        .unwrap()
+        .unwrap()
+        .contains("[Max depth]"));
+    shell.eval("let typed = {id:ObjectId('507f1f77bcf86cd799439011'), n:NumberLong('9223372036854775807')}").unwrap();
+    for source in [
+        "Array(1000).fill('x'.repeat(1000000))",
+        "BinData(128, 'AAAA'.repeat(100000))",
+        "(() => {const x={}; for(let i=0;i<2000;i++) Object.defineProperty(x,'k'+i,{enumerable:true,get(){throw Error('must not run')}}); return x})()",
+    ] {
+        let output = shell.eval(source).unwrap().unwrap();
+        assert!(output.contains("[Truncated]"), "{source}");
+        assert!(output.len() < 100_000, "{source}: {}", output.len());
+        assert_eq!(shell.eval("6*7").unwrap().as_deref(), Some("42"));
+    }
+    shell.eval("typed").unwrap();
+    assert_eq!(shell.eval("JSON.stringify(typed)").unwrap(), shell.eval("JSON.stringify({id:ObjectId('507f1f77bcf86cd799439011'), n:NumberLong('9223372036854775807')})").unwrap());
+    shell.eval("use other").unwrap();
+    assert!(shell
+        .eval("Promise.resolve().then(() => 1); throw Error('reset')")
+        .is_err());
+    assert_eq!(shell.database().unwrap(), "demo");
+    assert_eq!(
+        shell.eval("NumberLong('42')").unwrap().as_deref(),
+        Some("NumberLong('42')")
+    );
+}
+
+#[test]
 fn interruption_recovers_from_infinite_js_and_blocked_database() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let mut shell = session(listener.local_addr().unwrap().port());
