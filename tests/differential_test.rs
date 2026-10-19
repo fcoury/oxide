@@ -305,3 +305,64 @@ fn unwind_null_scalar_and_root_validation_match_mongodb() {
     assert_eq!(results[0], results[1]);
     db.drop().run().unwrap();
 }
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn array_reduction_and_first_accumulator_match_mongodb() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let reference_db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let reference = reference_db.collection::<Document>("items");
+    let oxide = ctx.col();
+    for col in [&oxide, &reference] {
+        col.insert_many(vec![
+            doc! {"_id":1,"group":"a","rank":2,"arrays":[[1,2],[],[3]],"numbers":[1,2,3]},
+            doc! {"_id":2,"group":"a","rank":1,"arrays":[],"numbers":[]},
+            doc! {"_id":3,"group":"b","rank":2,"arrays":Bson::Null,"numbers":Bson::Null},
+            doc! {"_id":4,"group":"b","rank":1},
+        ])
+        .run()
+        .unwrap();
+    }
+    for pipeline in [
+        vec![
+            doc! {"$project":{"flat":{"$reduce":{"input":"$arrays","initialValue":[],"in":{"$concatArrays":["$$value","$$this"]}}},"sum":{"$reduce":{"input":"$numbers","initialValue":10,"in":{"$add":["$$value","$$this"]}}}}},
+        ],
+        vec![
+            doc! {"$project":{"nested":{"$reduce":{"input":[[1,2],[3]],"initialValue":0,"in":{"$add":["$$value",{"$reduce":{"input":"$$this","initialValue":0,"in":{"$add":["$$value","$$this"]}}}]}}}}},
+        ],
+        vec![
+            doc! {"$project":{"concat":{"$concatArrays":[[1],[2,3]]},"empty":{"$concatArrays":[]},"missing":{"$concatArrays":[[],"$absent"]},"null":{"$concatArrays":[[],Bson::Null]}}},
+        ],
+        vec![
+            doc! {"$sort":{"rank":1,"_id":1}},
+            doc! {"$group":{"_id":"$group","first":{"$first":"$$ROOT"},"missing":{"$first":"$absent"},"rank":{"$first":"$rank"}}},
+            doc! {"$sort":{"_id":1}},
+        ],
+        vec![
+            doc! {"$sort":{"rank":-1,"_id":-1}},
+            doc! {"$group":{"_id":"$group","first":{"$first":"$arrays"},"rank":{"$first":"$rank"}}},
+            doc! {"$sort":{"_id":1}},
+        ],
+    ] {
+        let rows = |col: &Collection<Document>| {
+            common::get_rows(col.aggregate(pipeline.clone()).run().unwrap())
+        };
+        assert_eq!(rows(&oxide), rows(&reference), "{pipeline:?}");
+    }
+    for expr in [
+        doc! {"$reduce":{"input":42,"initialValue":[],"in":"$$this"}},
+        doc! {"$concatArrays":[[],42]},
+        doc! {"$reduce":{"input":[],"initialValue":0,"in":"$$this","unexpected":true}},
+    ] {
+        for col in [&oxide, &reference] {
+            assert!(
+                col.aggregate(vec![doc! {"$project":{"result":expr.clone()}}])
+                    .run()
+                    .is_err(),
+                "{expr:?}"
+            );
+        }
+    }
+    reference_db.drop().run().unwrap();
+}

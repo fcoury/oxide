@@ -527,6 +527,53 @@ fn expression_with_vars(
                     };
                     format!("(SELECT CASE WHEN {alias}.input IS NULL OR {alias}.input='null'::jsonb THEN 'null'::jsonb ELSE {result} END FROM (SELECT {input} AS input, {argument} AS argument) AS {alias})")
                 }
+                "$concatArrays" => {
+                    let values = value
+                        .as_array()
+                        .ok_or_else(|| eyre!("$concatArrays requires an array"))?;
+                    let values = values
+                        .iter()
+                        .map(|v| expression_with_vars(v, sql, depth + 1, vars))
+                        .collect::<Result<Vec<_>>>()?;
+                    format!("(SELECT CASE WHEN COALESCE(bool_or(v='null'::jsonb),FALSE) THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg(element ORDER BY ordinal, element_ordinal),'[]'::jsonb) FROM jsonb_array_elements(jsonb_build_array({inputs})) WITH ORDINALITY AS arrays(v,ordinal) CROSS JOIN LATERAL jsonb_array_elements(v) WITH ORDINALITY AS elements(element,element_ordinal)) END FROM jsonb_array_elements(jsonb_build_array({inputs})) AS operands(v))", inputs=values.join(","))
+                }
+                "$reduce" => {
+                    let doc = as_doc(value)?;
+                    if doc
+                        .keys()
+                        .any(|k| !["input", "initialValue", "in"].contains(&k.as_str()))
+                    {
+                        bail!("unsupported $reduce option");
+                    }
+                    let input = expression_with_vars(
+                        doc.get("input")
+                            .ok_or_else(|| eyre!("missing $reduce input"))?,
+                        sql,
+                        depth + 1,
+                        vars,
+                    )?;
+                    let initial = expression_with_vars(
+                        doc.get("initialValue")
+                            .ok_or_else(|| eyre!("missing $reduce initialValue"))?,
+                        sql,
+                        depth + 1,
+                        vars,
+                    )?;
+                    let alias = format!("reduce_{depth}");
+                    let mut scoped = vars.clone();
+                    scoped.insert("value".into(), format!("{alias}.value"));
+                    scoped.insert(
+                        "this".into(),
+                        format!("(reduce_input_{depth}.input)->({alias}.ordinal)"),
+                    );
+                    let body = expression_with_vars(
+                        doc.get("in").ok_or_else(|| eyre!("missing $reduce in"))?,
+                        sql,
+                        depth + 1,
+                        &scoped,
+                    )?;
+                    format!("(SELECT CASE WHEN reduce_input_{depth}.input IS NULL OR reduce_input_{depth}.input='null'::jsonb THEN 'null'::jsonb ELSE (WITH RECURSIVE {alias}(ordinal,value) AS (SELECT 0,COALESCE({initial},'null'::jsonb) UNION ALL SELECT {alias}.ordinal+1,COALESCE({body},'null'::jsonb) FROM {alias} WHERE {alias}.ordinal<jsonb_array_length(reduce_input_{depth}.input)) SELECT value FROM {alias} ORDER BY ordinal DESC LIMIT 1) END FROM (SELECT {input} AS input) AS reduce_input_{depth})")
+                }
                 "$map" | "$filter" => {
                     let doc = as_doc(value)?;
                     let input = expression_with_vars(
@@ -579,6 +626,15 @@ fn expression_with_vars(
                         .iter()
                         .map(|v| expression_with_vars(v, sql, depth + 1, vars))
                         .collect::<Result<Vec<_>>>()?;
+                    let bindings = inputs
+                        .iter()
+                        .enumerate()
+                        .map(|(i, input)| format!("{input} AS v{i}"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let inputs = (0..inputs.len())
+                        .map(|i| format!("arithmetic_{depth}.v{i}"))
+                        .collect::<Vec<_>>();
                     let terms = inputs
                         .iter()
                         .map(|s| format!("({})", parser::numeric(&format!("({s})"))))
@@ -603,7 +659,8 @@ fn expression_with_vars(
                         .map(|s| format!("COALESCE(({s}) ? '$i',FALSE)"))
                         .collect::<Vec<_>>()
                         .join(" OR ");
-                    number_result(&terms.join(operator), &double, &long)
+                    let result = number_result(&terms.join(operator), &double, &long);
+                    format!("(SELECT {result} FROM (SELECT {bindings}) AS arithmetic_{depth})")
                 }
                 "$dateToString" => {
                     let doc = as_doc(value)?;
@@ -797,11 +854,17 @@ fn group(source: &str, doc: &Document, sql: &mut Sql) -> Result<String> {
             bail!("group accumulator requires one operator");
         }
         let (name, value) = op.iter().next().expect("one accumulator");
-        if name != "$sum" && name != "$avg" {
+        if name != "$sum" && name != "$avg" && name != "$first" {
             bail!("unsupported accumulator {name}");
         }
         let value = expression(value, sql, 0)?;
         fields.push(sql.bind(encode_key(key), "text"));
+        if name == "$first" {
+            fields.push(format!(
+                "COALESCE((array_agg({value} ORDER BY __group_ordinal))[1],'null'::jsonb)"
+            ));
+            continue;
+        }
         let numeric = parser::numeric(&format!("({value})"));
         let result = if name == "$avg" {
             format!("AVG({numeric})")
@@ -817,7 +880,7 @@ fn group(source: &str, doc: &Document, sql: &mut Sql) -> Result<String> {
         fields.push(number_result(&result, &double, &long));
     }
     Ok(format!(
-        "SELECT jsonb_build_object({}) AS _jsonb FROM ({source}) AS s GROUP BY {id}",
+        "SELECT jsonb_build_object({}) AS _jsonb FROM (SELECT _jsonb, row_number() OVER () AS __group_ordinal FROM ({source}) AS group_input) AS s GROUP BY {id}",
         fields.join(",")
     ))
 }
