@@ -28,6 +28,7 @@ impl Handler for IsMaster {
           "localTime": Bson::DateTime(bson::DateTime::from_millis(local_time.try_into().unwrap())),
           "minWireVersion": 0,
           "maxWireVersion": 13,
+            "logicalSessionTimeoutMinutes": 30,
           "readOnly": Bson::Boolean(false),
           "ok": Bson::Double(1.into())
         })

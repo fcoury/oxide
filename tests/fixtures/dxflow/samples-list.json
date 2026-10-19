@@ -1,0 +1,23 @@
+[
+  {
+    "$match": {
+      "$and": [
+        {
+          "$or": [
+            {
+              "deleted_at": {
+                "$exists": false
+              }
+            },
+            {
+              "deleted_at": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "$limit": 10
+  }
+]

@@ -15,6 +15,8 @@ use std::sync::Mutex;
 
 pub struct Request<'a> {
     pub cursors: &'a Mutex<Cursors>,
+    session: Option<crate::session::Slot>,
+    pub cursor_owner: Option<Vec<u8>>,
     pool: &'a r2d2::Pool<PostgresConnectionManager<NoTls>>,
     peer_addr: SocketAddr,
     op_code: &'a OpCode,
@@ -29,9 +31,22 @@ impl<'a> Request<'a> {
     ) -> Self {
         Request {
             cursors,
+            session: None,
+            cursor_owner: None,
             pool,
             peer_addr,
             op_code,
+        }
+    }
+
+    pub fn with_session(&self, slot: crate::session::Slot, owner: Vec<u8>) -> Self {
+        Self {
+            session: Some(slot),
+            cursor_owner: Some(owner),
+            cursors: self.cursors,
+            pool: self.pool,
+            peer_addr: self.peer_addr,
+            op_code: self.op_code,
         }
     }
 
@@ -43,8 +58,15 @@ impl<'a> Request<'a> {
         self.op_code
     }
 
+    pub fn in_transaction(&self) -> bool {
+        self.session.is_some()
+    }
     pub fn get_client(&self) -> Result<PgDb, CommandExecutionError> {
-        Ok(PgDb::try_from_pool(self.pool)?)
+        Ok(if let Some(slot) = &self.session {
+            PgDb::from_session(slot.clone())?
+        } else {
+            PgDb::try_from_pool(self.pool)?
+        })
     }
 }
 
@@ -108,6 +130,14 @@ impl From<eyre::Report> for CommandExecutionError {
                     code_name: "DuplicateKey".into(),
                 };
             }
+            if matches!(error.code(),Some(code) if code==&postgres::error::SqlState::T_R_SERIALIZATION_FAILURE || code==&postgres::error::SqlState::T_R_DEADLOCK_DETECTED)
+            {
+                return Self {
+                    message: "transaction write conflict".into(),
+                    code: 112,
+                    code_name: "WriteConflict".into(),
+                };
+            }
             if let Some(db) = error.as_db_error() {
                 return Self::new(db.message().to_owned());
             }
@@ -150,6 +180,8 @@ pub fn handle_with_cursors(
 ) -> Result<Vec<u8>, CommandExecutionError> {
     let request = Request {
         cursors,
+        session: None,
+        cursor_owner: None,
         pool,
         peer_addr,
         op_code,
@@ -169,6 +201,10 @@ pub fn handle_with_cursors(
 }
 
 fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutionError> {
+    crate::session::run(request, docs, run_command)
+}
+
+fn run_command(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutionError> {
     let command = docs
         .first()
         .and_then(|doc| doc.keys().next())
@@ -186,12 +222,12 @@ fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutio
             "killCursors"
         })?;
         let ns = format!("{db}.{collection}");
-        let mut cursors = request
-            .cursors
-            .lock()
-            .map_err(|_| CommandExecutionError::new("cursor lock unavailable".into()))?;
+
         if command == "getMore" {
-            crate::commands::check_options(doc, &["getMore", "collection", "batchSize"])?;
+            crate::commands::check_options(
+                doc,
+                &["getMore", "collection", "batchSize", "maxTimeMS"],
+            )?;
             let id = crate::pg::integer(
                 doc.get("getMore")
                     .ok_or_else(|| CommandExecutionError::new("missing getMore".into()))?,
@@ -205,7 +241,24 @@ fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutio
                     "getMore batchSize must be positive".into(),
                 ));
             }
-            return cursors
+            request
+                .cursors
+                .lock()
+                .map_err(|_| CommandExecutionError::new("cursor lock unavailable".into()))?
+                .check_owner(id, request.cursor_owner.as_deref())?;
+            if let Some(reply) = crate::change_stream::more(
+                request,
+                doc,
+                id,
+                &ns,
+                (batch as usize).min(crate::pg::MAX_QUERY_ROWS),
+            )? {
+                return Ok(reply);
+            }
+            return request
+                .cursors
+                .lock()
+                .map_err(|_| CommandExecutionError::new("cursor lock unavailable".into()))?
                 .more(id, &ns, (batch as usize).min(crate::pg::MAX_QUERY_ROWS))
                 .map_err(|e| CommandExecutionError {
                     message: e.to_string(),
@@ -214,10 +267,15 @@ fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutio
                 });
         }
         crate::commands::check_options(doc, &["killCursors", "cursors"])?;
+        let mut cursors = request
+            .cursors
+            .lock()
+            .map_err(|_| CommandExecutionError::new("cursor lock unavailable".into()))?;
         let mut killed = Vec::new();
         let mut missing = Vec::new();
         for value in doc.get_array("cursors")? {
             let id = crate::pg::integer(value)?;
+            cursors.check_owner(id, request.cursor_owner.as_deref())?;
             if cursors.kill(id, &ns) {
                 killed.push(id);
             } else {

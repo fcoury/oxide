@@ -26,8 +26,8 @@ mod ping;
 mod update;
 mod whats_my_uri;
 
-pub use self::aggregate::compile_sql;
 pub use self::aggregate::Aggregate;
+pub use self::aggregate::{compile_sql, compile_stream_pipeline};
 pub use self::build_info::BuildInfo;
 pub use self::coll_stats::CollStats;
 pub use self::connection_status::ConnectionStatus;
