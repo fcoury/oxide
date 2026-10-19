@@ -120,8 +120,8 @@ fn supported_contract_matches_mongodb() {
 }
 
 #[test]
-#[ignore = "requires MONGODB_REFERENCE_URL; executed locally with DxFlow parity checks"]
-fn dxflow_relation_lookup_matches_mongodb() {
+#[ignore = "requires MONGODB_REFERENCE_URL; executed with MongoDB differential checks"]
+fn relation_lookup_matches_mongodb() {
     let ctx = common::setup();
     let reference = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
     let name = format!("oxide_diff_{}", uuid::Uuid::new_v4().simple());
@@ -186,8 +186,8 @@ fn dxflow_relation_lookup_matches_mongodb() {
 }
 
 #[test]
-#[ignore = "requires MONGODB_REFERENCE_URL; executed with DxFlow parity checks"]
-fn dxflow_optional_user_identity_index_matches_mongodb() {
+#[ignore = "requires MONGODB_REFERENCE_URL; executed with MongoDB differential checks"]
+fn optional_user_identity_index_matches_mongodb() {
     let ctx = common::setup();
     let reference = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
     let db = reference.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
@@ -248,7 +248,7 @@ fn dxflow_optional_user_identity_index_matches_mongodb() {
 }
 
 #[test]
-#[ignore = "requires MONGODB_REFERENCE_URL; executed with DxFlow parity checks"]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed with MongoDB differential checks"]
 fn unwind_null_scalar_and_root_validation_match_mongodb() {
     let ctx = common::setup();
     let reference = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();

@@ -6,7 +6,7 @@ mod common;
 fn committed_changes_resume_without_skipping_small_batches() {
     let ctx = common::setup();
     let col = ctx.col();
-    col.insert_one(doc! {"_id":1,"name":"hepquant","enabled":false})
+    col.insert_one(doc! {"_id":1,"name":"tenant-a","enabled":false})
         .run()
         .unwrap();
     let mut stream = col
@@ -129,7 +129,7 @@ fn independently_committed_hook_write_is_delivered_before_outer_transaction() {
         .session(&mut outer)
         .run()
         .unwrap();
-    // DxFlow Sequence hooks write on a separate connection, outside the entity
+    // Sequence hooks can write on a separate connection, outside the entity
     // transaction. They must complete without waiting for that transaction.
     col.insert_one(doc! {"_id":2}).run().unwrap();
     assert_eq!(

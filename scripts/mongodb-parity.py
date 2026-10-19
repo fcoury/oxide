@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compare an isolated, synthetic DxFlow MongoDB fixture with local Oxide.
+"""Compare an isolated, synthetic MongoDB fixture with local Oxide.
 
-Install scripts/dxflow-parity-requirements.txt in a virtualenv first. This is a
+Install scripts/mongodb-parity-requirements.txt in a virtualenv first. This is a
 gate, not a migration tool: failed checks produce a nonzero exit status. It never
 changes the reference fixture. Only the named candidate fixture and disposable
 behavior-test databases are written. Reports contain hashes, not record data.
@@ -46,12 +46,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", default="mongodb://127.0.0.1:27017/?directConnection=true&retryWrites=false")
     parser.add_argument("--candidate", default="mongodb://127.0.0.1:27018/?directConnection=true&retryWrites=false&maxPoolSize=4")
-    parser.add_argument("--database", default="hepquant_parity_reference")
+    parser.add_argument("--database", default="oxide_parity_reference")
     parser.add_argument("--copy", action="store_true", help="Replace candidate fixture collections from reference")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
-    if not args.database.startswith("hepquant_parity_"):
-        parser.error("fixture database must start with hepquant_parity_")
+    if not args.database.startswith("oxide_parity_"):
+        parser.error("fixture database must start with oxide_parity_")
     for uri in [args.reference, args.candidate]:
         parsed = urlsplit(uri)
         if parsed.scheme != "mongodb" or parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
@@ -123,24 +123,24 @@ def main():
         check("indexes/" + name, indexes)
     check("data/collection-set", lambda: equal(names, sorted(target.list_collection_names())))
 
-    # These pipelines were captured from the actual DxFlow MongoDB 2.8 provider
+    # These pipelines were captured from the an application MongoDB 2.8 provider
     # stack, rather than reconstructed from a simplified query example.
-    for path in sorted((Path(__file__).parent.parent / "tests/fixtures/dxflow").glob("*.json")):
+    for path in sorted((Path(__file__).parent.parent / "tests/fixtures/aggregation").glob("*.json")):
         def replay(path=path):
             pipeline = json_util.loads(path.read_text())
             collection = {"orders": "order_data", "samples": "sample_data", "runs": "run_data"}[path.stem.split("-")[0]]
             expected = sorted(canonical(row) for row in source[collection].aggregate(pipeline))
             actual = sorted(canonical(row) for row in target[collection].aggregate(pipeline))
             equal(expected, actual)
-        check("dxflow/" + path.stem, replay)
+        check("aggregation/" + path.stem, replay)
 
     # Independent scratch databases make writes repeatable and keep the fixture intact.
-    scratch = "oxide_dxflow_behavior_" + uuid.uuid4().hex
+    scratch = "oxide_parity_behavior_" + uuid.uuid4().hex
     databases = [c[scratch] for c in clients]
     try:
         fixture = [
             {"_id": 1, "value": Int64(1), "tags": ["a", "b"], "foreign_id": 10,
-             "date": datetime(2026, 1, 1, tzinfo=timezone.utc), "binary": Binary(b"dxflow", 0),
+             "date": datetime(2026, 1, 1, tzinfo=timezone.utc), "binary": Binary(b"parity", 0),
              "oid": ObjectId("000000000000000000000001")},
             {"_id": 2, "value": Int64(2), "tags": [], "foreign_id": 20},
         ]
@@ -225,7 +225,7 @@ def main():
             db.tenants.insert_one({"_id": 3, "name": "gamma", "domains": ["shared.test"]})
             return list(db.tenants.find({}).sort("_id", 1))
         check("behavior/tenant-domain-index", lambda: paired(tenant_domains))
-        # Real DxFlow keeps tenant settings current through MongoDB change streams.
+        # Change streams notify clients when cached settings need refreshing.
         def watch(db):
             with db.items.watch(max_await_time_ms=100) as stream:
                 db.items.insert_one({"_id": 3})
@@ -251,10 +251,10 @@ def main():
         report["passed"] = all(c["passed"] for c in report["checks"])
         report["cutover_allowed"] = False
         report["remaining_acceptance"] = [
-            "DxFlow entity create/update/delete, audit history and rollback through the application API",
-            "Real aide-de-camp queue retry and transactional dead-letter behavior",
+            "Application-level create/update/delete, audit history and rollback",
+            "Job queue retry and transactional dead-letter behavior",
             "Tenant settings cache invalidation and tenant isolation",
-            "Authenticated LIMS/provider-portal smoke test and process-restart persistence",
+            "Authenticated application smoke test and process-restart persistence",
         ]
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n")
