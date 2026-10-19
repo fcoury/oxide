@@ -66,8 +66,37 @@ impl Server {
         listener: TcpListener,
         pg_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>,
     ) -> eyre::Result<()> {
+        crate::change_stream::initialize(&mut crate::pg::PgDb::try_from_pool(&pg_pool)?)?;
         let workers = ThreadPool::new(32);
         let cursors = Arc::new(Mutex::new(Cursors::default()));
+        let cleanup = Arc::downgrade(&cursors);
+        std::thread::spawn(move || {
+            while let Some(cursors) = cleanup.upgrade() {
+                if let Ok(mut cursors) = cursors.lock() {
+                    cursors.sessions.expire();
+                }
+                drop(cursors);
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        });
+        let journal_pool = pg_pool.clone();
+        std::thread::spawn(move || {
+            let mut pruned = Instant::now();
+            loop {
+                std::thread::sleep(Duration::from_millis(100));
+                if let Ok(mut client) = crate::pg::PgDb::try_from_pool(&journal_pool) {
+                    if let Err(error) = crate::change_stream::pump(&mut client) {
+                        log::warn!("change journal decoding failed: {error}");
+                    }
+                    if pruned.elapsed() >= Duration::from_secs(60) {
+                        if let Err(error) = crate::change_stream::prune(&mut client) {
+                            log::warn!("change journal cleanup failed: {error}");
+                        }
+                        pruned = Instant::now();
+                    }
+                }
+            }
+        });
         log::info!("OxideDB listening on {}", listener.local_addr()?);
         for stream in listener.incoming() {
             let stream = match stream {
@@ -98,9 +127,17 @@ fn handle_connection(
 ) -> eyre::Result<()> {
     let addr = stream.peer_addr()?;
     loop {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        // Drivers keep pooled connections idle for minutes. An idle socket is
+        // not an incomplete frame: start the frame deadline at the first byte.
+        stream.set_read_timeout(None)?;
         let mut length = [0_u8; 4];
-        match read_before(&mut stream, &mut length, deadline) {
+        match stream.read_exact(&mut length[..1]) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
+        let deadline = Instant::now() + Duration::from_secs(30);
+        match read_before(&mut stream, &mut length[1..], deadline) {
             Ok(()) => (),
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(e) => return Err(e.into()),
@@ -121,7 +158,7 @@ fn handle_connection(
         }));
         let response=match result{
             Ok(Ok(response))=>response,
-            Ok(Err(error))=>opcode.reply(Response::new(id,&opcode,vec![doc!{"ok":0.0,"errmsg":error.message,"code":error.code,"codeName":error.code_name}]))?,
+            Ok(Err(error))=>opcode.reply(Response::new(id,&opcode,vec![doc!{"ok":0.0,"errmsg":error.message,"code":error.code,"codeName":error.code_name,"errorLabels":if [112,251].contains(&error.code) {vec!["TransientTransactionError"]} else {vec![]}}]))?,
             Err(_)=>{log::error!("unexpected command panic");opcode.reply(Response::new(id,&opcode,vec![doc!{"ok":0.0,"errmsg":"internal command error","code":1,"codeName":"InternalError"}]))?}
         };
         if matches!(&opcode,OpCode::OpMsg(msg)if msg.flags&wire::MORE_TO_COME!=0) {

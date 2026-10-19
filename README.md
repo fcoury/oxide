@@ -8,6 +8,12 @@ The core server builds without a browser frontend, JavaScript engine, or MongoDB
 
 Use the Rust toolchain pinned in `rust-toolchain.toml` and a dedicated PostgreSQL database. CI tests PostgreSQL 16; local validation also covers PostgreSQL 18.
 
+Change streams require PostgreSQL `wal_level=logical` and an available logical
+replication slot. Configure the PostgreSQL server and restart it before launching
+Oxide. The development role needs permission to create publications and logical
+slots; see [the operational contract](docs/compatibility.md#change-streams)
+for retention and cleanup requirements. CI provisions these settings automatically.
+
 ```sh
 export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/oxide'
 cargo build --locked

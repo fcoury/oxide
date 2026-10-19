@@ -1,0 +1,2932 @@
+[
+  {
+    "$lookup": {
+      "from": "patient_data",
+      "as": "_tmp",
+      "localField": "patient_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient": {
+        "$cond": [
+          "$patient_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$patient_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "state_data",
+      "as": "_tmp",
+      "localField": "patient.state_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient": {
+        "$let": {
+          "vars": {
+            "item": "$patient"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "state": {
+                      "$cond": [
+                        "$$item.state_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.state_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "country_data",
+      "as": "_tmp",
+      "localField": "patient.state.country_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient": {
+        "$let": {
+          "vars": {
+            "item": "$patient"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "state": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.state"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "country": {
+                                    "$cond": [
+                                      "$$item.country_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.country_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "country_data",
+      "as": "_tmp",
+      "localField": "patient.country_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient": {
+        "$let": {
+          "vars": {
+            "item": "$patient"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "country": {
+                      "$cond": [
+                        "$$item.country_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.country_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "physician_data",
+      "as": "_tmp",
+      "localField": "physician_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "physician": {
+        "$cond": [
+          "$physician_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$physician_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "location_data",
+      "as": "_tmp",
+      "localField": "location_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "location": {
+        "$cond": [
+          "$location_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$location_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "state_data",
+      "as": "_tmp",
+      "localField": "location.state_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "location": {
+        "$let": {
+          "vars": {
+            "item": "$location"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "state": {
+                      "$cond": [
+                        "$$item.state_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.state_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "country_data",
+      "as": "_tmp",
+      "localField": "location.state.country_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "location": {
+        "$let": {
+          "vars": {
+            "item": "$location"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "state": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.state"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "country": {
+                                    "$cond": [
+                                      "$$item.country_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.country_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "country_data",
+      "as": "_tmp",
+      "localField": "location.country_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "location": {
+        "$let": {
+          "vars": {
+            "item": "$location"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "country": {
+                      "$cond": [
+                        "$$item.country_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.country_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "patient_insurance_data",
+      "as": "_tmp",
+      "localField": "patient_insurance_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient_insurance": {
+        "$cond": [
+          "$patient_insurance_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$patient_insurance_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_plan_data",
+      "as": "_tmp",
+      "localField": "patient_insurance.payer_plan_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$cond": [
+                        "$$item.payer_plan_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.payer_plan_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_data",
+      "as": "_tmp",
+      "localField": "patient_insurance.payer_plan.payer_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.payer_plan"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "payer": {
+                                    "$cond": [
+                                      "$$item.payer_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.payer_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "insured_data",
+      "as": "_tmp",
+      "localField": "patient_insurance.insured_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "insured": {
+                      "$cond": [
+                        "$$item.insured_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.insured_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "patient_insurance_data",
+      "as": "_tmp",
+      "localField": "secondary_patient_insurance_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "secondary_patient_insurance": {
+        "$cond": [
+          "$secondary_patient_insurance_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$secondary_patient_insurance_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_plan_data",
+      "as": "_tmp",
+      "localField": "secondary_patient_insurance.payer_plan_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "secondary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$secondary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$cond": [
+                        "$$item.payer_plan_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.payer_plan_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_data",
+      "as": "_tmp",
+      "localField": "secondary_patient_insurance.payer_plan.payer_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "secondary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$secondary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.payer_plan"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "payer": {
+                                    "$cond": [
+                                      "$$item.payer_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.payer_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "insured_data",
+      "as": "_tmp",
+      "localField": "secondary_patient_insurance.insured_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "secondary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$secondary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "insured": {
+                      "$cond": [
+                        "$$item.insured_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.insured_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "patient_insurance_data",
+      "as": "_tmp",
+      "localField": "tertiary_patient_insurance_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "tertiary_patient_insurance": {
+        "$cond": [
+          "$tertiary_patient_insurance_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$tertiary_patient_insurance_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_plan_data",
+      "as": "_tmp",
+      "localField": "tertiary_patient_insurance.payer_plan_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "tertiary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$tertiary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$cond": [
+                        "$$item.payer_plan_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.payer_plan_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "payer_data",
+      "as": "_tmp",
+      "localField": "tertiary_patient_insurance.payer_plan.payer_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "tertiary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$tertiary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "payer_plan": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.payer_plan"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "payer": {
+                                    "$cond": [
+                                      "$$item.payer_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.payer_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "insured_data",
+      "as": "_tmp",
+      "localField": "tertiary_patient_insurance.insured_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "tertiary_patient_insurance": {
+        "$let": {
+          "vars": {
+            "item": "$tertiary_patient_insurance"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "insured": {
+                      "$cond": [
+                        "$$item.insured_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.insured_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$diagnostics.icd_code_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "icd_code_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "diagnostics": {
+        "$cond": [
+          "$diagnostics",
+          {
+            "$map": {
+              "input": "$diagnostics",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "icd_code": {
+                      "$cond": [
+                        "$$item.icd_code_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.icd_code_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$diagnostics_etiology.icd_code_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "icd_code_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "diagnostics_etiology": {
+        "$cond": [
+          "$diagnostics_etiology",
+          {
+            "$map": {
+              "input": "$diagnostics_etiology",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "icd_code": {
+                      "$cond": [
+                        "$$item.icd_code_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.icd_code_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$diagnostics_disease_stage.icd_code_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "icd_code_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "diagnostics_disease_stage": {
+        "$cond": [
+          "$diagnostics_disease_stage",
+          {
+            "$map": {
+              "input": "$diagnostics_disease_stage",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "icd_code": {
+                      "$cond": [
+                        "$$item.icd_code_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.icd_code_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$diagnostics_complication.icd_code_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "icd_code_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "diagnostics_complication": {
+        "$cond": [
+          "$diagnostics_complication",
+          {
+            "$map": {
+              "input": "$diagnostics_complication",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "icd_code": {
+                      "$cond": [
+                        "$$item.icd_code_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.icd_code_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "blood_draw_location_data",
+      "as": "_tmp",
+      "localField": "blood_draw_location_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "blood_draw_location": {
+        "$cond": [
+          "$blood_draw_location_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$blood_draw_location_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "location_data",
+      "as": "_tmp",
+      "localField": "blood_draw_location.location_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "blood_draw_location": {
+        "$let": {
+          "vars": {
+            "item": "$blood_draw_location"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "location": {
+                      "$cond": [
+                        "$$item.location_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.location_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "state_data",
+      "as": "_tmp",
+      "localField": "blood_draw_location.location.state_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "blood_draw_location": {
+        "$let": {
+          "vars": {
+            "item": "$blood_draw_location"
+          },
+          "in": {
+            "$cond": [
+              "$$item",
+              {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "location": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.location"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "state": {
+                                    "$cond": [
+                                      "$$item.state_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.state_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "$$REMOVE"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "sample_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "order_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.order_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples.box_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "box_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box": {
+                      "$cond": [
+                        "$$item.box_id",
+                        {
+                          "$let": {
+                            "vars": {
+                              "index": {
+                                "$indexOfArray": [
+                                  "$_tmp._id",
+                                  "$$item.box_id"
+                                ]
+                              }
+                            },
+                            "in": {
+                              "$cond": [
+                                {
+                                  "$gte": [
+                                    "$$index",
+                                    0
+                                  ]
+                                },
+                                {
+                                  "$arrayElemAt": [
+                                    "$_tmp",
+                                    "$$index"
+                                  ]
+                                },
+                                "$$REMOVE"
+                              ]
+                            }
+                          }
+                        },
+                        "$$REMOVE"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples.box.rack_location_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "rack_location_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.box"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "rack_location": {
+                                    "$cond": [
+                                      "$$item.rack_location_id",
+                                      {
+                                        "$let": {
+                                          "vars": {
+                                            "index": {
+                                              "$indexOfArray": [
+                                                "$_tmp._id",
+                                                "$$item.rack_location_id"
+                                              ]
+                                            }
+                                          },
+                                          "in": {
+                                            "$cond": [
+                                              {
+                                                "$gte": [
+                                                  "$$index",
+                                                  0
+                                                ]
+                                              },
+                                              {
+                                                "$arrayElemAt": [
+                                                  "$_tmp",
+                                                  "$$index"
+                                                ]
+                                              },
+                                              "$$REMOVE"
+                                            ]
+                                          }
+                                        }
+                                      },
+                                      "$$REMOVE"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples.box.rack_location.rack_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "rack_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.box"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "rack_location": {
+                                    "$let": {
+                                      "vars": {
+                                        "item": "$$item.rack_location"
+                                      },
+                                      "in": {
+                                        "$cond": [
+                                          "$$item",
+                                          {
+                                            "$mergeObjects": [
+                                              "$$item",
+                                              {
+                                                "rack": {
+                                                  "$cond": [
+                                                    "$$item.rack_id",
+                                                    {
+                                                      "$let": {
+                                                        "vars": {
+                                                          "index": {
+                                                            "$indexOfArray": [
+                                                              "$_tmp._id",
+                                                              "$$item.rack_id"
+                                                            ]
+                                                          }
+                                                        },
+                                                        "in": {
+                                                          "$cond": [
+                                                            {
+                                                              "$gte": [
+                                                                "$$index",
+                                                                0
+                                                              ]
+                                                            },
+                                                            {
+                                                              "$arrayElemAt": [
+                                                                "$_tmp",
+                                                                "$$index"
+                                                              ]
+                                                            },
+                                                            "$$REMOVE"
+                                                          ]
+                                                        }
+                                                      }
+                                                    },
+                                                    "$$REMOVE"
+                                                  ]
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          "$$REMOVE"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples.box.rack_location.rack.shelf_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "shelf_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.box"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "rack_location": {
+                                    "$let": {
+                                      "vars": {
+                                        "item": "$$item.rack_location"
+                                      },
+                                      "in": {
+                                        "$cond": [
+                                          "$$item",
+                                          {
+                                            "$mergeObjects": [
+                                              "$$item",
+                                              {
+                                                "rack": {
+                                                  "$let": {
+                                                    "vars": {
+                                                      "item": "$$item.rack"
+                                                    },
+                                                    "in": {
+                                                      "$cond": [
+                                                        "$$item",
+                                                        {
+                                                          "$mergeObjects": [
+                                                            "$$item",
+                                                            {
+                                                              "shelf": {
+                                                                "$cond": [
+                                                                  "$$item.shelf_id",
+                                                                  {
+                                                                    "$let": {
+                                                                      "vars": {
+                                                                        "index": {
+                                                                          "$indexOfArray": [
+                                                                            "$_tmp._id",
+                                                                            "$$item.shelf_id"
+                                                                          ]
+                                                                        }
+                                                                      },
+                                                                      "in": {
+                                                                        "$cond": [
+                                                                          {
+                                                                            "$gte": [
+                                                                              "$$index",
+                                                                              0
+                                                                            ]
+                                                                          },
+                                                                          {
+                                                                            "$arrayElemAt": [
+                                                                              "$_tmp",
+                                                                              "$$index"
+                                                                            ]
+                                                                          },
+                                                                          "$$REMOVE"
+                                                                        ]
+                                                                      }
+                                                                    }
+                                                                  },
+                                                                  "$$REMOVE"
+                                                                ]
+                                                              }
+                                                            }
+                                                          ]
+                                                        },
+                                                        "$$REMOVE"
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          "$$REMOVE"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples.box.rack_location.rack.shelf.fridge_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "fridge_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "_id",
+      "pipeline": []
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box": {
+                      "$let": {
+                        "vars": {
+                          "item": "$$item.box"
+                        },
+                        "in": {
+                          "$cond": [
+                            "$$item",
+                            {
+                              "$mergeObjects": [
+                                "$$item",
+                                {
+                                  "rack_location": {
+                                    "$let": {
+                                      "vars": {
+                                        "item": "$$item.rack_location"
+                                      },
+                                      "in": {
+                                        "$cond": [
+                                          "$$item",
+                                          {
+                                            "$mergeObjects": [
+                                              "$$item",
+                                              {
+                                                "rack": {
+                                                  "$let": {
+                                                    "vars": {
+                                                      "item": "$$item.rack"
+                                                    },
+                                                    "in": {
+                                                      "$cond": [
+                                                        "$$item",
+                                                        {
+                                                          "$mergeObjects": [
+                                                            "$$item",
+                                                            {
+                                                              "shelf": {
+                                                                "$let": {
+                                                                  "vars": {
+                                                                    "item": "$$item.shelf"
+                                                                  },
+                                                                  "in": {
+                                                                    "$cond": [
+                                                                      "$$item",
+                                                                      {
+                                                                        "$mergeObjects": [
+                                                                          "$$item",
+                                                                          {
+                                                                            "fridge": {
+                                                                              "$cond": [
+                                                                                "$$item.fridge_id",
+                                                                                {
+                                                                                  "$let": {
+                                                                                    "vars": {
+                                                                                      "index": {
+                                                                                        "$indexOfArray": [
+                                                                                          "$_tmp._id",
+                                                                                          "$$item.fridge_id"
+                                                                                        ]
+                                                                                      }
+                                                                                    },
+                                                                                    "in": {
+                                                                                      "$cond": [
+                                                                                        {
+                                                                                          "$gte": [
+                                                                                            "$$index",
+                                                                                            0
+                                                                                          ]
+                                                                                        },
+                                                                                        {
+                                                                                          "$arrayElemAt": [
+                                                                                            "$_tmp",
+                                                                                            "$$index"
+                                                                                          ]
+                                                                                        },
+                                                                                        "$$REMOVE"
+                                                                                      ]
+                                                                                    }
+                                                                                  }
+                                                                                },
+                                                                                "$$REMOVE"
+                                                                              ]
+                                                                            }
+                                                                          }
+                                                                        ]
+                                                                      },
+                                                                      "$$REMOVE"
+                                                                    ]
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          ]
+                                                        },
+                                                        "$$REMOVE"
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          "$$REMOVE"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "$$REMOVE"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$samples._id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "box_position_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "sample_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$cond": [
+          "$samples",
+          {
+            "$map": {
+              "input": "$samples",
+              "as": "item",
+              "in": {
+                "$mergeObjects": [
+                  "$$item",
+                  {
+                    "box_positions": {
+                      "$filter": {
+                        "input": "$_tmp",
+                        "cond": {
+                          "$eq": [
+                            "$$this.sample_id",
+                            "$$item._id"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "attachment_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "order_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "attachments": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.order_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "test_result_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "order_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "test_results": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.order_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "test_requisition_data",
+      "as": "_tmp",
+      "localField": "test_requisition_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "test_requisition": {
+        "$cond": [
+          "$test_requisition_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$test_requisition_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tmp"
+    ]
+  },
+  {
+    "$match": {
+      "$and": [
+        {
+          "$or": [
+            {
+              "deleted_at": {
+                "$exists": false
+              }
+            },
+            {
+              "deleted_at": null
+            }
+          ]
+        },
+        {
+          "$and": [
+            {
+              "_id": {
+                "$oid": "6ad530af46cd4a957f3a1203"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "$limit": 1
+  }
+]

@@ -296,7 +296,7 @@ fn numeric_group_keys_compare_across_bson_types() {
 }
 
 #[test]
-fn unique_indexes_are_scoped_normalized_and_reject_multikey_values() {
+fn unique_indexes_are_scoped_normalized_and_expand_multikey_values() {
     let first = common::setup();
     let second = common::setup();
     let model = IndexModel::builder()
@@ -323,7 +323,8 @@ fn unique_indexes_are_scoped_normalized_and_reject_multikey_values() {
     }
     first.col().insert_one(doc! {"other":true}).run().unwrap();
     assert!(first.col().insert_one(doc! {"n":Bson::Null}).run().is_err());
-    assert!(first.col().insert_one(doc! {"n":[2,3]}).run().is_err());
+    first.col().insert_one(doc! {"n":[2,3]}).run().unwrap();
+    assert!(first.col().insert_one(doc! {"n":[3,4]}).run().is_err());
     assert_eq!(first.col().list_indexes().run().unwrap().count(), 2);
     assert_eq!(second.col().list_indexes().run().unwrap().count(), 2);
 }

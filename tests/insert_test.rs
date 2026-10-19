@@ -46,7 +46,7 @@ fn test_insert_without_id() {
 }
 
 #[test]
-fn test_raw_session_command_is_explicitly_rejected() {
+fn test_raw_session_insert_is_supported() {
     let ctx = common::setup();
 
     // FIXME count() is not working because it needs the aggregation pipeline
@@ -83,11 +83,8 @@ fn test_raw_session_command_is_explicitly_rejected() {
     let oxide::wire::OpCode::OpMsg(reply) = oxide::wire::parse(&reply).unwrap() else {
         panic!("expected OP_MSG")
     };
-    assert!(reply.sections[0].documents[0]
-        .get_str("errmsg")
-        .unwrap()
-        .contains("unsupported option lsid"));
-    assert_eq!(count_documents(ctx), count);
+    assert_eq!(reply.sections[0].documents[0].get_f64("ok"), Ok(1.0));
+    assert_eq!(count_documents(ctx), count + 1);
 }
 
 #[test]

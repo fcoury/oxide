@@ -20,11 +20,32 @@ impl Handler for Aggregate {
         docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
+        if doc
+            .get_array("pipeline")?
+            .first()
+            .and_then(Bson::as_document)
+            .is_some_and(|stage| stage.contains_key("$changeStream"))
+        {
+            return crate::change_stream::open(request, doc);
+        }
         check_options(doc, &["aggregate", "pipeline", "cursor"])?;
         let sp = SqlParam::from(doc, "aggregate")?;
-        let sql = compile_sql(&sp, doc.get_array("pipeline")?)?;
         let batch = cursor_batch_size(doc)?;
         let mut client = request.get_client()?;
+        validate_pipeline(doc.get_array("pipeline")?)?;
+        let mut sql = Sql::default();
+        let source = compile_pipeline(
+            &sp,
+            doc.get_array("pipeline")?,
+            &mut sql,
+            &mut |sp| client.table_exists(&sp.db, &sp.collection),
+            None,
+            0,
+        )?;
+        sql.text = format!(
+            "SELECT _jsonb FROM ({source}) AS result LIMIT {}",
+            MAX_QUERY_ROWS + 1
+        );
         let documents = if sp.exists(&mut client)? {
             client.documents(&sql, None)?
         } else {
@@ -43,17 +64,65 @@ impl Handler for Aggregate {
     }
 }
 
+pub fn compile_stream_pipeline(
+    sp: &SqlParam,
+    pipeline: &[Bson],
+    sql: &mut Sql,
+    initial: String,
+) -> Result<String> {
+    validate_pipeline(pipeline)?;
+    compile_pipeline(
+        sp,
+        pipeline,
+        sql,
+        &mut |_| bail!("change stream lookups are not supported"),
+        Some(initial),
+        0,
+    )
+}
+
 pub fn compile_sql(sp: &SqlParam, pipeline: &[Bson]) -> Result<Sql> {
-    sp.validate()?;
+    validate_pipeline(pipeline)?;
+    let mut sql = Sql::default();
+    let source = compile_pipeline(sp, pipeline, &mut sql, &mut |_| Ok(true), None, 0)?;
+    sql.text = format!(
+        "SELECT _jsonb FROM ({source}) AS result LIMIT {}",
+        MAX_QUERY_ROWS + 1
+    );
+    Ok(sql)
+}
+
+fn validate_pipeline(pipeline: &[Bson]) -> Result<()> {
     if bson::to_vec(&bson::doc! {"pipeline":pipeline})?.len() > 64 * 1024 {
         bail!("pipeline exceeds 64 KiB");
     }
-    if pipeline.len() > 64 {
-        bail!("pipeline exceeds 64 stages");
+    if pipeline.len() > 256 {
+        bail!("pipeline exceeds 256 stages");
     }
-    let mut sql = Sql::default();
-    let mut source = format!("SELECT _jsonb FROM {sp}");
-    for stage in pipeline {
+    Ok(())
+}
+
+fn compile_pipeline(
+    sp: &SqlParam,
+    pipeline: &[Bson],
+    sql: &mut Sql,
+    exists: &mut dyn FnMut(&SqlParam) -> Result<bool>,
+    initial: Option<String>,
+    depth: usize,
+) -> Result<String> {
+    sp.validate()?;
+    if depth > 16 || pipeline.len() > 256 {
+        bail!("lookup pipeline exceeds nesting or stage limit");
+    }
+    let mut source = if let Some(initial) = initial {
+        initial
+    } else if exists(sp)? {
+        format!("SELECT _jsonb FROM {sp}")
+    } else {
+        "SELECT NULL::jsonb AS _jsonb WHERE FALSE".into()
+    };
+    let mut stages = Vec::new();
+    for (stage_index, stage) in pipeline.iter().enumerate() {
         let stage = stage
             .as_document()
             .ok_or_else(|| eyre!("pipeline stage must be a document"))?;
@@ -63,12 +132,12 @@ pub fn compile_sql(sp: &SqlParam, pipeline: &[Bson]) -> Result<Sql> {
         let (name, value) = stage.iter().next().expect("one stage field");
         source = match name.as_str() {
             "$match" => {
-                let predicate = parser::append_filter(as_doc(value)?, &mut sql)?;
+                let predicate = parser::append_filter(as_doc(value)?, sql)?;
                 format!("SELECT _jsonb FROM ({source}) AS s WHERE {predicate}")
             }
             "$sort" => format!(
                 "SELECT _jsonb FROM ({source}) AS s{}",
-                crate::pg::order_by(Some(as_doc(value)?), &mut sql)?
+                crate::pg::order_by(Some(as_doc(value)?), sql)?
             ),
             "$skip" | "$limit" => {
                 let n = integer(value)?;
@@ -81,10 +150,164 @@ pub fn compile_sql(sp: &SqlParam, pipeline: &[Bson]) -> Result<Sql> {
                 )
             }
             "$project" => {
-                let projection = projection(as_doc(value)?, &mut sql)?;
+                let projection = projection(as_doc(value)?, sql)?;
                 format!("SELECT {projection} AS _jsonb FROM ({source}) AS s")
             }
-            "$group" => group(&source, as_doc(value)?, &mut sql)?,
+            "$set" | "$addFields" => {
+                let fields = as_doc(value)?;
+                if fields
+                    .keys()
+                    .any(|key| key.is_empty() || key.contains('.') || key.starts_with('$'))
+                {
+                    bail!("{name} currently requires top-level output fields");
+                }
+                let keys = sql.bind(
+                    serde_json::to_string(
+                        &fields.keys().map(|key| encode_key(key)).collect::<Vec<_>>(),
+                    )?,
+                    "jsonb",
+                );
+                let computed = expression(value, sql, 0)?;
+                // All expressions read the original document. A missing input
+                // removes an existing output key instead of retaining its value.
+                format!("SELECT (_jsonb - ARRAY(SELECT jsonb_array_elements_text({keys}))) || ({computed}) AS _jsonb FROM ({source}) AS s")
+            }
+            "$unset" => {
+                let keys = match value {
+                    Bson::String(key) => vec![key.clone()],
+                    Bson::Array(keys) if !keys.is_empty() => keys
+                        .iter()
+                        .map(|key| {
+                            key.as_str()
+                                .map(str::to_owned)
+                                .ok_or_else(|| eyre!("$unset requires field names"))
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                    _ => bail!("$unset requires a field name or nonempty array of field names"),
+                };
+                let excluded = keys.into_iter().map(|key| (key, Bson::Int32(0))).collect();
+                let result = projection(&excluded, sql)?;
+                format!("SELECT {result} AS _jsonb FROM ({source}) AS s")
+            }
+            "$lookup" => {
+                let lookup = as_doc(value)?;
+                if lookup.keys().any(|key| {
+                    !["from", "localField", "foreignField", "as", "pipeline"]
+                        .contains(&key.as_str())
+                }) {
+                    bail!("unsupported $lookup option");
+                }
+                let foreign = SqlParam::new(&sp.db, lookup.get_str("from")?);
+                foreign.validate()?;
+                let output = lookup.get_str("as")?;
+                if output.is_empty() || output.contains('.') || output.starts_with('$') {
+                    bail!("$lookup currently requires a top-level output field");
+                }
+                let alias = format!("lookup_{depth}_{stage_index}");
+                let mut foreign_source = if exists(&foreign)? {
+                    format!("SELECT _jsonb FROM {foreign}")
+                } else {
+                    "SELECT NULL::jsonb AS _jsonb WHERE FALSE".into()
+                };
+                match (lookup.get("localField"), lookup.get("foreignField")) {
+                    (Some(Bson::String(local)), Some(Bson::String(remote))) => {
+                        let local = field_from(&format!("{alias}.document"), local, sql, 0)?;
+                        let remote = field(remote, sql)?;
+                        let candidates = |value: &str| {
+                            format!("jsonb_array_elements(CASE WHEN jsonb_typeof({value})='array' THEN {value} ELSE jsonb_build_array(COALESCE({value},'null'::jsonb)) END)")
+                        };
+                        let equal = format!(
+                            "{} = {}",
+                            crate::pg::identity_expr("local_value"),
+                            crate::pg::identity_expr("remote_value")
+                        );
+                        foreign_source = format!("SELECT _jsonb FROM ({foreign_source}) AS foreign_rows WHERE EXISTS (SELECT 1 FROM {} AS l(local_value), {} AS r(remote_value) WHERE {equal})", candidates(&local), candidates(&remote));
+                    }
+                    (None, None) => {}
+                    _ => bail!("$lookup requires both localField and foreignField as strings"),
+                }
+                let pipeline = match lookup.get("pipeline") {
+                    Some(Bson::Array(pipeline)) => pipeline.as_slice(),
+                    None => &[],
+                    _ => bail!("$lookup pipeline must be an array"),
+                };
+                let rows = compile_pipeline(
+                    &foreign,
+                    pipeline,
+                    sql,
+                    exists,
+                    Some(foreign_source),
+                    depth + 1,
+                )?;
+                let key = sql.bind(encode_key(output), "text");
+                format!("SELECT {alias}.document || jsonb_build_object({key}, COALESCE((SELECT jsonb_agg(_jsonb) FROM ({rows}) AS joined), '[]'::jsonb)) AS _jsonb FROM (SELECT _jsonb AS document FROM ({source}) AS input) AS {alias}")
+            }
+            "$unwind" => {
+                let (path, preserve, index) = match value {
+                    Bson::String(path) => (path.as_str(), false, None),
+                    Bson::Document(options) => {
+                        if options.keys().any(|key| {
+                            !["path", "preserveNullAndEmptyArrays", "includeArrayIndex"]
+                                .contains(&key.as_str())
+                        }) {
+                            bail!("unsupported $unwind option");
+                        }
+                        (
+                            options.get_str("path")?,
+                            crate::pg::optional_bool(options, "preserveNullAndEmptyArrays", false)?,
+                            options
+                                .get("includeArrayIndex")
+                                .map(|index| {
+                                    index
+                                        .as_str()
+                                        .ok_or_else(|| eyre!("includeArrayIndex must be a string"))
+                                })
+                                .transpose()?,
+                        )
+                    }
+                    _ => bail!("$unwind requires a path or options document"),
+                };
+                let path = path
+                    .strip_prefix('$')
+                    .ok_or_else(|| eyre!("$unwind path must start with $"))?;
+                if path.is_empty() || path.contains('.') || path.starts_with('$') {
+                    bail!("$unwind currently requires a top-level path");
+                }
+                let key = sql.bind(encode_key(path), "text");
+                let array = format!("CASE WHEN jsonb_typeof(s._jsonb->{key})='array' THEN s._jsonb->{key} WHEN s._jsonb->{key} IS NULL OR s._jsonb->{key}='null'::jsonb THEN '[]'::jsonb ELSE jsonb_build_array(s._jsonb->{key}) END");
+                let mut output = format!("CASE WHEN element.ordinal IS NOT NULL THEN s._jsonb || jsonb_build_object({key},element.value) WHEN s._jsonb->{key}='[]'::jsonb THEN s._jsonb-{key} ELSE s._jsonb END");
+                if let Some(index) = index {
+                    if index.is_empty() || index.contains('.') || index.starts_with('$') {
+                        bail!("includeArrayIndex currently requires a top-level field");
+                    }
+                    let index = sql.bind(encode_key(index), "text");
+                    output = format!("({output}) || jsonb_build_object({index},CASE WHEN jsonb_typeof(s._jsonb->{key})='array' AND element.ordinal IS NOT NULL THEN jsonb_build_object('$i',(element.ordinal-1)::text) ELSE 'null'::jsonb END)");
+                }
+                let join = if preserve {
+                    "LEFT JOIN LATERAL"
+                } else {
+                    "JOIN LATERAL"
+                };
+                format!("SELECT {output} AS _jsonb FROM ({source}) AS s {join} jsonb_array_elements({array}) WITH ORDINALITY AS element(value,ordinal) ON TRUE")
+            }
+            "$replaceRoot" | "$replaceWith" => {
+                let root = if name == "$replaceRoot" {
+                    let options = as_doc(value)?;
+                    if options.len() != 1 {
+                        bail!("$replaceRoot requires only newRoot");
+                    }
+                    options
+                        .get("newRoot")
+                        .ok_or_else(|| eyre!("$replaceRoot requires newRoot"))?
+                } else {
+                    value
+                };
+                let root = expression(root, sql, 0)?;
+                // jsonb_each raises an error for non-documents. Native BSON
+                // scalar tags must not masquerade as document roots either.
+                format!("SELECT (SELECT COALESCE(jsonb_object_agg(key,value),'{{}}'::jsonb) FROM jsonb_each(CASE WHEN jsonb_typeof(root.v)='object' AND NOT root.v ?| ARRAY['$i','$f','$o','$d','$b'] THEN root.v ELSE 'false'::jsonb END)) AS _jsonb FROM ({source}) AS s CROSS JOIN LATERAL (SELECT {root} AS v OFFSET 0) AS root")
+            }
+            "$group" => group(&source, as_doc(value)?, sql)?,
             "$count" => {
                 let key = value
                     .as_str()
@@ -97,12 +320,22 @@ pub fn compile_sql(sp: &SqlParam, pipeline: &[Bson]) -> Result<Sql> {
             }
             _ => bail!("Unrecognized pipeline stage name: '{name}'"),
         };
+        // Keep PostgreSQL from duplicating earlier relation joins and computed
+        // expressions while flattening the nested stage queries. Each stage
+        // consumes the preceding result once, as the pipeline describes.
+        let name = format!("stage_{depth}_{stage_index}");
+        stages.push(format!("{name} AS MATERIALIZED ({source})"));
+        source = format!("SELECT _jsonb FROM {name}");
+        if stages.iter().map(String::len).sum::<usize>() > 1024 * 1024 || sql.params.len() > 20_000
+        {
+            bail!("pipeline exceeds SQL complexity limit");
+        }
     }
-    sql.text = format!(
-        "SELECT _jsonb FROM ({source}) AS result LIMIT {}",
-        MAX_QUERY_ROWS + 1
-    );
-    Ok(sql)
+    if stages.is_empty() {
+        Ok(source)
+    } else {
+        Ok(format!("WITH {} {source}", stages.join(",")))
+    }
 }
 fn as_doc(value: &Bson) -> Result<&Document> {
     value
@@ -110,14 +343,28 @@ fn as_doc(value: &Bson) -> Result<&Document> {
         .ok_or_else(|| eyre!("stage requires a document"))
 }
 fn field(path: &str, sql: &mut Sql) -> Result<String> {
+    field_from("_jsonb", path, sql, 0)
+}
+
+fn field_from(input: &str, path: &str, sql: &mut Sql, depth: usize) -> Result<String> {
     if path.is_empty() || path.split('.').any(str::is_empty) {
         bail!("invalid field path");
     }
-    let path = path.split('.').map(encode_key).collect::<Vec<_>>();
-    let path = sql.bind(serde_json::to_string(&path)?, "jsonb");
-    Ok(format!(
-        "_jsonb #> ARRAY(SELECT jsonb_array_elements_text({path}))"
-    ))
+    if depth > 8 {
+        bail!("field path exceeds 8 levels");
+    }
+    let (key, rest) = path
+        .split_once('.')
+        .map_or((path, None), |(key, rest)| (key, Some(rest)));
+    let key = sql.bind(encode_key(key), "text");
+    let selected = format!("({input})->{key}");
+    let Some(rest) = rest else {
+        return Ok(selected);
+    };
+    let alias = format!("path_{depth}");
+    let scalar = field_from(&format!("{alias}.v"), rest, sql, depth + 1)?;
+    let item = field_from(&format!("{alias}_item.v"), rest, sql, depth + 1)?;
+    Ok(format!("(SELECT CASE WHEN jsonb_typeof({alias}.v)='array' THEN (SELECT COALESCE(jsonb_agg(value ORDER BY ordinal) FILTER (WHERE value IS NOT NULL),'[]'::jsonb) FROM (SELECT {item} AS value, ordinal FROM jsonb_array_elements({alias}.v) WITH ORDINALITY AS {alias}_item(v,ordinal)) AS elements) ELSE {scalar} END FROM (SELECT {selected} AS v) AS {alias})"))
 }
 fn literal(value: &Bson, sql: &mut Sql) -> String {
     sql.bind(value.clone().into_psql_json(), "jsonb")
@@ -125,15 +372,42 @@ fn literal(value: &Bson, sql: &mut Sql) -> String {
 
 /// One expression compiler is shared by projections and group accumulators.
 fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
+    expression_with_vars(value, sql, depth, &std::collections::HashMap::new())
+}
+
+fn expression_with_vars(
+    value: &Bson,
+    sql: &mut Sql,
+    depth: usize,
+    vars: &std::collections::HashMap<String, String>,
+) -> Result<String> {
     if depth > 64 {
         bail!("expression exceeds 64 levels");
     }
     let result = match value {
+        Bson::String(value) if value.starts_with("$$") => {
+            let (name, path) = value[2..]
+                .split_once('.')
+                .map_or((&value[2..], None), |(name, path)| (name, Some(path)));
+            let input = match name {
+                "REMOVE" => "NULL::jsonb".into(),
+                "ROOT" | "CURRENT" => "_jsonb".into(),
+                _ => vars
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| eyre!("undefined variable {name}"))?,
+            };
+            if let Some(path) = path {
+                field_from(&input, path, sql, 0)?
+            } else {
+                input
+            }
+        }
         Bson::String(value) if value.starts_with('$') => field(&value[1..], sql)?,
         Bson::Array(values) => {
             let values = values
                 .iter()
-                .map(|v| expression(v, sql, depth + 1))
+                .map(|v| expression_with_vars(v, sql, depth + 1, vars))
                 .collect::<Result<Vec<_>>>()?;
             format!("jsonb_build_array({})", values.join(","))
         }
@@ -143,6 +417,154 @@ fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
             }
             let (op, value) = doc.iter().next().expect("one expression field");
             match op.as_str() {
+                "$concat" => {
+                    let values = value
+                        .as_array()
+                        .ok_or_else(|| eyre!("$concat requires an array"))?;
+                    let values = values
+                        .iter()
+                        .map(|v| expression_with_vars(v, sql, depth + 1, vars))
+                        .collect::<Result<Vec<_>>>()?;
+                    format!("(SELECT CASE WHEN COALESCE(bool_or(v='null'::jsonb),FALSE) THEN 'null'::jsonb ELSE to_jsonb(COALESCE(string_agg(CASE WHEN v='null'::jsonb THEN NULL WHEN jsonb_typeof(v)='string' THEN v#>>'{{}}' ELSE jsonb_array_length(jsonb_build_object('invalid',v))::text END,'' ORDER BY ordinal),'')) END FROM jsonb_array_elements(jsonb_build_array({})) WITH ORDINALITY AS concat_input(v,ordinal))",values.join(","))
+                }
+                "$mergeObjects" => {
+                    let inputs = match value {
+                        Bson::Array(inputs) => inputs.clone(),
+                        value => vec![value.clone()],
+                    };
+                    let inputs = inputs
+                        .iter()
+                        .map(|value| expression_with_vars(value, sql, depth + 1, vars))
+                        .collect::<Result<Vec<_>>>()?;
+                    format!("(SELECT COALESCE(jsonb_object_agg(key,value ORDER BY ordinal),'{{}}'::jsonb) FROM jsonb_array_elements(jsonb_build_array({})) WITH ORDINALITY AS merged(document,ordinal) CROSS JOIN LATERAL jsonb_each(CASE WHEN merged.document='null'::jsonb THEN '{{}}'::jsonb WHEN jsonb_typeof(merged.document)='object' AND NOT merged.document ?| ARRAY['$i','$f','$o','$d','$b'] THEN merged.document ELSE 'false'::jsonb END) AS fields(key,value))",inputs.join(","))
+                }
+
+                "$cond" => {
+                    let inputs = match value {
+                        Bson::Array(values) if values.len() == 3 => values.clone(),
+                        Bson::Document(doc) if doc.len() == 3 => vec![
+                            doc.get("if")
+                                .ok_or_else(|| eyre!("missing $cond if"))?
+                                .clone(),
+                            doc.get("then")
+                                .ok_or_else(|| eyre!("missing $cond then"))?
+                                .clone(),
+                            doc.get("else")
+                                .ok_or_else(|| eyre!("missing $cond else"))?
+                                .clone(),
+                        ],
+                        _ => bail!("$cond requires if, then, else"),
+                    };
+                    let condition = expression_with_vars(&inputs[0], sql, depth + 1, vars)?;
+                    let yes = expression_with_vars(&inputs[1], sql, depth + 1, vars)?;
+                    let no = expression_with_vars(&inputs[2], sql, depth + 1, vars)?;
+                    format!("CASE WHEN {} THEN {yes} ELSE {no} END", truthy(&condition))
+                }
+                "$eq" | "$gte" => {
+                    let inputs = value
+                        .as_array()
+                        .filter(|inputs| inputs.len() == 2)
+                        .ok_or_else(|| eyre!("{op} requires two operands"))?;
+                    let left = expression_with_vars(&inputs[0], sql, depth + 1, vars)?;
+                    let right = expression_with_vars(&inputs[1], sql, depth + 1, vars)?;
+                    let operator = if op == "$eq" {
+                        "IS NOT DISTINCT FROM"
+                    } else {
+                        ">="
+                    };
+                    format!(
+                        "to_jsonb(COALESCE(({}) {operator} ({}),FALSE))",
+                        crate::pg::identity_expr(&format!("({left})")),
+                        crate::pg::identity_expr(&format!("({right})"))
+                    )
+                }
+                "$let" => {
+                    let doc = as_doc(value)?;
+                    if doc
+                        .keys()
+                        .any(|key| !["vars", "in"].contains(&key.as_str()))
+                    {
+                        bail!("unsupported $let option");
+                    }
+                    let mut scoped = vars.clone();
+                    let mut bindings = Vec::new();
+                    for (name, value) in doc.get_document("vars")? {
+                        let value = expression_with_vars(value, sql, depth + 1, vars)?;
+                        let alias = crate::sql::identifier(name);
+                        bindings.push(format!("{value} AS {alias}"));
+                        scoped.insert(name.clone(), format!("let_{depth}.{alias}"));
+                    }
+                    let result = expression_with_vars(
+                        doc.get("in").ok_or_else(|| eyre!("missing $let in"))?,
+                        sql,
+                        depth + 1,
+                        &scoped,
+                    )?;
+                    if bindings.is_empty() {
+                        result
+                    } else {
+                        format!(
+                            "(SELECT {result} FROM (SELECT {}) AS let_{depth})",
+                            bindings.join(",")
+                        )
+                    }
+                }
+                "$indexOfArray" | "$arrayElemAt" => {
+                    let inputs = value
+                        .as_array()
+                        .filter(|inputs| inputs.len() == 2)
+                        .ok_or_else(|| eyre!("{op} currently requires two operands"))?;
+                    let input = expression_with_vars(&inputs[0], sql, depth + 1, vars)?;
+                    let argument = expression_with_vars(&inputs[1], sql, depth + 1, vars)?;
+                    let alias = format!("array_{depth}");
+                    let result = if op == "$indexOfArray" {
+                        format!("(SELECT to_jsonb(COALESCE(MIN(ordinal)-1,-1)) FROM jsonb_array_elements({alias}.input) WITH ORDINALITY AS elements(value,ordinal) WHERE {} IS NOT DISTINCT FROM {})", crate::pg::identity_expr("value"), crate::pg::identity_expr(&format!("{alias}.argument")))
+                    } else {
+                        format!(
+                            "({alias}.input)->(({})::integer)",
+                            parser::numeric(&format!("{alias}.argument"))
+                        )
+                    };
+                    format!("(SELECT CASE WHEN {alias}.input IS NULL OR {alias}.input='null'::jsonb THEN 'null'::jsonb ELSE {result} END FROM (SELECT {input} AS input, {argument} AS argument) AS {alias})")
+                }
+                "$map" | "$filter" => {
+                    let doc = as_doc(value)?;
+                    let input = expression_with_vars(
+                        doc.get("input")
+                            .ok_or_else(|| eyre!("missing {op} input"))?,
+                        sql,
+                        depth + 1,
+                        vars,
+                    )?;
+                    let name = doc.get_str("as").unwrap_or("this");
+                    if doc.contains_key("as") && doc.get_str("as").is_err() {
+                        bail!("{op} as must be a string");
+                    }
+                    let allowed = if op == "$map" {
+                        vec!["input", "as", "in"]
+                    } else {
+                        vec!["input", "as", "cond"]
+                    };
+                    if doc.keys().any(|key| !allowed.contains(&key.as_str())) {
+                        bail!("unsupported {op} option");
+                    }
+                    let mut scoped = vars.clone();
+                    let alias = format!("elements_{depth}");
+                    scoped.insert(name.into(), format!("{alias}.value"));
+                    let result = expression_with_vars(
+                        doc.get(if op == "$map" { "in" } else { "cond" })
+                            .ok_or_else(|| eyre!("missing {op} body"))?,
+                        sql,
+                        depth + 1,
+                        &scoped,
+                    )?;
+                    let (output, predicate) = if op == "$map" {
+                        (format!("COALESCE({result},'null'::jsonb)"), "TRUE".into())
+                    } else {
+                        (format!("{alias}.value"), truthy(&result))
+                    };
+                    format!("(SELECT CASE WHEN array_input.v IS NULL OR array_input.v='null'::jsonb THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg({output} ORDER BY {alias}.ordinal),'[]'::jsonb) FROM jsonb_array_elements(array_input.v) WITH ORDINALITY AS {alias}(value,ordinal) WHERE {predicate}) END FROM (SELECT {input} AS v) AS array_input)")
+                }
                 "$literal" => literal(value, sql),
                 "$add" | "$multiply" | "$subtract" | "$divide" => {
                     let values = value
@@ -155,7 +577,7 @@ fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
                     }
                     let inputs = values
                         .iter()
-                        .map(|v| expression(v, sql, depth + 1))
+                        .map(|v| expression_with_vars(v, sql, depth + 1, vars))
                         .collect::<Result<Vec<_>>>()?;
                     let terms = inputs
                         .iter()
@@ -196,10 +618,11 @@ fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
                     {
                         bail!("only UTC %Y-%m-%d date formatting is supported");
                     }
-                    let date = expression(
+                    let date = expression_with_vars(
                         doc.get("date").ok_or_else(|| eyre!("missing date"))?,
                         sql,
                         depth + 1,
+                        vars,
                     )?;
                     format!("to_jsonb(TO_CHAR(TO_TIMESTAMP((({date})->>'$d')::numeric/1000) AT TIME ZONE 'UTC','{format}'))")
                 }
@@ -210,7 +633,7 @@ fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
             let mut fields = Vec::new();
             for (key, value) in doc {
                 let key = sql.bind(encode_key(key), "text");
-                let value = expression(value, sql, depth + 1)?;
+                let value = expression_with_vars(value, sql, depth + 1, vars)?;
                 // A missing path is SQL NULL; an explicit BSON null is JSON null.
                 fields.push(format!("CASE WHEN ({value}) IS NULL THEN '{{}}'::jsonb ELSE jsonb_build_object({key},{value}) END"));
             }
@@ -226,6 +649,9 @@ fn expression(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
         bail!("expression exceeds SQL complexity limit");
     }
     Ok(result)
+}
+fn truthy(value: &str) -> String {
+    format!("COALESCE(({value}) NOT IN ('null'::jsonb,'false'::jsonb,'0'::jsonb,'{{\"$i\":\"0\"}}'::jsonb,'{{\"$f\":0}}'::jsonb,'{{\"$f\":\"-0\"}}'::jsonb),FALSE)")
 }
 fn projection(doc: &Document, sql: &mut Sql) -> Result<String> {
     if doc.is_empty() {
@@ -441,7 +867,7 @@ mod tests {
             &vec![doc! {"$limit":5}.into(), doc! {"$skip":2}.into()],
         )
         .unwrap();
-        assert!(sql.text.contains("LIMIT 5) AS s OFFSET 2"));
+        assert!(sql.text.find("LIMIT 5").unwrap() < sql.text.find("OFFSET 2").unwrap());
     }
     #[test]
     fn expression_inputs_are_bound() {

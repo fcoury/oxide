@@ -1,0 +1,70 @@
+[
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "stage_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "run_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "stages": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.run_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tmp"
+    ]
+  },
+  {
+    "$match": {
+      "$and": [
+        {
+          "$or": [
+            {
+              "deleted_at": {
+                "$exists": false
+              }
+            },
+            {
+              "deleted_at": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "$limit": 10
+  }
+]

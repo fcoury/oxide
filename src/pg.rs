@@ -8,7 +8,6 @@ use crate::{
 use bson::{Bson, Document};
 use eyre::{bail, eyre, Result};
 use postgres::{error::SqlState, types::ToSql, NoTls, Row};
-use r2d2::PooledConnection;
 use r2d2_postgres::PostgresConnectionManager;
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -32,21 +31,156 @@ pub struct UpdateResult {
 }
 
 pub struct PgDb {
-    client: PooledConnection<PostgresConnectionManager<NoTls>>,
+    client: ConnectionLease,
+}
+// A command borrows its session connection and returns it when the handler exits.
+struct ConnectionLease {
+    connection: Option<crate::session::Connection>,
+    slot: Option<crate::session::Slot>,
+}
+impl std::ops::Deref for ConnectionLease {
+    type Target = postgres::Client;
+    fn deref(&self) -> &Self::Target {
+        self.connection.as_ref().expect("connection lease")
+    }
+}
+impl std::ops::DerefMut for ConnectionLease {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.connection.as_mut().expect("connection lease")
+    }
+}
+impl Drop for ConnectionLease {
+    fn drop(&mut self) {
+        if let Some(slot) = &self.slot {
+            if let Ok(mut slot) = slot.lock() {
+                *slot = self.connection.take();
+            }
+        }
+    }
+}
+struct CommandTransaction<'a> {
+    client: &'a mut ConnectionLease,
+    nested: bool,
+    done: bool,
+}
+impl ConnectionLease {
+    fn command_transaction(&mut self) -> Result<CommandTransaction<'_>> {
+        let nested = self.slot.is_some();
+        self.batch_execute(if nested {
+            "SAVEPOINT oxide_command"
+        } else {
+            "BEGIN"
+        })?;
+        Ok(CommandTransaction {
+            client: self,
+            nested,
+            done: false,
+        })
+    }
+}
+impl std::ops::Deref for CommandTransaction<'_> {
+    type Target = postgres::Client;
+    fn deref(&self) -> &Self::Target {
+        self.client
+    }
+}
+impl std::ops::DerefMut for CommandTransaction<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.client
+    }
+}
+impl CommandTransaction<'_> {
+    fn commit(mut self) -> Result<()> {
+        self.client.batch_execute(if self.nested {
+            "RELEASE SAVEPOINT oxide_command"
+        } else {
+            "COMMIT"
+        })?;
+        self.done = true;
+        Ok(())
+    }
+}
+impl Drop for CommandTransaction<'_> {
+    fn drop(&mut self) {
+        if !self.done {
+            let _ = self.client.batch_execute(if self.nested {
+                "ROLLBACK TO SAVEPOINT oxide_command; RELEASE SAVEPOINT oxide_command"
+            } else {
+                "ROLLBACK"
+            });
+        }
+    }
 }
 impl PgDb {
+    pub fn from_session(slot: crate::session::Slot) -> Result<Self> {
+        let connection = slot
+            .lock()
+            .map_err(|_| eyre!("session unavailable"))?
+            .take()
+            .ok_or_else(|| eyre!("session connection unavailable"))?;
+        Ok(Self {
+            client: ConnectionLease {
+                connection: Some(connection),
+                slot: Some(slot),
+            },
+        })
+    }
+    pub fn into_connection(mut self) -> crate::session::Connection {
+        self.client.connection.take().expect("connection lease")
+    }
+    pub fn begin_wire_transaction(&mut self) -> Result<()> {
+        self.client.batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ; SET LOCAL idle_in_transaction_session_timeout = '60s'")?;
+        Ok(())
+    }
+    pub fn commit_wire_transaction(&mut self) -> Result<()> {
+        // COMMIT on an aborted PostgreSQL transaction silently rolls back. Refuse
+        // to report that outcome as a successful MongoDB commit.
+        self.client.simple_query("SELECT 1")?;
+        self.client.batch_execute("COMMIT")?;
+        Ok(())
+    }
+
     pub fn try_from_pool(pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Result<Self> {
         let mut client = pool.get()?;
-        client.batch_execute("SET statement_timeout = '30s'; SET lock_timeout = '5s'")?;
-        Ok(Self { client })
+        client.batch_execute(
+            "SET statement_timeout = '30s'; SET lock_timeout = '5s'; SET jit = off; SET synchronous_commit = on",
+        )?;
+        Ok(Self {
+            client: ConnectionLease {
+                connection: Some(client),
+                slot: None,
+            },
+        })
     }
     pub fn try_with_uri(uri: &str) -> Result<Self> {
         let manager = PostgresConnectionManager::new(uri.parse()?, NoTls);
         let pool = r2d2::Pool::builder().max_size(4).build(manager)?;
         Self::try_from_pool(&pool)
     }
+    pub fn batch_execute(&mut self, sql: &str) -> Result<()> {
+        self.client.batch_execute(sql)?;
+        Ok(())
+    }
     pub fn exec(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<u64> {
         Ok(self.client.execute(query, params)?)
+    }
+    pub fn bounded_logical_query(
+        &mut self,
+        query: &str,
+        params: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>> {
+        use postgres::fallible_iterator::FallibleIterator;
+        let mut rows = self.client.query_raw(query, params.iter().copied())?;
+        let mut result = Vec::new();
+        let mut bytes = 0usize;
+        while let Some(row) = rows.next()? {
+            bytes += row.get::<_, i32>(2) as usize;
+            if result.len() >= 10002 || bytes > 64 * 1024 * 1024 {
+                bail!("logical change batch exceeds 10002 messages or 64 MiB; no WAL acknowledged");
+            }
+            result.push(row);
+        }
+        Ok(result)
     }
     pub fn raw_query(&mut self, query: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<Row>> {
         Ok(self.client.query(query, params)?)
@@ -210,15 +344,22 @@ impl PgDb {
         }
         let limit = if multi { MAX_QUERY_ROWS + 1 } else { 1 };
         let query = format!(
-            "SELECT ctid::text, _jsonb FROM {} WHERE {}{} LIMIT {} FOR UPDATE",
+            "SELECT _id, _jsonb FROM {} WHERE {}{} LIMIT {} FOR UPDATE",
             sp.sanitize(),
             sql.text,
             order,
             limit
         );
-        let mut transaction = self.client.transaction()?;
+        let mut transaction = self.client.command_transaction()?;
         transaction
             .batch_execute("SET LOCAL statement_timeout = '30s'; SET LOCAL lock_timeout = '5s'")?;
+        // Predicate compilation uses correlated JSON-path subqueries. PostgreSQL
+        // can retain their pre-lock result when a FOR UPDATE waiter is resumed.
+        // Serialize collection writes before starting the selection statement so
+        // its snapshot cannot select an already-claimed job or a stale version.
+        // Readers remain concurrent; this deliberately favors correctness over
+        // parallel writes until predicates can be rechecked after row locking.
+        transaction.batch_execute(&format!("LOCK TABLE {sp} IN SHARE ROW EXCLUSIVE MODE"))?;
         // Stream and bound the locked preimages before applying any changes.
         // Dropping the row iterator releases its mutable borrow, not row locks.
         let mut selected = Vec::new();
@@ -230,7 +371,9 @@ impl PgDb {
                 if selected.len() == MAX_QUERY_ROWS {
                     bail!("update exceeds supported document limit");
                 }
-                let tid: String = row.try_get(0)?;
+                // A concurrent update can move the tuple while FOR UPDATE waits.
+                // Its physical ctid is not a stable identity for the later write.
+                let locked_id: serde_json::Value = row.try_get(0)?;
                 let json: serde_json::Value = row.try_get(1)?;
                 let before = json
                     .to_bson()?
@@ -241,11 +384,11 @@ impl PgDb {
                 if bytes > MAX_QUERY_BYTES {
                     bail!("update exceeds supported byte limit");
                 }
-                selected.push((tid, before));
+                selected.push((locked_id, before));
             }
         }
         let mut result = UpdateResult::default();
-        for (tid, before) in selected {
+        for (locked_id, before) in selected {
             let after = mutation::apply(&before, &update)?;
             validate_document(&after)?;
             result.matched += 1;
@@ -254,10 +397,10 @@ impl PgDb {
                 let id = identity(after.get("_id").expect("validated identity"))?;
                 transaction.execute(
                     &format!(
-                        "UPDATE {} SET _jsonb=$1, _id=$2 WHERE ctid=$3::text::tid",
+                        "UPDATE {} SET _jsonb=$1, _id=$2 WHERE _id=$3",
                         sp.sanitize()
                     ),
-                    &[&json, &id, &tid],
+                    &[&json, &id, &locked_id],
                 )?;
                 result.modified += 1;
             }
@@ -377,7 +520,17 @@ impl PgDb {
     }
     pub fn create_schema_if_not_exists(&mut self, schema: &str) -> Result<u64> {
         validate_name(schema)?;
-        let mut tx = self.client.transaction()?;
+        if let Some(row) = self.client.query_opt(
+            "SELECT obj_description(oid,'pg_namespace') FROM pg_namespace WHERE nspname=$1",
+            &[&schema],
+        )? {
+            let version: Option<String> = row.get(0);
+            if version.as_deref() != Some(SCHEMA_VERSION) {
+                bail!("schema is not owned by this Oxide storage version");
+            }
+            return Ok(0);
+        }
+        let mut tx = self.client.command_transaction()?;
         tx.query_one(
             "SELECT pg_advisory_xact_lock(hashtext($1))",
             &[&format!("oxide-schema:{schema}")],
@@ -415,7 +568,10 @@ impl PgDb {
         let sp = SqlParam::new(schema, table);
         sp.validate()?;
         self.create_schema_if_not_exists(schema)?;
-        let mut tx = self.client.transaction()?;
+        if self.table_exists(schema, table)? {
+            return Ok(0);
+        }
+        let mut tx = self.client.command_transaction()?;
         tx.query_one(
             "SELECT pg_advisory_xact_lock(hashtext($1))",
             &[&format!("oxide-table:{schema}:{table}")],
@@ -429,6 +585,7 @@ impl PgDb {
         if !exists {
             let index_name = physical_index(&sp, "_id_");
             tx.batch_execute(&format!("CREATE TABLE {} (_jsonb jsonb NOT NULL, _id jsonb NOT NULL); CREATE UNIQUE INDEX {} ON {} (_id); COMMENT ON TABLE {} IS {}; COMMENT ON INDEX {}.{} IS {}", sp,identifier(&index_name),sp,sp,literal(STORAGE_VERSION),identifier(schema),identifier(&index_name),literal(&serde_json::json!({"name":"_id_","key":{"_id":1},"unique":true}).to_string())))?;
+            tx.batch_execute(&crate::change_stream::trigger_sql(&sp))?;
         }
         tx.commit()?;
         self.require_collection(&sp)?;
@@ -436,31 +593,106 @@ impl PgDb {
     }
     pub fn create_index(&mut self, sp: &SqlParam, index: &Document) -> Result<u64> {
         self.require_collection(sp)?;
-        let key = index.get_document("key")?;
+        let key = index
+            .get_document("key")?
+            .iter()
+            .map(|(field, value)| Ok((field.clone(), Bson::Int32(index_direction(value)? as i32))))
+            .collect::<Result<Document>>()?;
         if key.is_empty() {
             bail!("index key cannot be empty");
         }
         for option in index.keys() {
-            if !["key", "name", "unique", "v", "background"].contains(&option.as_str()) {
+            if ![
+                "key",
+                "name",
+                "unique",
+                "v",
+                "background",
+                "partialFilterExpression",
+            ]
+            .contains(&option.as_str())
+            {
                 bail!("unsupported index option {option}");
             }
         }
         let name = index.get_str("name")?;
         validate_name(name)?;
         let unique = optional_bool(index, "unique", false)?;
-        let definition = serde_json::json!({"name":name,"key":key,"unique":unique}).to_string();
+        let partial = match index.get("partialFilterExpression") {
+            None => None,
+            Some(Bson::Document(filter)) if filter.len() == 1 => {
+                let (field, condition) = filter.iter().next().expect("one filter field");
+                if condition.as_document().is_none_or(|condition| {
+                    condition.len() != 1 || condition.get_str("$type") != Ok("string")
+                }) {
+                    bail!("partial indexes currently require one $type:string condition");
+                }
+                let value = field_sql(field)?;
+                // NUL-containing BSON strings use the opaque codec. The BSON
+                // element's type byte is at offset four in the encoded document.
+                Some(format!(
+                    "(jsonb_typeof({value})='string' OR ({value}->'$b'->>4)='2')"
+                ))
+            }
+            _ => bail!("partial indexes currently require one $type:string condition"),
+        };
+        let mut definition = serde_json::json!({"name":name,"key":key,"unique":unique});
+        if let Some(filter) = index.get("partialFilterExpression") {
+            definition["partialFilterExpression"] = serde_json::to_value(filter)?;
+        }
+        let definition = definition.to_string();
         let physical = physical_index(sp, name);
-        let mut tx = self.client.transaction()?;
+        let mut tx = self.client.command_transaction()?;
         tx.query_one("SELECT pg_advisory_xact_lock(hashtext($1))", &[&physical])?;
         if let Some(row) = tx.query_opt("SELECT obj_description(c.oid,'pg_class') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2", &[&sp.db,&physical])? {
             let existing: Option<String> = row.get(0);
             if existing.as_deref() != Some(&definition) { bail!("index name already exists with a different definition"); }
             return Ok(0);
         }
+        // A root-field multikey index owns one row per distinct expanded key.
+        // PostgreSQL uniqueness arbitrates concurrent writers, while the trigger
+        // and its backfill share the collection lock and transaction.
+        if unique && key.len() == 1 && partial.is_none() {
+            let field = key.keys().next().expect("one key");
+            if !field.contains('.') {
+                let value = field_sql(field)?;
+                let schema = identifier(&sp.db);
+                let keys = format!(
+                    "{schema}.{}",
+                    identifier(&format!("{}_keys", &physical[..55]))
+                );
+                let function = format!(
+                    "{schema}.{}",
+                    identifier(&format!("{}_sync", &physical[..55]))
+                );
+                let expanded = |value: &str| {
+                    format!("CASE WHEN {value}='[]'::jsonb THEN '[{{\"$undefined\":true}}]'::jsonb WHEN jsonb_typeof({value})='array' THEN {value} ELSE jsonb_build_array(COALESCE({value},'null'::jsonb)) END")
+                };
+                let canonical = identity_expr("element");
+                tx.batch_execute(&format!("LOCK TABLE {sp} IN SHARE ROW EXCLUSIVE MODE;
+                    CREATE TABLE {keys} (key jsonb PRIMARY KEY CHECK (jsonb_typeof(key)<>'array' AND (jsonb_typeof(key)<>'object' OR key ?| ARRAY['$i','$f','$o','$d','$b','$undefined'])), owner jsonb NOT NULL REFERENCES {sp} (_id) ON DELETE CASCADE ON UPDATE CASCADE);
+                    CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $oxide$
+                    BEGIN
+                        IF TG_OP <> 'INSERT' THEN DELETE FROM {keys} WHERE owner=OLD._id; END IF;
+                        IF TG_OP <> 'DELETE' THEN
+                            INSERT INTO {keys} (key,owner) SELECT DISTINCT {canonical}, NEW._id FROM jsonb_array_elements({new_expanded}) AS values(element);
+                        END IF;
+                        RETURN NULL;
+                    END $oxide$;
+                    CREATE TRIGGER {trigger} AFTER INSERT OR UPDATE OR DELETE ON {sp} FOR EACH ROW EXECUTE FUNCTION {function}();
+                    INSERT INTO {keys} (key,owner) SELECT DISTINCT {canonical}, _id FROM {sp} CROSS JOIN LATERAL jsonb_array_elements({expanded}) AS values(element);
+                    CREATE INDEX {index} ON {sp} (({value}));
+                    COMMENT ON INDEX {schema}.{index} IS {definition}",
+                    new_expanded=expanded(&value.replace("_jsonb", "NEW._jsonb")),
+                    expanded=expanded(&value), trigger=identifier(&physical), index=identifier(&physical), definition=literal(&definition)))?;
+                tx.commit()?;
+                return Ok(0);
+            }
+        }
         let mut fields = Vec::new();
         let mut checks = Vec::new();
-        for (field, direction) in key {
-            let direction = integer(direction)?;
+        for (field, direction) in &key {
+            let direction = index_direction(direction)?;
             if direction != 1 && direction != -1 {
                 bail!("only ascending/descending indexes are supported");
             }
@@ -495,11 +727,14 @@ impl PgDb {
             ))?;
         }
         tx.batch_execute(&format!(
-            "CREATE {} INDEX {} ON {} ({}); COMMENT ON INDEX {}.{} IS {}",
+            "CREATE {} INDEX {} ON {} ({}){}; COMMENT ON INDEX {}.{} IS {}",
             if unique { "UNIQUE" } else { "" },
             identifier(&physical),
             sp,
             fields.join(","),
+            partial
+                .map(|predicate| format!(" WHERE {predicate}"))
+                .unwrap_or_default(),
             identifier(&sp.db),
             identifier(&physical),
             literal(&definition)
@@ -534,7 +769,23 @@ impl PgDb {
         if !self.table_exists(&sp.db, &sp.collection)? {
             return Ok(0);
         }
-        self.exec(&format!("DROP TABLE {}", sp), &[])
+        let indexes = self.get_table_indexes(&sp.db, &sp.collection)?;
+        let mut tx = self.client.command_transaction()?;
+        tx.batch_execute(&format!("DROP TABLE {} CASCADE", sp))?;
+        for index in indexes {
+            let physical: String = index.get("indexname");
+            if physical.starts_with("ox_") {
+                tx.batch_execute(&format!(
+                    "DROP TABLE IF EXISTS {}.{}; DROP FUNCTION IF EXISTS {}.{}()",
+                    identifier(&sp.db),
+                    identifier(&format!("{}_keys", &physical[..55])),
+                    identifier(&sp.db),
+                    identifier(&format!("{}_sync", &physical[..55]))
+                ))?;
+            }
+        }
+        tx.commit()?;
+        Ok(0)
     }
     pub fn schema_stats(&mut self, schema: &str, collection: Option<&str>) -> Result<Row> {
         Ok(self.client.query_one("SELECT COUNT(*)::integer AS TableCount, COALESCE(SUM(s.n_live_tup),0)::bigint AS RowCount, COALESCE(SUM(pg_total_relation_size(c.oid)),0)::bigint AS TotalSize, COALESCE(SUM(pg_indexes_size(c.oid)),0)::bigint AS IndexSize, COALESCE(SUM(pg_relation_size(c.oid)),0)::bigint AS RelationSize, COALESCE(SUM((SELECT COUNT(*) FROM pg_index i WHERE i.indrelid=c.oid)),0)::integer AS IndexCount FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid WHERE n.nspname=$1 AND c.relkind='r' AND ($2::text IS NULL OR c.relname=$2) AND obj_description(c.oid,'pg_class')=$3", &[&schema,&collection,&STORAGE_VERSION])?)
@@ -594,6 +845,13 @@ pub fn integer(value: &Bson) -> Result<i64> {
         Bson::Int32(i) => Ok(*i as i64),
         Bson::Int64(i) => Ok(*i),
         _ => bail!("expected an integer"),
+    }
+}
+fn index_direction(value: &Bson) -> Result<i64> {
+    match value {
+        Bson::Double(value) if *value == 1.0 => Ok(1),
+        Bson::Double(value) if *value == -1.0 => Ok(-1),
+        _ => integer(value),
     }
 }
 pub fn optional_bool(doc: &Document, key: &str, default: bool) -> Result<bool> {

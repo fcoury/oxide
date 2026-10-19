@@ -1,0 +1,280 @@
+[
+  {
+    "$lookup": {
+      "from": "patient_data",
+      "as": "_tmp",
+      "localField": "patient_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "patient": {
+        "$cond": [
+          "$patient_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$patient_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "physician_data",
+      "as": "_tmp",
+      "localField": "physician_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "physician": {
+        "$cond": [
+          "$physician_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$physician_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$lookup": {
+      "from": "location_data",
+      "as": "_tmp",
+      "localField": "location_id",
+      "foreignField": "_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "location": {
+        "$cond": [
+          "$location_id",
+          {
+            "$let": {
+              "vars": {
+                "index": {
+                  "$indexOfArray": [
+                    "$_tmp._id",
+                    "$location_id"
+                  ]
+                }
+              },
+              "in": {
+                "$cond": [
+                  {
+                    "$gte": [
+                      "$$index",
+                      0
+                    ]
+                  },
+                  {
+                    "$arrayElemAt": [
+                      "$_tmp",
+                      "$$index"
+                    ]
+                  },
+                  "$$REMOVE"
+                ]
+              }
+            }
+          },
+          "$$REMOVE"
+        ]
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "sample_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "order_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "samples": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.order_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$set": {
+      "_tmp": "$_id"
+    }
+  },
+  {
+    "$lookup": {
+      "from": "test_result_data",
+      "as": "_tmp",
+      "localField": "_tmp",
+      "foreignField": "order_id",
+      "pipeline": [
+        {
+          "$match": {
+            "deleted_at": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "$sort": {
+            "_id": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "$set": {
+      "test_results": {
+        "$filter": {
+          "input": "$_tmp",
+          "cond": {
+            "$eq": [
+              "$$this.order_id",
+              "$_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "$unset": [
+      "_tmp"
+    ]
+  },
+  {
+    "$match": {
+      "$and": [
+        {
+          "$or": [
+            {
+              "deleted_at": {
+                "$exists": false
+              }
+            },
+            {
+              "deleted_at": null
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "$limit": 10
+  }
+]

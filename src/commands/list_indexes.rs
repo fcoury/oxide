@@ -45,7 +45,13 @@ impl Handler for ListIndexes {
                         })? as i32,
                     );
                 }
-                let index = doc! {"v":2,"name":name,"key":key,"unique":value["unique"].as_bool().unwrap_or(false)};
+                let mut index = doc! {"v":2,"name":name,"key":key,"unique":value["unique"].as_bool().unwrap_or(false)};
+                if let Some(filter) = value.get("partialFilterExpression") {
+                    index.insert(
+                        "partialFilterExpression",
+                        bson::to_bson(filter).map_err(eyre::Report::from)?,
+                    );
+                }
                 indexes.push(index);
             }
         }

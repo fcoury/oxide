@@ -4,6 +4,60 @@ use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
 mod common;
 
 #[test]
+fn concurrent_claims_update_every_returned_job_once() {
+    use mongodb::options::ReturnDocument;
+    use std::sync::{Arc, Barrier};
+
+    let ctx = common::setup();
+    let col = ctx.col();
+    col.insert_many((0..48).map(|id| doc! {"_id":id,"queue":"default","scheduled":id}))
+        .run()
+        .unwrap();
+    let barrier = Arc::new(Barrier::new(4));
+    let claims = std::thread::scope(|scope| {
+        let handles = (0..4)
+            .map(|_| {
+                let col = col.clone();
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    (0..12)
+                        .map(|_| {
+                            col.find_one_and_update(
+                                doc! {"queue":"default"},
+                                doc! {"$set":{"queue":"running"}},
+                            )
+                            .sort(doc! {"scheduled":1})
+                            .return_document(ReturnDocument::After)
+                            .run()
+                            .unwrap()
+                            .unwrap()
+                            .get_i32("_id")
+                            .unwrap()
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let mut claims = claims;
+    claims.sort_unstable();
+    assert_eq!(claims, (0..48).collect::<Vec<_>>());
+    assert_eq!(
+        col.count_documents(doc! {"queue":"running"}).run().unwrap(),
+        48
+    );
+    assert_eq!(
+        col.count_documents(doc! {"queue":"default"}).run().unwrap(),
+        0
+    );
+}
+
+#[test]
 fn test_find_and_modify() {
     let col = insert! {
         doc! {
