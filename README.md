@@ -11,7 +11,7 @@ Use the Rust toolchain pinned in `rust-toolchain.toml` and a dedicated PostgreSQ
 Change streams require PostgreSQL `wal_level=logical` and an available logical
 replication slot. Configure the PostgreSQL server and restart it before launching
 Oxide. The development role needs permission to create publications and logical
-slots; see [the operational contract](docs/compatibility.md#dxflow-transaction-and-watcher-support)
+slots; see [the operational contract](docs/compatibility.md#change-streams)
 for retention and cleanup requirements. CI provisions these settings automatically.
 
 ```sh

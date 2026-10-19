@@ -66,7 +66,7 @@ Core and optional features compile separately. CI runs on pull requests, pins Ru
 
 Local PostgreSQL tests, a dependency audit, and a build do not establish remote CI status, platform coverage, or production readiness. Linux/Windows release artifacts must be produced by their own runners; a macOS binary is never relabeled as a Linux binary.
 
-## DxFlow transaction and watcher support
+## Sessions and transactions
 
 Logical sessions and multi-command transactions use a pinned PostgreSQL connection
 at repeatable-read isolation. Command-local savepoints preserve the enclosing
@@ -81,7 +81,9 @@ commit or abort. Retryable writes are unsupported: use `retryWrites=false`.
 Commit supports `w:1` and single-node `w:"majority"` with synchronous PostgreSQL
 commit; Oxide provides no replica failover or replicated durability guarantee.
 
-Collection change streams support the DxFlow watcher: `fullDocument:"updateLookup"`,
+## Change streams
+
+Collection change streams support `fullDocument:"updateLookup"`,
 `resumeAfter`, bounded `getMore`, and supported follow-on aggregation stages
 without lookups. `oxide_internal` holds the durable journal and instance identity;
 it is excluded from user database/collection catalogs. Collection triggers emit
@@ -113,14 +115,18 @@ Update lookups read the current committed document. Stream cursors expire after
 rather than retaining a PostgreSQL connection. Database-wide watches, DDL events,
 preimages, and exact nested-field update descriptions are not implemented.
 
+## Unique multikey indexes
+
 Unique single-field root indexes expand scalar array elements into an internal
 key table. Duplicate keys within one document collapse; keys shared by different
 documents fail atomically, including during backfill and concurrent writes.
 Updates/deletes maintain the key table transactionally. Nested and compound
 multikey indexes, nested arrays, and document-valued unique keys remain unsupported.
 
+## Aggregation execution
+
 Aggregation uses sequential materialized CTEs, with a 256-stage limit and the
 existing byte, nesting, parameter and SQL-size budgets. `$concat` supports string concatenation with null/missing propagation.
 `$mergeObjects` supports expression operands, null skipping and last-document field precedence. Oxide
 sets PostgreSQL JIT off on each connection: compilation costs on deeply nested
-JSONB expressions can dominate the actual DxFlow query execution.
+JSONB expressions can dominate query execution time.
