@@ -16,7 +16,13 @@ impl Handler for Count {
         docs: &[Document],
     ) -> Result<Document, CommandExecutionError> {
         let doc = &docs[0];
-        check_options(doc, &["count", "query", "skip", "limit"])?;
+        check_options(doc, &["count", "query", "skip", "limit"]).map_err(|mut error| {
+            if error.message.starts_with("unsupported option") {
+                error.code = 40415;
+                error.code_name = "IDLUnknownField".into();
+            }
+            error
+        })?;
         let sp = SqlParam::from(doc, "count")?;
         let filter = match doc.get("query") {
             None => Document::new(),

@@ -8,6 +8,7 @@ use std::{
 };
 pub(crate) static NEXT_ID: AtomicI64 = AtomicI64::new(1);
 const MAX_CURSORS: usize = 64;
+const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
 const TTL: Duration = Duration::from_secs(60);
 struct Cursor {
     namespace: String,
@@ -100,11 +101,11 @@ impl Cursors {
         let total_bytes = documents
             .iter()
             .try_fold(0_usize, |total, d| bson::to_vec(d).map(|b| total + b.len()))?;
-        if total_bytes > crate::pg::MAX_QUERY_BYTES {
+        if total_bytes > crate::pg::MAX_SNAPSHOT_BYTES {
             bail!("cursor exceeds byte limit");
         }
         let mut documents: VecDeque<_> = documents.into();
-        let first: Vec<_> = documents.drain(..documents.len().min(batch_size)).collect();
+        let first = take_batch(&mut documents, batch_size)?;
         let id = if single || documents.is_empty() {
             0
         } else {
@@ -116,7 +117,7 @@ impl Cursors {
                 .sum::<usize>();
             if self.cursors.len() + self.streams.len() >= MAX_CURSORS
                 || self.cursors.values().map(|c| c.bytes).sum::<usize>() + bytes
-                    > 4 * crate::pg::MAX_QUERY_BYTES
+                    > 4 * crate::pg::MAX_SNAPSHOT_BYTES
             {
                 bail!("server cursor budget exceeded");
             }
@@ -143,10 +144,7 @@ impl Cursors {
         if cursor.namespace != namespace {
             bail!("cursor namespace mismatch");
         }
-        let batch: Vec<_> = cursor
-            .documents
-            .drain(..cursor.documents.len().min(batch_size))
-            .collect();
+        let batch = take_batch(&mut cursor.documents, batch_size)?;
         cursor.bytes -= batch
             .iter()
             .map(|d| bson::to_vec(d).map(|b| b.len()))
@@ -183,5 +181,61 @@ impl Cursors {
         } else {
             false
         }
+    }
+}
+
+/// Enforce the wire batch byte ceiling as well as the requested document count.
+/// A single maximum-sized BSON document may fill a batch by itself.
+fn take_batch(documents: &mut VecDeque<Document>, count: usize) -> Result<Vec<Document>> {
+    let mut bytes = 0;
+    let mut batch = Vec::new();
+    while batch.len() < count {
+        let Some(front) = documents.front() else {
+            break;
+        };
+        let size = bson::to_vec(front)?.len();
+        if !batch.is_empty() && bytes + size > MAX_BATCH_BYTES {
+            break;
+        }
+        bytes += size;
+        batch.push(documents.pop_front().expect("front exists"));
+    }
+    Ok(batch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn byte_limited_batches_preserve_remaining_results_and_single_batch_closes() {
+        let documents = (0..3)
+            .map(|id| doc! {"_id":id,"payload":"x".repeat(6*1024*1024)})
+            .collect::<Vec<_>>();
+        let mut cursors = Cursors::default();
+        let first = cursors
+            .first("db.items".into(), documents.clone(), 101, false)
+            .unwrap();
+        let cursor = first.get_document("cursor").unwrap();
+        assert_eq!(cursor.get_array("firstBatch").unwrap().len(), 2);
+        let id = cursor.get_i64("id").unwrap();
+        assert_ne!(id, 0);
+        let next = cursors.more(id, "db.items", 101).unwrap();
+        let cursor = next.get_document("cursor").unwrap();
+        assert_eq!(cursor.get_i64("id").unwrap(), 0);
+        assert_eq!(
+            cursor.get_array("nextBatch").unwrap()[0]
+                .as_document()
+                .unwrap()
+                .get_i32("_id")
+                .unwrap(),
+            2
+        );
+        assert!(cursors.more(id, "db.items", 101).is_err());
+        let single = cursors
+            .first("db.items".into(), documents, 101, true)
+            .unwrap();
+        let cursor = single.get_document("cursor").unwrap();
+        assert_eq!(cursor.get_i64("id").unwrap(), 0);
+        assert_eq!(cursor.get_array("firstBatch").unwrap().len(), 2);
     }
 }

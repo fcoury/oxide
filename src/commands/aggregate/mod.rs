@@ -32,6 +32,7 @@ impl Handler for Aggregate {
         let sp = SqlParam::from(doc, "aggregate")?;
         let batch = cursor_batch_size(doc)?;
         let mut client = request.get_client()?;
+        client.prepare_aggregation()?;
         validate_pipeline(doc.get_array("pipeline")?)?;
         let mut sql = Sql::default();
         let source = compile_pipeline(
@@ -170,7 +171,9 @@ fn compile_pipeline(
                 let computed = expression(value, sql, 0)?;
                 // All expressions read the original document. A missing input
                 // removes an existing output key instead of retaining its value.
-                format!("SELECT (_jsonb - ARRAY(SELECT jsonb_array_elements_text({keys}))) || ({computed}) AS _jsonb FROM ({source}) AS s")
+                let original=format!("(_jsonb - ARRAY(SELECT key FROM jsonb_array_elements_text({keys}) AS fields(key) WHERE NOT computed.v ? key))");
+                let result = ordered_merge(&format!("jsonb_build_array({original},computed.v)"));
+                format!("SELECT {result} AS _jsonb FROM ({source}) AS s CROSS JOIN LATERAL (SELECT {computed} AS v OFFSET 0) AS computed")
             }
             "$unset" => {
                 let keys = match value {
@@ -357,15 +360,22 @@ fn field_from(input: &str, path: &str, sql: &mut Sql, depth: usize) -> Result<St
         .split_once('.')
         .map_or((path, None), |(key, rest)| (key, Some(rest)));
     let key = sql.bind(encode_key(key), "text");
-    let selected = format!("({input})->{key}");
-    let Some(rest) = rest else {
-        return Ok(selected);
-    };
     let alias = format!("path_{depth}");
-    let scalar = field_from(&format!("{alias}.v"), rest, sql, depth + 1)?;
-    let item = field_from(&format!("{alias}_item.v"), rest, sql, depth + 1)?;
-    Ok(format!("(SELECT CASE WHEN jsonb_typeof({alias}.v)='array' THEN (SELECT COALESCE(jsonb_agg(value ORDER BY ordinal) FILTER (WHERE value IS NOT NULL),'[]'::jsonb) FROM (SELECT {item} AS value, ordinal FROM jsonb_array_elements({alias}.v) WITH ORDINALITY AS {alias}_item(v,ordinal)) AS elements) ELSE {scalar} END FROM (SELECT {selected} AS v) AS {alias})"))
+    let selected = format!("{alias}.v->{key}");
+    let item = format!("{alias}_item.v->{key}");
+    let scalar = if let Some(rest) = rest {
+        field_from(&selected, rest, sql, depth + 1)?
+    } else {
+        selected
+    };
+    let item = if let Some(rest) = rest {
+        field_from(&item, rest, sql, depth + 1)?
+    } else {
+        item
+    };
+    Ok(format!("(SELECT CASE WHEN jsonb_typeof({alias}.v)='array' THEN (SELECT COALESCE(jsonb_agg(value ORDER BY ordinal) FILTER (WHERE value IS NOT NULL),'[]'::jsonb) FROM (SELECT {item} AS value,ordinal FROM jsonb_array_elements({alias}.v) WITH ORDINALITY AS {alias}_item(v,ordinal)) AS elements) ELSE {scalar} END FROM (SELECT {input} AS v) AS {alias})"))
 }
+
 fn literal(value: &Bson, sql: &mut Sql) -> String {
     sql.bind(value.clone().into_psql_json(), "jsonb")
 }
@@ -392,10 +402,9 @@ fn expression_with_vars(
             let input = match name {
                 "REMOVE" => "NULL::jsonb".into(),
                 "ROOT" | "CURRENT" => "_jsonb".into(),
-                _ => vars
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| eyre!("undefined variable {name}"))?,
+                _ => vars.get(name).cloned().ok_or_else(|| {
+                    crate::handler::aggregation_error(17276, format!("undefined variable {name}"))
+                })?,
             };
             if let Some(path) = path {
                 field_from(&input, path, sql, 0)?
@@ -407,7 +416,10 @@ fn expression_with_vars(
         Bson::Array(values) => {
             let values = values
                 .iter()
-                .map(|v| expression_with_vars(v, sql, depth + 1, vars))
+                .map(|v| {
+                    expression_with_vars(v, sql, depth + 1, vars)
+                        .map(|v| format!("COALESCE({v},'null'::jsonb)"))
+                })
                 .collect::<Result<Vec<_>>>()?;
             format!("jsonb_build_array({})", values.join(","))
         }
@@ -436,7 +448,7 @@ fn expression_with_vars(
                         .iter()
                         .map(|value| expression_with_vars(value, sql, depth + 1, vars))
                         .collect::<Result<Vec<_>>>()?;
-                    format!("(SELECT COALESCE(jsonb_object_agg(key,value ORDER BY ordinal),'{{}}'::jsonb) FROM jsonb_array_elements(jsonb_build_array({})) WITH ORDINALITY AS merged(document,ordinal) CROSS JOIN LATERAL jsonb_each(CASE WHEN merged.document='null'::jsonb THEN '{{}}'::jsonb WHEN jsonb_typeof(merged.document)='object' AND NOT merged.document ?| ARRAY['$i','$f','$o','$d','$b'] THEN merged.document ELSE 'false'::jsonb END) AS fields(key,value))",inputs.join(","))
+                    ordered_merge(&format!("jsonb_build_array({})", inputs.join(",")))
                 }
 
                 "$cond" => {
@@ -460,7 +472,7 @@ fn expression_with_vars(
                     let no = expression_with_vars(&inputs[2], sql, depth + 1, vars)?;
                     format!("CASE WHEN {} THEN {yes} ELSE {no} END", truthy(&condition))
                 }
-                "$eq" | "$gte" => {
+                "$eq" | "$gte" | "$lte" => {
                     let inputs = value
                         .as_array()
                         .filter(|inputs| inputs.len() == 2)
@@ -469,14 +481,37 @@ fn expression_with_vars(
                     let right = expression_with_vars(&inputs[1], sql, depth + 1, vars)?;
                     let operator = if op == "$eq" {
                         "IS NOT DISTINCT FROM"
-                    } else {
+                    } else if op == "$gte" {
                         ">="
+                    } else {
+                        "<="
                     };
                     format!(
                         "to_jsonb(COALESCE(({}) {operator} ({}),FALSE))",
                         crate::pg::identity_expr(&format!("({left})")),
                         crate::pg::identity_expr(&format!("({right})"))
                     )
+                }
+                "$and" | "$or" => {
+                    let inputs = value
+                        .as_array()
+                        .ok_or_else(|| eyre!("{op} requires an array"))?;
+                    let terms = inputs
+                        .iter()
+                        .map(|v| expression_with_vars(v, sql, depth + 1, vars).map(|v| truthy(&v)))
+                        .collect::<Result<Vec<_>>>()?;
+                    if terms.is_empty() {
+                        if op == "$and" {
+                            "'true'::jsonb".into()
+                        } else {
+                            "'false'::jsonb".into()
+                        }
+                    } else {
+                        format!(
+                            "to_jsonb({})",
+                            terms.join(if op == "$and" { " AND " } else { " OR " })
+                        )
+                    }
                 }
                 "$let" => {
                     let doc = as_doc(value)?;
@@ -527,35 +562,69 @@ fn expression_with_vars(
                     };
                     format!("(SELECT CASE WHEN {alias}.input IS NULL OR {alias}.input='null'::jsonb THEN 'null'::jsonb ELSE {result} END FROM (SELECT {input} AS input, {argument} AS argument) AS {alias})")
                 }
+                "$first" | "$last" => {
+                    let input = expression_with_vars(value, sql, depth + 1, vars)?;
+                    let index = if op == "$first" { 0 } else { -1 };
+                    format!("(SELECT CASE WHEN v IS NULL OR v='null'::jsonb OR (v->'$b'->>4)='6' THEN 'null'::jsonb WHEN jsonb_typeof(v)='array' THEN v->({index}) ELSE to_jsonb(jsonb_array_length(v)) END FROM (SELECT {input} AS v) AS first_last_{depth})")
+                }
+                "$sum" => {
+                    let input = match value {
+                        Bson::Array(values) => format!(
+                            "jsonb_build_array({})",
+                            values
+                                .iter()
+                                .map(|v| expression_with_vars(v, sql, depth + 1, vars))
+                                .collect::<Result<Vec<_>>>()?
+                                .join(",")
+                        ),
+                        value => {
+                            let input = expression_with_vars(value, sql, depth + 1, vars)?;
+                            format!("(SELECT CASE WHEN jsonb_typeof(v)='array' THEN v ELSE jsonb_build_array(v) END FROM (SELECT {input} AS v) AS sum_input_{depth})")
+                        }
+                    };
+                    let number = parser::numeric("v");
+                    let result = number_result(
+                        &format!("COALESCE(SUM({number}),0)"),
+                        "COALESCE(bool_or(v ? '$f'),FALSE)",
+                        "COALESCE(bool_or(v ? '$i'),FALSE)",
+                    );
+                    format!("(SELECT {result} FROM jsonb_array_elements({input}) AS sum_values_{depth}(v))")
+                }
                 "$concatArrays" => {
-                    let values = value
-                        .as_array()
-                        .ok_or_else(|| eyre!("$concatArrays requires an array"))?;
+                    let unary = vec![value.clone()];
+                    let values = value.as_array().unwrap_or(&unary);
                     let values = values
                         .iter()
                         .map(|v| expression_with_vars(v, sql, depth + 1, vars))
                         .collect::<Result<Vec<_>>>()?;
                     let alias = format!("concat_arrays_{depth}");
-                    format!("(SELECT CASE WHEN EXISTS(SELECT 1 FROM unnest({alias}.inputs) AS operands(v) WHERE v IS NULL OR v='null'::jsonb) THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg(element ORDER BY ordinal, element_ordinal),'[]'::jsonb) FROM unnest({alias}.inputs) WITH ORDINALITY AS arrays(v,ordinal) CROSS JOIN LATERAL jsonb_array_elements(v) WITH ORDINALITY AS elements(element,element_ordinal)) END FROM (SELECT ARRAY[{inputs}]::jsonb[] AS inputs) AS {alias})", inputs=values.join(","))
+                    format!("(SELECT CASE WHEN (SELECT jsonb_typeof(v) IS DISTINCT FROM 'null' AND v IS NOT NULL FROM unnest({alias}.inputs) WITH ORDINALITY AS operands(v,n) WHERE v IS NULL OR jsonb_typeof(v) IS DISTINCT FROM 'array' ORDER BY n LIMIT 1) THEN pg_temp.oxide_error(28664,'$concatArrays only supports arrays') WHEN EXISTS(SELECT 1 FROM unnest({alias}.inputs) AS operands(v) WHERE v IS NULL OR v='null'::jsonb) THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg(element ORDER BY ordinal, element_ordinal),'[]'::jsonb) FROM unnest({alias}.inputs) WITH ORDINALITY AS arrays(v,ordinal) CROSS JOIN LATERAL jsonb_array_elements(v) WITH ORDINALITY AS elements(element,element_ordinal)) END FROM (SELECT ARRAY[{inputs}]::jsonb[] AS inputs) AS {alias})", inputs=values.join(","))
                 }
                 "$reduce" => {
-                    let doc = as_doc(value)?;
+                    let doc = value.as_document().ok_or_else(|| {
+                        crate::handler::aggregation_error(40075, "$reduce requires an object")
+                    })?;
                     if doc
                         .keys()
                         .any(|k| !["input", "initialValue", "in"].contains(&k.as_str()))
                     {
-                        bail!("unsupported $reduce option");
+                        return Err(crate::handler::aggregation_error(
+                            40076,
+                            "unsupported $reduce option",
+                        ));
                     }
                     let input = expression_with_vars(
-                        doc.get("input")
-                            .ok_or_else(|| eyre!("missing $reduce input"))?,
+                        doc.get("input").ok_or_else(|| {
+                            crate::handler::aggregation_error(40077, "missing $reduce input")
+                        })?,
                         sql,
                         depth + 1,
                         vars,
                     )?;
                     let initial = expression_with_vars(
-                        doc.get("initialValue")
-                            .ok_or_else(|| eyre!("missing $reduce initialValue"))?,
+                        doc.get("initialValue").ok_or_else(|| {
+                            crate::handler::aggregation_error(40078, "missing $reduce initialValue")
+                        })?,
                         sql,
                         depth + 1,
                         vars,
@@ -568,12 +637,14 @@ fn expression_with_vars(
                         format!("(reduce_input_{depth}.input)->({alias}.ordinal)"),
                     );
                     let body = expression_with_vars(
-                        doc.get("in").ok_or_else(|| eyre!("missing $reduce in"))?,
+                        doc.get("in").ok_or_else(|| {
+                            crate::handler::aggregation_error(40079, "missing $reduce in")
+                        })?,
                         sql,
                         depth + 1,
                         &scoped,
                     )?;
-                    format!("(SELECT CASE WHEN reduce_input_{depth}.input IS NULL OR reduce_input_{depth}.input='null'::jsonb THEN 'null'::jsonb ELSE (WITH RECURSIVE {alias}(ordinal,value) AS (SELECT 0,COALESCE({initial},'null'::jsonb) UNION ALL SELECT {alias}.ordinal+1,COALESCE({body},'null'::jsonb) FROM {alias} WHERE {alias}.ordinal<jsonb_array_length(reduce_input_{depth}.input)) SELECT value FROM {alias} ORDER BY ordinal DESC LIMIT 1) END FROM (SELECT {input} AS input) AS reduce_input_{depth})")
+                    format!("(SELECT CASE WHEN reduce_input_{depth}.input IS NULL OR reduce_input_{depth}.input='null'::jsonb THEN 'null'::jsonb WHEN jsonb_typeof(reduce_input_{depth}.input) IS DISTINCT FROM 'array' THEN pg_temp.oxide_error(40080,'$reduce input must be an array') ELSE (WITH RECURSIVE {alias}(ordinal,value) AS (SELECT 0,COALESCE({initial},'null'::jsonb) UNION ALL SELECT {alias}.ordinal+1,COALESCE({body},'null'::jsonb) FROM {alias} WHERE {alias}.ordinal<jsonb_array_length(reduce_input_{depth}.input)) SELECT value FROM {alias} ORDER BY ordinal DESC LIMIT 1) END FROM (SELECT {input} AS input) AS reduce_input_{depth})")
                 }
                 "$map" | "$filter" => {
                     let doc = as_doc(value)?;
@@ -689,8 +760,10 @@ fn expression_with_vars(
         }
         Bson::Document(doc) => {
             let mut fields = Vec::new();
+            let mut order = Vec::new();
             for (key, value) in doc {
                 let key = sql.bind(encode_key(key), "text");
+                order.push(key.clone());
                 let value = expression_with_vars(value, sql, depth + 1, vars)?;
                 // A missing path is SQL NULL; an explicit BSON null is JSON null.
                 fields.push(format!("CASE WHEN ({value}) IS NULL THEN '{{}}'::jsonb ELSE jsonb_build_object({key},{value}) END"));
@@ -698,7 +771,11 @@ fn expression_with_vars(
             if fields.is_empty() {
                 "'{}'::jsonb".into()
             } else {
-                format!("({})", fields.join(" || "))
+                format!(
+                    "(({}) || jsonb_build_object('$k',jsonb_build_array({})))",
+                    fields.join(" || "),
+                    order.join(",")
+                )
             }
         }
         _ => literal(value, sql),
@@ -708,6 +785,59 @@ fn expression_with_vars(
     }
     Ok(result)
 }
+/// Merge values left to right, retaining each field's first position and last value.
+fn ordered_merge(inputs: &str) -> String {
+    format!(
+        r#"(
+        WITH documents AS MATERIALIZED (
+            SELECT CASE
+                WHEN document IS NULL OR document='null'::jsonb THEN '{{}}'::jsonb
+                WHEN jsonb_typeof(document)='object'
+                    AND NOT document ?| ARRAY['$i','$f','$o','$d','$b'] THEN document
+                ELSE pg_temp.oxide_error(40400,'$mergeObjects requires object inputs')
+            END AS document, ordinal
+            FROM jsonb_array_elements({inputs}) WITH ORDINALITY AS inputs(document,ordinal)
+        ), fields AS (
+            SELECT key,document->key AS value,
+                row_number() OVER (ORDER BY ordinal,key_ordinal) AS position
+            FROM documents CROSS JOIN LATERAL jsonb_array_elements_text(
+                COALESCE(document->'$k','[]'::jsonb) || (
+                    SELECT COALESCE(jsonb_agg(key),'[]'::jsonb)
+                    FROM jsonb_object_keys(document) AS keys(key)
+                    WHERE key<>'$k' AND NOT COALESCE(document->'$k','[]'::jsonb) ? key
+                )
+            ) WITH ORDINALITY AS keys(key,key_ordinal)
+            WHERE key<>'$k' AND document ? key
+        ), merged AS (
+            SELECT key,(array_agg(value ORDER BY position DESC))[1] AS value,
+                MIN(position) AS position
+            FROM fields GROUP BY key
+        )
+        SELECT COALESCE(jsonb_object_agg(key,value),'{{}}'::jsonb)
+            || jsonb_build_object('$k',COALESCE(jsonb_agg(key ORDER BY position),'[]'::jsonb))
+        FROM merged
+    )"#
+    )
+}
+
+/// Build an ordered BSON object while keeping values queryable as JSONB.
+fn ordered_object(fields: &[(String, String)]) -> String {
+    let keys = fields
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+    let values = fields
+        .iter()
+        .flat_map(|(k, v)| [k.clone(), v.clone()])
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "jsonb_build_object('$k',jsonb_build_array({keys}){sep}{values})",
+        sep = if fields.is_empty() { "" } else { "," }
+    )
+}
+
 fn truthy(value: &str) -> String {
     format!("COALESCE(({value}) NOT IN ('null'::jsonb,'false'::jsonb,'0'::jsonb,'{{\"$i\":\"0\"}}'::jsonb,'{{\"$f\":0}}'::jsonb,'{{\"$f\":\"-0\"}}'::jsonb),FALSE)")
 }
@@ -789,7 +919,12 @@ fn projection_object(
         bail!("projection exceeds 64 levels");
     }
     let mut fields = Vec::new();
-    for (key, value) in doc {
+    let mut order = Vec::new();
+    let entries = doc
+        .iter()
+        .filter(|(k, _)| k.as_str() == "_id")
+        .chain(doc.iter().filter(|(k, _)| k.as_str() != "_id"));
+    for (key, value) in entries {
         let child_path = if path.is_empty() {
             key.clone()
         } else {
@@ -806,12 +941,17 @@ fn projection_object(
             value=format!("CASE WHEN jsonb_typeof({source})='array' THEN to_jsonb(({source})::numeric) WHEN jsonb_typeof({source}) IS DISTINCT FROM 'object' OR ({source}) ?| ARRAY['$i','$f','$d','$o','$b'] THEN NULL::jsonb ELSE {value} END");
         }
         let key = sql.bind(encode_key(key), "text");
+        order.push(key.clone());
         fields.push(format!("CASE WHEN ({value}) IS NULL THEN '{{}}'::jsonb ELSE jsonb_build_object({key},{value}) END"));
     }
     let result = if fields.is_empty() {
         "'{}'::jsonb".into()
     } else {
-        format!("({})", fields.join(" || "))
+        format!(
+            "(({}) || jsonb_build_object('$k',jsonb_build_array({})))",
+            fields.join(" || "),
+            order.join(",")
+        )
     };
     if result.len() > 256 * 1024 {
         bail!("projection exceeds SQL complexity limit");
@@ -845,7 +985,7 @@ fn group(source: &str, doc: &Document, sql: &mut Sql) -> Result<String> {
         sql,
         0,
     )?;
-    let mut fields = vec!["'_id'".into(), id.clone()];
+    let mut fields = vec![("'_id'".into(), id.clone())];
     for (key, value) in doc {
         if key == "_id" {
             continue;
@@ -855,14 +995,22 @@ fn group(source: &str, doc: &Document, sql: &mut Sql) -> Result<String> {
             bail!("group accumulator requires one operator");
         }
         let (name, value) = op.iter().next().expect("one accumulator");
-        if name != "$sum" && name != "$avg" && name != "$first" {
+        if name != "$sum" && name != "$avg" && name != "$first" && name != "$mergeObjects" {
             bail!("unsupported accumulator {name}");
         }
         let value = expression(value, sql, 0)?;
-        fields.push(sql.bind(encode_key(key), "text"));
+        let key = sql.bind(encode_key(key), "text");
+        if name == "$mergeObjects" {
+            fields.push((
+                key,
+                ordered_merge(&format!("jsonb_agg({value} ORDER BY __group_ordinal)")),
+            ));
+            continue;
+        }
         if name == "$first" {
-            fields.push(format!(
-                "COALESCE((array_agg({value} ORDER BY __group_ordinal))[1],'null'::jsonb)"
+            fields.push((
+                key,
+                format!("COALESCE((array_agg({value} ORDER BY __group_ordinal))[1],'null'::jsonb)"),
             ));
             continue;
         }
@@ -878,11 +1026,11 @@ fn group(source: &str, doc: &Document, sql: &mut Sql) -> Result<String> {
             format!("COALESCE(BOOL_OR(({value}) ? '$f'),FALSE)")
         };
         let long = format!("COALESCE(BOOL_OR(({value}) ? '$i'),FALSE)");
-        fields.push(number_result(&result, &double, &long));
+        fields.push((key, number_result(&result, &double, &long)));
     }
     Ok(format!(
-        "SELECT jsonb_build_object({}) AS _jsonb FROM (SELECT _jsonb, row_number() OVER () AS __group_ordinal FROM ({source}) AS group_input) AS s GROUP BY {id}",
-        fields.join(",")
+        "SELECT {} AS _jsonb FROM (SELECT _jsonb, row_number() OVER () AS __group_ordinal FROM ({source}) AS group_input) AS s GROUP BY {id}",
+        ordered_object(&fields)
     ))
 }
 
@@ -898,10 +1046,11 @@ fn group_key(value: &Bson, sql: &mut Sql, depth: usize) -> Result<String> {
         Bson::Document(doc) if !doc.keys().any(|k| k.starts_with('$')) => {
             let mut fields = Vec::new();
             for (key, value) in doc {
-                fields.push(sql.bind(encode_key(key), "text"));
-                fields.push(group_key(value, sql, depth + 1)?);
+                let key = sql.bind(encode_key(key), "text");
+                let value = group_key(value, sql, depth + 1)?;
+                fields.push((key, value));
             }
-            Ok(format!("jsonb_build_object({})", fields.join(",")))
+            Ok(ordered_object(&fields))
         }
         Bson::Array(values) => Ok(format!(
             "jsonb_build_array({})",

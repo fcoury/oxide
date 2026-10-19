@@ -26,6 +26,7 @@ impl Handler for Find {
                 "limit",
                 "batchSize",
                 "singleBatch",
+                "hint",
             ],
         )?;
         let sp = SqlParam::from(doc, "find")?;
@@ -33,6 +34,9 @@ impl Handler for Find {
             .cloned()
             .unwrap_or_default();
         let sort = optional_document(doc, "sort")?;
+        if let Some(hint) = doc.get("hint") {
+            request.get_client()?.validate_hint(&sp, hint)?;
+        }
         let projection = optional_document(doc, "projection")?;
         let skip = optional_integer(doc, "skip", 0)?;
         let limit = optional_integer(doc, "limit", 0)?;
@@ -96,8 +100,9 @@ pub fn optional_integer(
 fn flag(value: &Bson) -> Result<bool, CommandExecutionError> {
     match value {
         Bson::Boolean(b) => Ok(*b),
-        Bson::Int32(i) if *i == 0 || *i == 1 => Ok(*i == 1),
-        Bson::Int64(i) if *i == 0 || *i == 1 => Ok(*i == 1),
+        Bson::Int32(i) => Ok(*i != 0),
+        Bson::Int64(i) => Ok(*i != 0),
+        Bson::Double(f) => Ok(*f != 0.0),
         _ => Err(CommandExecutionError::new(
             "projection supports only inclusion/exclusion flags".into(),
         )),
@@ -167,7 +172,23 @@ pub fn project(
     } else {
         result.remove("_id");
     }
+    if inclusion {
+        order_like_source(&mut result, source);
+    }
     Ok(result)
+}
+fn order_like_source(result: &mut Document, source: &Document) {
+    let mut ordered = Document::new();
+    for (key, value) in source {
+        if let Some(mut selected) = result.remove(key) {
+            if let (Bson::Document(selected), Bson::Document(original)) = (&mut selected, value) {
+                order_like_source(selected, original);
+            }
+            ordered.insert(key, selected);
+        }
+    }
+    ordered.extend(std::mem::take(result));
+    *result = ordered;
 }
 fn get_path<'a>(
     source: &'a Document,

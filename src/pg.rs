@@ -14,6 +14,9 @@ use std::fmt;
 
 pub const MAX_QUERY_ROWS: usize = 10_000;
 pub const MAX_QUERY_BYTES: usize = 8 * 1024 * 1024;
+/// Read snapshots and wire batches have independent budgets. Mutations remain
+/// bounded by MAX_QUERY_BYTES while cursors can span several wire batches.
+pub const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
 const SCHEMA_VERSION: &str = "oxide:database:v1";
 
 #[derive(Debug)]
@@ -212,6 +215,45 @@ impl PgDb {
         Ok(self.client.query(&query, &filter.refs())?)
     }
 
+    /// Validate a MongoDB hint against catalog metadata. PostgreSQL chooses the
+    /// physical plan; a valid hint does not change the result predicate.
+    pub fn validate_hint(&mut self, sp: &SqlParam, hint: &Bson) -> Result<()> {
+        if !matches!(hint, Bson::String(_) | Bson::Document(_)) {
+            bail!("hint must be an index name or key pattern");
+        }
+        if hint.as_document().is_some_and(|d| {
+            d.len() == 1
+                && d.get("$natural")
+                    .is_some_and(|v| integer(v).is_ok_and(|n| n == 1))
+        }) {
+            return Ok(());
+        }
+        if sp.exists(self)? {
+            for row in self.get_table_indexes(&sp.db, &sp.collection)? {
+                let definition: Option<String> = row.get("definition");
+                if let Some(definition) = definition {
+                    let value: serde_json::Value = serde_json::from_str(&definition)?;
+                    let matches = match hint {
+                        Bson::String(name) => value["name"].as_str() == Some(name),
+                        Bson::Document(key) => {
+                            key.iter()
+                                .all(|(k, v)| integer(v).ok() == value["key"][k].as_i64())
+                                && key.len() == value["key"].as_object().map_or(0, |o| o.len())
+                        }
+                        _ => false,
+                    };
+                    if matches {
+                        if value.get("partialFilterExpression").is_some() {
+                            bail!("partial index hints are unsupported");
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        bail!("hint does not correspond to an existing index")
+    }
+
     pub fn find(
         &mut self,
         sp: &SqlParam,
@@ -246,6 +288,22 @@ impl PgDb {
         )
     }
 
+    /// Session-local error function lets SQL expressions preserve MongoDB error
+    /// codes without parsing PostgreSQL's localized error messages.
+    pub fn prepare_aggregation(&mut self) -> Result<()> {
+        let exists: bool = self
+            .client
+            .query_one(
+                "SELECT to_regprocedure('pg_temp.oxide_error(integer,text)') IS NOT NULL",
+                &[],
+            )?
+            .get(0);
+        if !exists {
+            self.client.batch_execute("CREATE FUNCTION pg_temp.oxide_error(error_code integer, error_message text) RETURNS jsonb LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE=error_message, DETAIL='oxide:' || error_code::text; END $$")?;
+        }
+        Ok(())
+    }
+
     pub fn documents(&mut self, sql: &Sql, limit: Option<usize>) -> Result<Vec<Document>> {
         use postgres::fallible_iterator::FallibleIterator;
         let refs = sql.refs();
@@ -266,7 +324,7 @@ impl PgDb {
                 .ok_or_else(|| eyre!("query returned a non-document"))?
                 .clone();
             bytes += bson::to_vec(&doc)?.len();
-            if bytes > MAX_QUERY_BYTES {
+            if bytes > MAX_SNAPSHOT_BYTES {
                 bail!("query exceeds the supported result byte limit");
             }
             docs.push(doc);
@@ -392,7 +450,7 @@ impl PgDb {
             let after = mutation::apply(&before, &update)?;
             validate_document(&after)?;
             result.matched += 1;
-            if after != before {
+            if bson::to_vec(&after)? != bson::to_vec(&before)? {
                 let json = Bson::Document(after.clone()).into_psql_json();
                 let id = identity(after.get("_id").expect("validated identity"))?;
                 transaction.execute(
@@ -431,9 +489,10 @@ impl PgDb {
     pub fn insert_doc(&mut self, sp: SqlParam, doc: &Document) -> Result<Document> {
         self.require_collection(&sp)?;
         let mut doc = doc.clone();
-        if !doc.contains_key("_id") {
-            doc.insert("_id", bson::oid::ObjectId::new());
-        }
+        let id = doc
+            .remove("_id")
+            .unwrap_or_else(|| Bson::ObjectId(bson::oid::ObjectId::new()));
+        doc = std::iter::once(("_id".to_owned(), id)).chain(doc).collect();
         validate_document(&doc)?;
         let id = identity(doc.get("_id").expect("validated identity"))?;
         self.exec(

@@ -2,7 +2,7 @@
 
 Use `scripts/upstream-compat.py` to run original MongoDB JavaScript tests against an isolated MongoDB reference and Oxide. The runner uses the public `mongo` shell and the upstream test files and helper libraries without replacing assertions. It follows MongoDB's supported direct-shell execution path rather than embedding a partial shell or requiring a Resmoke installation.
 
-The initial manifest contains 33 required tests, 23 extended discovery tests, and two explicit exclusions. Passing this baseline covers only those selected cases. It does not establish full MongoDB compatibility.
+The initial manifest contains 56 required tests and two explicit exclusions. Passing this baseline covers only those selected cases. It does not establish full MongoDB compatibility.
 
 ## Pinned inputs
 
@@ -43,13 +43,13 @@ Use the actual version and target archive produced by `scripts/package`. On Linu
 
 For an existing isolated candidate, replace `--oxide-archive` with `--candidate mongodb://127.0.0.1:27024/`; `--postgres-url` is unnecessary in this mode. This is useful for debugging, but release validation uses the packaged executable.
 
-Expected result: all 33 required tests pass, `gate_passed` is true, and the process exits zero. Empty selections, missing selected files, unexpected shell termination, timeouts, reference failures, source checksum failures, and cleanup failures cannot pass the gate. Timed-out shell containers are explicitly removed. A failed test still attempts database cleanup.
+Expected result: all 56 required tests pass, `gate_passed` is true, and the process exits zero. Empty selections, missing selected files, unexpected shell termination, timeouts, reference failures, source checksum failures, and cleanup failures cannot pass the gate. Timed-out shell containers are explicitly removed. A failed test still attempts database cleanup.
 
 ## Discover additional gaps
 
-Add `--mode discovery` to run the 23 extended cases as well. All selected tests must execute, and every reference case must pass. Required failures and harness errors still fail the gate; extended compatibility failures are retained as gaps without being counted as passes or blocking the supported baseline.
+The initial 23 extended cases now pass unchanged and are part of the required baseline. `--mode discovery` currently executes the same 56 cases; it also runs any future `extended` entries. Every reference case must pass. Required failures and harness errors fail the gate; future extended compatibility failures remain visible without blocking the supported baseline.
 
-The initial extended cases expose differences in BSON document field order, projection expressions, array update semantics, error codes, unsupported expressions/options, and results exceeding the documented snapshot budget. The original assertions stay intact, including order-sensitive assertions. Resolve a gap before promoting its entire test to `required`; do not remove inconvenient assertions.
+The promoted cases cover document field order, numeric projection flags, `$push` and `$addToSet`, query types/options and validation, aggregation expressions/error codes, and multi-batch results. The original assertions stay intact, including order-sensitive assertions. Resolve a future gap before promoting its entire test to `required`; do not remove inconvenient assertions.
 
 ## Inspect results
 

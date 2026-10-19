@@ -12,6 +12,7 @@ pub enum UpdateDoc {
     Set(Document),
     Unset(Document),
     AddToSet(Document),
+    Push(Document),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct InvalidUpdateError {
@@ -66,6 +67,7 @@ pub fn parse_update(doc: &Document) -> Result<UpdateOper, InvalidUpdateError> {
             "$unset" => UpdateDoc::Unset(fields),
             "$inc" => UpdateDoc::Inc(fields),
             "$addToSet" => UpdateDoc::AddToSet(fields),
+            "$push" => UpdateDoc::Push(fields),
             _ => {
                 return Err(InvalidUpdateError::new(format!(
                     "Unknown update operator: {operator}"

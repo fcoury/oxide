@@ -416,6 +416,7 @@ fn read(
         stream.last = stream.last.max(latest);
     }
     if !stream.pipeline.is_empty() && !events.is_empty() {
+        client.prepare_aggregation()?;
         let mut sql = crate::sql::Sql::default();
         let input = sql.bind(
             Bson::Array(events.into_iter().map(Bson::Document).collect())

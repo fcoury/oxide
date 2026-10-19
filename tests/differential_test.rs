@@ -398,3 +398,97 @@ fn concat_arrays_operand_boundaries_match_mongodb() {
     }
     db.drop().run().unwrap();
 }
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn ordered_documents_queries_and_updates_match_mongodb() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let reference = db.collection::<Document>("items");
+    let oxide = ctx.col();
+    let documents = vec![
+        doc! {"z":1,"_id":1,"nested":{"z":1,"a":2},"values":[1,2],"items":[{"n":0}],"f":true},
+        doc! {"_id":2,"nested":{"a":2,"z":1},"values":[[2]],"f":false},
+        doc! {"_id":3,"values":["a"],"f":""},
+        doc! {"_id":4,"values":Bson::Null,"f":0},
+    ];
+    for col in [&oxide, &reference] {
+        col.insert_many(documents.clone()).run().unwrap();
+    }
+    let bytes = |rows: Vec<Document>| {
+        rows.iter()
+            .map(|d| bson::to_vec(d).unwrap())
+            .collect::<Vec<_>>()
+    };
+    for query in [
+        doc! {},
+        doc! {"values":[2]},
+        doc! {"values":{"$type":2.0}},
+        doc! {"values":{"$type":["array","null"]}},
+        doc! {"values":{"$type":"number"}},
+        doc! {"nested":{"$eq":{"z":1,"a":2}}},
+        doc! {"nested":{"$eq":{"a":2,"z":1}}},
+        doc! {"values":{"$exists":0.0}},
+        doc! {"values":{"$exists":1.0}},
+        doc! {"$where":"this.f"},
+    ] {
+        assert_eq!(
+            bytes(all(&oxide, query.clone())),
+            bytes(all(&reference, query.clone())),
+            "query {query:?}"
+        );
+    }
+    for projection in [
+        doc! {"values":1.0,"nested.z":1.0},
+        doc! {"z":0.0},
+        doc! {"nested.z":1.0,"nested.a":1.0,"_id":0.0},
+    ] {
+        let rows = |col: &Collection<Document>| {
+            common::get_rows(
+                col.find(doc! {})
+                    .sort(doc! {"_id":1})
+                    .projection(projection.clone())
+                    .run()
+                    .unwrap(),
+            )
+        };
+        assert_eq!(
+            bytes(rows(&oxide)),
+            bytes(rows(&reference)),
+            "projection {projection:?}"
+        );
+    }
+    for update in [
+        doc! {"$push":{"items.0.log":{"$each":[1,1,2]}}},
+        doc! {"$set":{"items.0.n":3,"items.2.n":9}},
+        doc! {"$unset":{"items.1":true}},
+        doc! {"$addToSet":{"values":{"$each":[1.0,1_i64,{"a":1,"b":2},{"b":2,"a":1}]}}},
+    ] {
+        for col in [&oxide, &reference] {
+            col.update_one(doc! {"_id":1}, update.clone())
+                .run()
+                .unwrap();
+        }
+        assert_eq!(
+            bytes(all(&oxide, doc! {})),
+            bytes(all(&reference, doc! {})),
+            "update {update:?}"
+        );
+    }
+    // Replacements that change only field order must still be persisted.
+    for col in [&oxide, &reference] {
+        col.replace_one(doc! {"_id":2}, doc! {"_id":2,"z":1,"a":2})
+            .run()
+            .unwrap();
+        assert_eq!(
+            col.replace_one(doc! {"_id":2}, doc! {"_id":2,"a":2,"z":1})
+                .run()
+                .unwrap()
+                .modified_count,
+            1
+        );
+    }
+    assert_eq!(bytes(all(&oxide, doc! {})), bytes(all(&reference, doc! {})));
+    db.drop().run().unwrap();
+}
