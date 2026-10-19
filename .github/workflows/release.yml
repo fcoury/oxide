@@ -8,7 +8,76 @@ on:
         description: Version tag to validate (must already exist when publishing)
         required: true
         type: string
-      verify:
+      publish:
+        description: Publish after validation (false builds and tests only)
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ (github.event_name == 'push' || inputs.publish) && (inputs.tag || github.ref) || github.sha }}
+          fetch-depth: 0
+      - run: rustup show
+      - name: Validate the version tag and resolve its commit
+        id: release
+        shell: python
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', tag), 'Expected a version tag such as v0.1.8'
+          metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], text=True))
+          package = next(p for p in metadata['packages'] if p['name'] == 'oxide')
+          assert tag == 'v' + package['version'], 'Tag must match Cargo.toml version'
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          publish = os.environ['PUBLISH'] == 'true'
+          if publish:
+              assert commit == subprocess.check_output(['git', 'rev-parse', '--verify', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\ncommit={commit}\npublish={str(publish).lower()}\n')
+  compatibility:
+    needs: prepare
+    uses: ./.github/workflows/upstream-compatibility.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+      mode: baseline
+      release: true
+  package:
+    needs: [prepare, compatibility]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - name: Install pinned toolchain
+        run: rustup show
+      - name: Build native artifact with its actual target label
+        shell: bash
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          ./scripts/package "$target"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+  verify:
     needs: [prepare, compatibility, package]
     runs-on: ubuntu-22.04
     steps:
