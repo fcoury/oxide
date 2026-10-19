@@ -366,3 +366,35 @@ fn array_reduction_and_first_accumulator_match_mongodb() {
     }
     reference_db.drop().run().unwrap();
 }
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn concat_arrays_operand_boundaries_match_mongodb() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let reference = db.collection::<Document>("items");
+    let oxide = ctx.col();
+    for col in [&oxide, &reference] {
+        col.insert_one(doc! {"_id":1}).run().unwrap();
+    }
+    for count in [0, 100, 101, 256] {
+        let operands = (0..count)
+            .map(|n| Bson::Array(vec![Bson::Int32(n)]))
+            .collect::<Vec<_>>();
+        for suffix in [None, Some(Bson::Null), Some(Bson::String("$absent".into()))] {
+            let mut inputs = operands.clone();
+            inputs.extend(suffix);
+            let pipeline = vec![doc! {"$project":{"values":{"$concatArrays":inputs}}}];
+            let rows = |col: &Collection<Document>| {
+                common::get_rows(col.aggregate(pipeline.clone()).run().unwrap())
+            };
+            assert_eq!(
+                rows(&oxide),
+                rows(&reference),
+                "{count} operands: {pipeline:?}"
+            );
+        }
+    }
+    db.drop().run().unwrap();
+}

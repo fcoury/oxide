@@ -535,7 +535,8 @@ fn expression_with_vars(
                         .iter()
                         .map(|v| expression_with_vars(v, sql, depth + 1, vars))
                         .collect::<Result<Vec<_>>>()?;
-                    format!("(SELECT CASE WHEN COALESCE(bool_or(v='null'::jsonb),FALSE) THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg(element ORDER BY ordinal, element_ordinal),'[]'::jsonb) FROM jsonb_array_elements(jsonb_build_array({inputs})) WITH ORDINALITY AS arrays(v,ordinal) CROSS JOIN LATERAL jsonb_array_elements(v) WITH ORDINALITY AS elements(element,element_ordinal)) END FROM jsonb_array_elements(jsonb_build_array({inputs})) AS operands(v))", inputs=values.join(","))
+                    let alias = format!("concat_arrays_{depth}");
+                    format!("(SELECT CASE WHEN EXISTS(SELECT 1 FROM unnest({alias}.inputs) AS operands(v) WHERE v IS NULL OR v='null'::jsonb) THEN 'null'::jsonb ELSE (SELECT COALESCE(jsonb_agg(element ORDER BY ordinal, element_ordinal),'[]'::jsonb) FROM unnest({alias}.inputs) WITH ORDINALITY AS arrays(v,ordinal) CROSS JOIN LATERAL jsonb_array_elements(v) WITH ORDINALITY AS elements(element,element_ordinal)) END FROM (SELECT ARRAY[{inputs}]::jsonb[] AS inputs) AS {alias})", inputs=values.join(","))
                 }
                 "$reduce" => {
                     let doc = as_doc(value)?;

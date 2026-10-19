@@ -7,7 +7,9 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # MongoDB 8.0.34 cannot start on Linux >=6.19 (SERVER-121912).
+    # Ubuntu 22.04 runners currently use the supported 6.8 kernel.
+    runs-on: ubuntu-22.04
     services:
       postgres:
         image: postgres:16.15
