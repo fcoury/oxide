@@ -1,0 +1,119 @@
+name: Upstream compatibility
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '31 3 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Test selection
+        type: choice
+        options: [baseline, discovery]
+        default: baseline
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+      mode:
+        type: string
+        default: baseline
+      release:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  upstream:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: oxide_upstream
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ['5432:5432']
+      mongo:
+        image: mongo:8.0.34
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+        ports: ['27017:27017']
+    env:
+      UPSTREAM_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/oxide_upstream
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/oxide_upstream
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432
+      MONGODB_REFERENCE_URL: mongodb://127.0.0.1:27017
+      SUITE_MODE: ${{ github.event_name == 'schedule' && 'discovery' || inputs.mode || 'baseline' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Enable logical decoding
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d oxide_upstream -c "ALTER SYSTEM SET wal_level = logical"
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d oxide_upstream -c "ALTER SYSTEM SET max_replication_slots = 100"
+          docker restart ${{ job.services.postgres.id }}
+          for _ in {1..30}; do
+            docker exec ${{ job.services.postgres.id }} pg_isready -U postgres && break
+            sleep 1
+          done
+          docker exec ${{ job.services.postgres.id }} pg_isready -U postgres
+      - name: Install pinned toolchain
+        run: rustup show
+      - uses: actions/cache@v4
+        with:
+          path: target/upstream-cache
+          key: mongodb-upstream-${{ hashFiles('tests/upstream/manifest.json') }}
+      - name: Harness regression tests
+        run: python3 -m unittest discover -s tests/upstream -p 'test_*.py' -v
+      - name: Rust release regression tests
+        if: inputs.release
+        run: |
+          cargo test --locked --all-features
+          cargo test --locked --all-features --test differential_test --test shell_test -- --ignored
+      - name: Build candidate package
+        shell: python
+        run: |
+          import subprocess
+          target = next(line.removeprefix('host: ') for line in subprocess.check_output(['rustc', '-vV'], text=True).splitlines() if line.startswith('host: '))
+          subprocess.run(['bash', 'scripts/package', target], check=True)
+      - name: Test the packaged executable against upstream assertions
+        shell: python
+        run: |
+          import glob, os, subprocess
+          archives = glob.glob('dist/*.tar.gz')
+          assert len(archives) == 1, archives
+          subprocess.run(['python3', 'scripts/upstream-compat.py', '--reference', 'mongodb://127.0.0.1:27017/', '--oxide-archive', archives[0], '--mode', os.environ['SUITE_MODE'], '--report-dir', 'target/upstream-report'], check=True)
+      - name: Summarize compatibility results
+        if: always()
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          report = Path('target/upstream-report/summary.md')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(report.read_text() if report.exists() else 'Compatibility setup failed before a report was produced. See the job logs.\n')
+      - name: Upload compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-report
+          path: target/upstream-report/
+          if-no-files-found: warn
+      - name: Retain the tested Linux release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/*
+          if-no-files-found: error

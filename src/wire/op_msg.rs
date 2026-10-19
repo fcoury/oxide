@@ -63,18 +63,34 @@ impl OpMsg {
             eyre::bail!("invalid OP_MSG length");
         }
         let flags = u32::from_le_bytes(bytes[16..20].try_into()?);
-        if flags & !(super::MORE_TO_COME | super::EXHAUST_ALLOWED) != 0 {
-            eyre::bail!("unsupported OP_MSG flags or checksum");
+        if flags & !(CHECKSUM_PRESENT | super::MORE_TO_COME | super::EXHAUST_ALLOWED) != 0 {
+            eyre::bail!("unsupported OP_MSG flags");
         }
+        let (end, checksum) = if flags & CHECKSUM_PRESENT != 0 {
+            let end = bytes
+                .len()
+                .checked_sub(4)
+                .ok_or_else(|| eyre::eyre!("missing checksum"))?;
+            if end < 21 {
+                eyre::bail!("truncated checksummed OP_MSG");
+            }
+            let checksum = u32::from_le_bytes(bytes[end..].try_into()?);
+            if crc32c::crc32c(&bytes[..end]) != checksum {
+                eyre::bail!("OP_MSG checksum mismatch");
+            }
+            (end, Some(checksum))
+        } else {
+            (bytes.len(), None)
+        };
         let mut offset = 20;
         let mut sections = Vec::new();
         let mut body = false;
         let mut identifiers = std::collections::HashSet::new();
-        while offset < bytes.len() {
+        while offset < end {
             if sections.len() == 4 {
                 eyre::bail!("too many OP_MSG sections");
             }
-            let (section, size) = parse_section(&bytes[offset..])?;
+            let (section, size) = parse_section(&bytes[offset..end])?;
             if section.kind == 0 {
                 if body {
                     eyre::bail!("duplicate command body");
@@ -93,7 +109,7 @@ impl OpMsg {
             header,
             flags,
             sections,
-            checksum: None,
+            checksum,
         })
     }
 }
@@ -134,5 +150,45 @@ impl Serializable for OpMsg {
                 .unwrap();
         }
         writer.into_inner()
+    }
+}
+
+#[cfg(test)]
+mod checksum_tests {
+    use super::*;
+
+    fn frame(body: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&((25 + body.len()) as i32).to_le_bytes());
+        bytes.extend_from_slice(&7_i32.to_le_bytes());
+        bytes.extend_from_slice(&0_i32.to_le_bytes());
+        bytes.extend_from_slice(&2013_i32.to_le_bytes());
+        bytes.extend_from_slice(&CHECKSUM_PRESENT.to_le_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(body);
+        bytes.extend_from_slice(&crc32c::crc32c(&bytes).to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn accepts_crc32c_and_rejects_corruption_in_header_body_and_checksum() {
+        assert_eq!(crc32c::crc32c(b"123456789"), 0xe3069283);
+        let bytes = frame(&bson::to_vec(&doc! {"ping":1,"$db":"admin"}).unwrap());
+        let parsed = OpMsg::from_bytes(&bytes).unwrap();
+        assert!(parsed.checksum.is_some());
+        assert_eq!(parsed.sections[0].documents[0].get_i32("ping").unwrap(), 1);
+        for index in [4, 25, bytes.len() - 1] {
+            let mut corrupted = bytes.clone();
+            corrupted[index] ^= 1;
+            assert!(OpMsg::from_bytes(&corrupted).is_err());
+        }
+    }
+
+    #[test]
+    fn bson_sections_cannot_consume_the_checksum_bytes() {
+        let mut body = bson::to_vec(&doc! {"ping":1}).unwrap();
+        let len = body.len() as i32 + 4;
+        body[..4].copy_from_slice(&len.to_le_bytes());
+        assert!(OpMsg::from_bytes(&frame(&body)).is_err());
     }
 }

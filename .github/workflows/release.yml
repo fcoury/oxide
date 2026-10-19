@@ -1,18 +1,70 @@
 name: Release
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to validate (must already exist when publishing)
+        required: true
+        type: string
+      publish:
+        description: Publish after validation (false builds and tests only)
+        required: true
+        type: boolean
+        default: false
 permissions:
-  contents: write
+  contents: read
 jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ (github.event_name == 'push' || inputs.publish) && (inputs.tag || github.ref) || github.sha }}
+          fetch-depth: 0
+      - run: rustup show
+      - name: Validate the version tag and resolve its commit
+        id: release
+        shell: python
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          import json, os, re, subprocess
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', tag), 'Expected a version tag such as v0.1.8'
+          metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--locked', '--no-deps', '--format-version=1'], text=True))
+          package = next(p for p in metadata['packages'] if p['name'] == 'oxide')
+          assert tag == 'v' + package['version'], 'Tag must match Cargo.toml version'
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          publish = os.environ['PUBLISH'] == 'true'
+          if publish:
+              assert commit == subprocess.check_output(['git', 'rev-parse', '--verify', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\ncommit={commit}\npublish={str(publish).lower()}\n')
+  compatibility:
+    needs: prepare
+    uses: ./.github/workflows/upstream-compatibility.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+      mode: baseline
+      release: true
   package:
+    needs: [prepare, compatibility]
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
       - name: Install pinned toolchain
         run: rustup show
       - name: Build native artifact with its actual target label
@@ -20,9 +72,56 @@ jobs:
         run: |
           target="$(rustc -vV | sed -n 's/^host: //p')"
           ./scripts/package "$target"
-      - name: Upload artifacts
-        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, compatibility, package]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Verify packages and publish the tested release
+        shell: python
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" dist/*.tar.gz dist/*.sha256sum
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          import glob, hashlib, os, subprocess
+          tag = os.environ['RELEASE_TAG']
+          commit = subprocess.check_output(['git', 'rev-parse', 'refs/tags/' + tag + '^{commit}'], text=True).strip()
+          assert commit == os.environ['RELEASE_COMMIT'], 'Release tag moved after validation'
+          archives = sorted(glob.glob('dist/*.tar.gz'))
+          assert len(archives) == 3, 'Expected tested Linux, native macOS, and native Windows packages'
+          for archive in archives:
+              expected, filename = open(archive + '.sha256sum').read().strip().split(maxsplit=1)
+              assert filename == os.path.basename(archive)
+              with open(archive, 'rb') as source:
+                  actual = hashlib.sha256(source.read()).hexdigest()
+              assert actual == expected, 'Package checksum mismatch'
+          files = sorted(glob.glob('dist/*'))
+          exists = subprocess.run(['gh', 'release', 'view', tag], capture_output=True).returncode == 0
+          if exists:
+              import json
+              release = json.loads(subprocess.check_output(['gh', 'release', 'view', tag, '--json', 'isDraft'], text=True))
+              assert release['isDraft'], 'Refusing to replace an already published release'
+              subprocess.run(['gh', 'release', 'upload', tag, *files], check=True)
+              subprocess.run(['gh', 'release', 'edit', tag, '--draft=false'], check=True)
+          else:
+              command = ['gh', 'release', 'create', tag, '--verify-tag', '--title', tag, '--generate-notes', *files]
+              if '-' in tag:
+                  command.append('--prerelease')
+              subprocess.run(command, check=True)

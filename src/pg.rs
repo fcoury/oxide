@@ -844,6 +844,14 @@ pub fn integer(value: &Bson) -> Result<i64> {
     match value {
         Bson::Int32(i) => Ok(*i as i64),
         Bson::Int64(i) => Ok(*i),
+        Bson::Double(n)
+            if n.is_finite()
+                && n.fract() == 0.0
+                && *n >= i64::MIN as f64
+                && *n < -(i64::MIN as f64) =>
+        {
+            Ok(*n as i64)
+        }
         _ => bail!("expected an integer"),
     }
 }
@@ -926,4 +934,18 @@ fn validate_document(doc: &Document) -> Result<()> {
         bail!("document exceeds BSON size limit");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod numeric_option_tests {
+    use super::*;
+
+    #[test]
+    fn integral_double_options_preserve_range_and_reject_fractional_values() {
+        assert_eq!(integer(&Bson::Double(1.0)).unwrap(), 1);
+        assert_eq!(integer(&Bson::Double(i64::MIN as f64)).unwrap(), i64::MIN);
+        for n in [1.5, f64::NAN, f64::INFINITY, -(i64::MIN as f64)] {
+            assert!(integer(&Bson::Double(n)).is_err(), "{n}");
+        }
+    }
 }

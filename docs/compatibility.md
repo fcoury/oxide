@@ -15,7 +15,7 @@ Oxide supports a bounded subset of MongoDB commands. A wire-version handshake pe
 | findAndModify | Update or remove, query, scalar sort, upsert, and explicit `new`; defaults to the preimage. |
 | Count | `query`, skip and limit. |
 | Indexes | Collection-scoped names, deterministic physical names, catalog-backed definitions, mandatory unique `_id`, scalar secondary indexes, and a partial filter containing one `{field: {$type: "string"}}` condition. Unique secondary indexes normalize numeric widths and missing/null; single-field root indexes also enforce multikey uniqueness through transactional expanded keys. Compound/nested multikey and embedded-document keys are rejected. |
-| Protocol | Checked OP_MSG bodies/document sequences in either order, and legacy OP_QUERY handshake. Compression and OP_MSG checksums are unsupported and rejected. |
+| Protocol | Checked OP_MSG bodies/document sequences in either order, and legacy OP_QUERY handshake. OP_MSG CRC32C checksums are validated when present; compression remains unsupported and rejected. |
 | HTTP | Loopback-only, bearer-token API; 64 KiB input; four concurrent database operations; only compiler-generated read queries. |
 
 Unsupported data-command options return an error, including retryable-write metadata, collation and write concerns other than `w:1` (with the commit exception documented below). There is no replication, sharding, authentication, authorization, arbitrary SQL API, or full BSON comparison ordering.
@@ -130,3 +130,5 @@ existing byte, nesting, parameter and SQL-size budgets. `$concat` supports strin
 `$mergeObjects` supports expression operands, null skipping and last-document field precedence. Oxide
 sets PostgreSQL JIT off on each connection: compilation costs on deeply nested
 JSONB expressions can dominate query execution time.
+
+Whole-number BSON doubles are accepted for integer command options when they fit in signed 64-bit range. Fractional, nonfinite, and out-of-range values are rejected. The stock upstream shell exercises this representation in the [upstream compatibility suite](upstream-tests.md).

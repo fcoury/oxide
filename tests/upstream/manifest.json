@@ -1,0 +1,301 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/mongodb/mongo",
+  "version": "5.0.31",
+  "revision": "e8c5dca807cdfef1c9b3141c4c2bcd613d9700e7",
+  "archive_sha256": "6f7ceb0929c2bea97da0ce0ee65e2565ea67c83f3c13638fb5fded7942518b98",
+  "shell_image": "mongo@sha256:54bcd8da3ea5eec561b68c605046c55c6b304387dc4c2bf5b3a5f5064fbb7495",
+  "reference_version": "8.0.34",
+  "tests": [
+    {
+      "path": "jstests/core/basic4.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/basic5.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/basic6.js",
+      "tier": "excluded",
+      "reason": "Assumes the database is literally named test; incompatible with isolated per-test databases."
+    },
+    {
+      "path": "jstests/core/basic7.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/basic8.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/basica.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/core/count.js",
+      "tier": "extended",
+      "reason": "Known gap: exact MongoDB error code for an unknown count option."
+    },
+    {
+      "path": "jstests/core/count2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/count3.js",
+      "tier": "extended",
+      "reason": "Known gap: projection expression or nested projection semantics."
+    },
+    {
+      "path": "jstests/core/count4.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/count7.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/count9.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/cursor1.js",
+      "tier": "extended",
+      "reason": "Known gap: result materialization exceeds the documented bounded snapshot size."
+    },
+    {
+      "path": "jstests/core/cursor2.js",
+      "tier": "extended",
+      "reason": "Known gap: projection expression or nested projection semantics."
+    },
+    {
+      "path": "jstests/core/date1.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/date2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/exists.js",
+      "tier": "extended",
+      "reason": "Known gap: query hint option."
+    },
+    {
+      "path": "jstests/core/exists2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/exists3.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/exists5.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/exists6.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/exists7.js",
+      "tier": "extended",
+      "reason": "Known gap: non-boolean $exists operands accepted by MongoDB."
+    },
+    {
+      "path": "jstests/core/find2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/find4.js",
+      "tier": "extended",
+      "reason": "Known gap: projection expression or nested projection semantics."
+    },
+    {
+      "path": "jstests/core/find7.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/core/fm1.js",
+      "tier": "extended",
+      "reason": "Known gap: projection expression or nested projection semantics."
+    },
+    {
+      "path": "jstests/core/fm2.js",
+      "tier": "extended",
+      "reason": "Known gap: projection expression or nested projection semantics."
+    },
+    {
+      "path": "jstests/core/in.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/in2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/in3.js",
+      "tier": "extended",
+      "reason": "Known gap: $type query operator."
+    },
+    {
+      "path": "jstests/core/in4.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/inc1.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/inc2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/insert1.js",
+      "tier": "excluded",
+      "reason": "Includes a 100,000-document insertion workload; outside the bounded baseline and its per-test time budget."
+    },
+    {
+      "path": "jstests/core/insert_one.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/ne1.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/ne3.js",
+      "tier": "extended",
+      "reason": "Known gap: invalid query operand validation."
+    },
+    {
+      "path": "jstests/core/not1.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/or6.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/or7.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/set1.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/set2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/single_batch.js",
+      "tier": "extended",
+      "reason": "Known gap: result materialization exceeds the documented bounded snapshot size."
+    },
+    {
+      "path": "jstests/core/sort3.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/sort6.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/unset.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/update8.js",
+      "tier": "extended",
+      "reason": "Known gap: array update path semantics or BSON document field order."
+    },
+    {
+      "path": "jstests/core/update9.js",
+      "tier": "extended",
+      "reason": "Known gap: array update path semantics or BSON document field order."
+    },
+    {
+      "path": "jstests/core/update_addToSet2.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/core/update_addToSet3.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/aggregation/expressions/reduce.js",
+      "tier": "extended",
+      "reason": "Known gap: aggregation expression coverage."
+    },
+    {
+      "path": "jstests/aggregation/expressions/concat_arrays.js",
+      "tier": "extended",
+      "reason": "Known gap: unary $concatArrays expression syntax."
+    },
+    {
+      "path": "jstests/aggregation/expressions/merge_objects.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/aggregation/expressions/first_last.js",
+      "tier": "extended",
+      "reason": "Known gap: aggregation expression coverage."
+    },
+    {
+      "path": "jstests/aggregation/bugs/match_swap_limit.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/aggregation/sources/group/group_key_is_array.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    },
+    {
+      "path": "jstests/aggregation/sources/group/group_by_variable.js",
+      "tier": "extended",
+      "reason": "Known gap: BSON document field order preserved by upstream assertions but canonicalized by JSONB."
+    },
+    {
+      "path": "jstests/aggregation/sources/group/numeric_grouping.js",
+      "tier": "required",
+      "reason": "Verified unchanged against MongoDB 8.0.34 and Oxide; required regression baseline."
+    }
+  ]
+}
