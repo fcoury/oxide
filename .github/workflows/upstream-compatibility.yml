@@ -20,9 +20,6 @@ on:
       mode:
         type: string
         default: baseline
-      release:
-        type: boolean
-        default: false
 permissions:
   contents: read
 jobs:
@@ -71,23 +68,23 @@ jobs:
           docker exec ${{ job.services.postgres.id }} pg_isready -U postgres
       - name: Install pinned toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: native-release
       - uses: actions/cache@v4
         with:
           path: target/upstream-cache
           key: mongodb-upstream-${{ hashFiles('tests/upstream/manifest.json') }}
       - name: Harness regression tests
         run: python3 -m unittest discover -s tests/upstream -p 'test_*.py' -v
-      - name: Rust release regression tests
-        if: inputs.release
-        run: |
-          cargo test --locked --all-features
-          cargo test --locked --all-features --test differential_test --test shell_test -- --ignored
       - name: Build candidate package
         shell: python
         run: |
           import subprocess
           target = next(line.removeprefix('host: ') for line in subprocess.check_output(['rustc', '-vV'], text=True).splitlines() if line.startswith('host: '))
           subprocess.run(['bash', 'scripts/package', target], check=True)
+      - name: Exercise the extracted release executable
+        run: python3 scripts/smoke-package.py
       - name: Test the packaged executable against upstream assertions
         shell: python
         run: |

@@ -1,0 +1,62 @@
+name: Release PR
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-pr-main
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    outputs:
+      release: ${{ steps.inspect.outputs.release }}
+      tag: ${{ steps.inspect.outputs.tag }}
+      pr: ${{ steps.inspect.outputs.pr }}
+      bootstrap: ${{ steps.inspect.outputs.bootstrap }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release.py inspect --commit "$GITHUB_SHA"
+  release-pr:
+    needs: inspect
+    if: needs.inspect.outputs.release != 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require a bot credential that triggers PR checks
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: test -n "$RELEASE_TOKEN"
+      - name: Prepare the release lifecycle label
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          gh label create 'autorelease: tagged' --repo "$GITHUB_REPOSITORY" --color 0e8a16 --force
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true
+          release-as: ${{ needs.inspect.outputs.bootstrap }}
+  release:
+    needs: inspect
+    if: needs.inspect.outputs.release == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/release.yml
+    with:
+      ref: ${{ github.sha }}
+      tag: ${{ needs.inspect.outputs.tag }}
+      release-pr: ${{ needs.inspect.outputs.pr }}
+      publish: true

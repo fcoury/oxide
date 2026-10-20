@@ -150,7 +150,7 @@ Tests share one Oxide server and client pool per temporary PostgreSQL database. 
 ./scripts/package aarch64-apple-darwin
 ```
 
-Install the target and its linker first when cross-compiling. The script passes the exact target to Cargo, reads the matching output directory, and writes a target-labeled archive and SHA-256 checksum under `dist/`. It does not publish anything. Release CI validates the tagged candidate before publishing. It tests the packaged Linux executable against the pinned upstream baseline, builds native macOS and Windows packages, verifies checksums, and then publishes. Use the release workflow’s dry-run option to build and validate without publishing. See [upstream compatibility tests and release gates](docs/upstream-tests.md).
+Install the target and its linker first when cross-compiling. The script passes the exact target to Cargo, reads the matching output directory, and writes a target-labeled archive and SHA-256 checksum under `dist/`. It does not publish anything. Release Please maintains a version/changelog PR; merging it runs the gated release pipeline. See [release automation](docs/releases.md). Release CI validates the exact candidate before publishing. It tests the packaged Linux executable against the pinned upstream baseline, builds native macOS and Windows packages, verifies checksums, and then publishes. Use the release workflow’s dry-run option to build and validate without publishing. See [upstream compatibility tests and release gates](docs/upstream-tests.md).
 
 For a core-only container:
 

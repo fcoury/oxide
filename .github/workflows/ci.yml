@@ -2,11 +2,41 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, 'fcoury/**', 'feature-**', 'fix-**']
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
+  automation:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Release and harness regressions
+        run: |
+          python3 -m unittest discover -s tests/automation -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/upstream -p 'test_*.py' -v
+      - name: Workflow lint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - name: Require Conventional Commit PR titles
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 scripts/release.py validate-title
   test:
+    timeout-minutes: 30
     # MongoDB 8.0.34 cannot start on Linux >=6.19 (SERVER-121912).
     # Ubuntu 22.04 runners currently use the supported 6.8 kernel.
     runs-on: ubuntu-22.04
@@ -32,6 +62,8 @@ jobs:
       MONGODB_REFERENCE_URL: mongodb://127.0.0.1:27018
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Enable PostgreSQL logical decoding
         run: |
           docker exec ${{ job.services.postgres.id }} psql -U postgres -c "ALTER SYSTEM SET wal_level = logical"
@@ -44,6 +76,7 @@ jobs:
           docker exec ${{ job.services.postgres.id }} pg_isready -U postgres
       - name: Install pinned toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Core builds without frontends
         run: cargo build --locked --no-default-features
       - name: Formatting
@@ -55,6 +88,7 @@ jobs:
       - name: Correctness lint
         run: cargo clippy --locked --lib --all-features -- -D clippy::correctness
   shell:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -62,16 +96,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - name: Install pinned toolchain
         run: rustup show
+      - uses: Swatinem/rust-cache@v2
       - name: Embedded shell and BSON tests
         run: 'cargo test --locked --features shell --lib shell::'
       - name: Standalone shell executable
         shell: bash
         run: cargo run --locked --features shell -- shell --eval 'NumberLong("9223372036854775807")'
   audit:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - run: cargo install cargo-audit --version 0.22.2 --locked
       - run: cargo audit --deny warnings
