@@ -2,6 +2,13 @@
 
 Release Please maintains this file from Conventional Commits. Releases before 0.2.0 predate this changelog.
 
+## [0.2.1](https://github.com/fcoury/oxide/compare/v0.2.0...v0.2.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* recover release publication and synchronize stream tests ([#86](https://github.com/fcoury/oxide/issues/86)) ([4087eac](https://github.com/fcoury/oxide/commit/4087eac9f81b88b1d99ab7c3c51af91777a1fca0))
+
 ## [0.2.0](https://github.com/fcoury/oxide/compare/v0.1.7...v0.2.0) (2026-10-20)
 
 
