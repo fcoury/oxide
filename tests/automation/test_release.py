@@ -155,15 +155,34 @@ class ReleaseRequest(unittest.TestCase):
         valid = {'number': 99, 'merged_at': 'now', 'merge_commit_sha': 'sha',
                  'base': {'ref': 'main'}, 'head': {'repo': {'full_name': 'owner/repo'}},
                  'labels': [{'name': 'autorelease: pending'}]}
-        for change, expected in [({}, 'true'), ({'merged_at': None}, 'false'),
-                                 ({'merge_commit_sha': 'other'}, 'false'),
-                                 ({'labels': []}, 'false'),
-                                 ({'head': {'repo': {'full_name': 'fork/repo'}}}, 'false')]:
-            with self.subTest(change=change), patch.object(r, 'api', return_value=[{**valid, **change}]), \
-                    patch.object(r, 'package_version', return_value='0.1.7'), patch.object(r, 'outputs') as output:
-                r.inspect_release('owner/repo', 'sha')
-                self.assertEqual(output.call_args.kwargs['release'], expected)
-                self.assertEqual(output.call_args.kwargs['bootstrap'], '0.2.0')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for version, bootstrap in [('0.1.7', '0.2.0'), ('0.2.0', ''), ('0.3.0', '')]:
+                (root / '.release-please-manifest.json').write_text(json.dumps({'.': version}))
+                for change, expected in [({}, 'true'), ({'merged_at': None}, 'false'),
+                                         ({'merge_commit_sha': 'other'}, 'false'),
+                                         ({'labels': []}, 'false'),
+                                         ({'head': {'repo': {'full_name': 'fork/repo'}}}, 'false')]:
+                    with self.subTest(version=version, change=change), \
+                            patch.object(r, 'ROOT', root), \
+                            patch.object(r, 'api', return_value=[{**valid, **change}]), \
+                            patch.object(r, 'package_version', return_value=version), \
+                            patch.object(r, 'outputs') as output:
+                        r.inspect_release('owner/repo', 'sha')
+                        self.assertEqual(output.call_args.kwargs['release'], expected)
+                        self.assertEqual(output.call_args.kwargs['tag'], 'v' + version)
+                        self.assertEqual(output.call_args.kwargs['bootstrap'], bootstrap)
+
+    def test_mismatching_release_manifest_blocks_publication_request(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / '.release-please-manifest.json').write_text(json.dumps({'.': '0.2.0'}))
+            with patch.object(r, 'ROOT', root), patch.object(r, 'api', return_value=[]), \
+                    patch.object(r, 'package_version', return_value='0.1.7'), \
+                    patch.object(r, 'outputs') as output:
+                with self.assertRaisesRegex(ValueError, 'must agree'):
+                    r.inspect_release('owner/repo', 'sha')
+                output.assert_not_called()
 
     def test_bot_and_normal_pr_titles_pass_but_nonconventional_titles_fail(self):
         for title in ['chore(main): release 0.2.0', 'feat!: automate releases', 'fix: repair matching']:
