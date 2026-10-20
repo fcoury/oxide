@@ -2,7 +2,7 @@
 description = "A database compatible with MongoDB Wire Protocol that uses PostgreSQL for backend storage."
 edition = "2021"
 name = "oxide"
-version = "0.1.7"
+version = "0.2.0"
 
 [features]
 default = []
