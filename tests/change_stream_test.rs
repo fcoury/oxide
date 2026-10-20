@@ -1,7 +1,26 @@
-use bson::doc;
-use mongodb::options::FullDocumentType;
-use std::time::Duration;
+use bson::{doc, Document};
+use mongodb::{
+    change_stream::event::ChangeStreamEvent, options::FullDocumentType, sync::ChangeStream,
+};
+use std::time::{Duration, Instant};
 mod common;
+
+// A live change stream may return empty batches while the journal publisher is
+// busy. Bound the wait without treating a single empty batch as lost data.
+fn next_change(
+    stream: &mut ChangeStream<ChangeStreamEvent<Document>>,
+) -> ChangeStreamEvent<Document> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(change) = stream.next_if_any().unwrap() {
+            return change;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for a change event"
+        );
+    }
+}
 #[test]
 fn committed_changes_resume_without_skipping_small_batches() {
     let ctx = common::setup();
@@ -20,7 +39,7 @@ fn committed_changes_resume_without_skipping_small_batches() {
     col.update_one(doc! {"_id":1}, doc! {"$set":{"enabled":true}})
         .run()
         .unwrap();
-    let change = stream.next_if_any().unwrap().unwrap();
+    let change = next_change(&mut stream);
     assert_eq!(
         change.full_document.as_ref().unwrap().get_bool("enabled"),
         Ok(true)
@@ -47,10 +66,7 @@ fn committed_changes_resume_without_skipping_small_batches() {
         .unwrap();
     for id in 3..8 {
         assert_eq!(
-            stream
-                .next_if_any()
-                .unwrap()
-                .unwrap()
+            next_change(&mut stream)
                 .document_key
                 .unwrap()
                 .get_i32("_id"),
@@ -67,10 +83,7 @@ fn committed_changes_resume_without_skipping_small_batches() {
         .unwrap();
     for id in 3..8 {
         assert_eq!(
-            stream
-                .next_if_any()
-                .unwrap()
-                .unwrap()
+            next_change(&mut stream)
                 .document_key
                 .unwrap()
                 .get_i32("_id"),
@@ -91,17 +104,26 @@ fn expired_journal_resume_token_fails_explicitly() {
         .unwrap();
     assert!(stream.next_if_any().unwrap().is_none());
     col.insert_one(doc! {"_id":2}).run().unwrap();
-    stream.next_if_any().unwrap().unwrap();
+    next_change(&mut stream);
     let token = bson::to_bson(&stream.resume_token().unwrap()).unwrap();
-    drop(stream);
     col.insert_one(doc! {"_id":3}).run().unwrap();
+    // Consume the newer event before aging the journal. A best-effort pump can
+    // skip work while another publisher holds the lock, leaving the floor equal
+    // to the saved token rather than advancing beyond it.
+    assert_eq!(
+        next_change(&mut stream)
+            .document_key
+            .unwrap()
+            .get_i32("_id"),
+        Ok(3)
+    );
+    drop(stream);
     let uri = format!(
         "{}/stream_retention_{}",
         std::env::var("TEST_DATABASE_URL").unwrap(),
         std::process::id()
     );
     let mut pg = oxide::pg::PgDb::try_with_uri(&uri).unwrap();
-    oxide::change_stream::pump(&mut pg).unwrap();
     pg.exec(
         "UPDATE oxide_internal.changes SET created=clock_timestamp()-interval '48 hours'",
         &[],
@@ -133,10 +155,7 @@ fn independently_committed_hook_write_is_delivered_before_outer_transaction() {
     // transaction. They must complete without waiting for that transaction.
     col.insert_one(doc! {"_id":2}).run().unwrap();
     assert_eq!(
-        stream
-            .next_if_any()
-            .unwrap()
-            .unwrap()
+        next_change(&mut stream)
             .document_key
             .unwrap()
             .get_i32("_id"),
@@ -144,10 +163,7 @@ fn independently_committed_hook_write_is_delivered_before_outer_transaction() {
     );
     outer.commit_transaction().run().unwrap();
     assert_eq!(
-        stream
-            .next_if_any()
-            .unwrap()
-            .unwrap()
+        next_change(&mut stream)
             .document_key
             .unwrap()
             .get_i32("_id"),

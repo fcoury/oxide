@@ -161,13 +161,28 @@ def release_notes(version, root=ROOT):
     return notes
 
 
+def release_for_tag(repo, tag):
+    # The tag endpoint only returns published releases. Listing with push access
+    # also includes drafts, including a draft left by an interrupted attempt.
+    page = 1
+    while True:
+        releases = api(f'repos/{repo}/releases?per_page=100&page={page}')
+        matches = [release for release in releases if release['tag_name'] == tag]
+        if len(matches) > 1:
+            raise ValueError('Ambiguous releases for tag')
+        if matches:
+            return matches[0]
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def publish(repo, tag, commit, files, notes, pr=None):
     """Called only after gates pass and under the per-tag publication lock."""
     tagged = remote_tag(repo, tag)
     if tagged is not None and tagged != commit:
         raise ValueError('Remote tag points to a different commit')
-    release_path = f'repos/{repo}/releases/tags/{tag}'
-    release = api(release_path, missing=True)
+    release = release_for_tag(repo, tag)
     expected = {path.name for path in files}
     if release is not None:
         if not release['draft']:
@@ -182,14 +197,18 @@ def publish(repo, tag, commit, files, notes, pr=None):
         if release is None:
             subprocess.run(['gh', 'release', 'create', tag, '--repo', repo, '--draft',
                             '--verify-tag', '--title', tag, '--notes-file', str(note_file)], check=True)
-        # Fetch fresh state before writes, and refuse manual publication/tag changes.
+            release = release_for_tag(repo, tag)
+        if release is None:
+            raise ValueError('Created release draft is missing')
+        release_path = f'repos/{repo}/releases/{release["id"]}'
+        # Fetch by ID: unlike tag lookup, this also returns unpublished drafts.
         release = api(release_path)
-        if not release['draft'] or remote_tag(repo, tag) != commit:
+        if release['tag_name'] != tag or not release['draft'] or remote_tag(repo, tag) != commit:
             raise ValueError('Release or tag changed during publication')
         subprocess.run(['gh', 'release', 'upload', tag, '--repo', repo,
                         *map(str, files), '--clobber'], check=True)
         uploaded = api(release_path)
-        if not uploaded['draft'] or {asset['name'] for asset in uploaded['assets']} != expected:
+        if uploaded['tag_name'] != tag or not uploaded['draft'] or {asset['name'] for asset in uploaded['assets']} != expected:
             raise ValueError('Draft asset set changed during publication')
         if remote_tag(repo, tag) != commit:
             raise ValueError('Release tag moved before publication')

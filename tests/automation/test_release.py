@@ -91,7 +91,7 @@ class Publishing(unittest.TestCase):
         self.files = [Path('dist/oxide.tar.gz'), Path('dist/oxide.tar.gz.sha256sum')]
         self.repo, self.tag, self.commit = 'owner/repo', 'v0.2.0', 'tested-sha'
         self.calls = []
-        self.draft = {'draft': True, 'assets': [{'name': p.name} for p in self.files]}
+        self.draft = {'id': 123, 'tag_name': self.tag, 'draft': True, 'assets': [{'name': p.name} for p in self.files]}
 
     def call(self, tag=None, states=None):
         states = list(states if states is not None else [self.draft] * 3)
@@ -100,7 +100,9 @@ class Publishing(unittest.TestCase):
                 self.calls.append(('tag', kwargs))
                 return {}
             return states.pop(0)
+        initial = states.pop(0)
         with patch.object(r, 'remote_tag', return_value=self.commit if tag is None else tag), \
+                patch.object(r, 'release_for_tag', return_value=initial), \
                 patch.object(r, 'api', side_effect=api), \
                 patch.object(r.subprocess, 'run', side_effect=lambda args, **kw: self.calls.append(args)):
             r.publish(self.repo, self.tag, self.commit, self.files, 'notes')
@@ -118,12 +120,13 @@ class Publishing(unittest.TestCase):
             self.call(tag='different-sha')
         self.assertEqual(self.calls, [])
         with self.assertRaises(ValueError):
-            self.call(states=[self.draft, {'draft': False, 'assets': []}])
+            self.call(states=[self.draft, {**self.draft, 'draft': False}])
         self.assertEqual(self.calls, [])
 
     def test_stable_and_prerelease_flags_are_explicit_for_existing_drafts(self):
         for tag, flag in [('v0.2.0', '--prerelease=false'), ('v0.2.0-rc.1', '--prerelease=true')]:
             self.tag = tag
+            self.draft['tag_name'] = tag
             self.calls.clear()
             self.call()
             edit = next(args for args in self.calls if args[:3] == ['gh', 'release', 'edit'])
@@ -132,12 +135,41 @@ class Publishing(unittest.TestCase):
 
     def test_new_release_starts_as_a_draft_then_uploads_then_publishes(self):
         with patch.object(r, 'remote_tag', side_effect=[None, self.commit, self.commit]), \
-                patch.object(r, 'api', side_effect=[None, {}, self.draft, self.draft]) as api, \
+                patch.object(r, 'release_for_tag', side_effect=[None, self.draft]), \
+                patch.object(r, 'api', side_effect=[{}, self.draft, self.draft]) as api, \
                 patch.object(r.subprocess, 'run') as run:
             r.publish(self.repo, self.tag, self.commit, self.files, 'notes')
         self.assertIn('--draft', run.call_args_list[0].args[0])
         self.assertEqual([call.args[0][2] for call in run.call_args_list], ['create', 'upload', 'edit'])
-        self.assertEqual(api.call_args_list[1].kwargs['fields']['sha'], self.commit)
+        self.assertEqual(api.call_args_list[0].kwargs['fields']['sha'], self.commit)
+
+    def test_draft_lookup_uses_paginated_listing_and_publication_refreshes_by_id(self):
+        unrelated = [{'tag_name': f'v0.0.{i}'} for i in range(100)]
+        with patch.object(r, 'api', side_effect=[unrelated, [self.draft]]) as api:
+            self.assertEqual(r.release_for_tag(self.repo, self.tag), self.draft)
+        self.assertEqual([call.args[0] for call in api.call_args_list], [
+            'repos/owner/repo/releases?per_page=100&page=1',
+            'repos/owner/repo/releases?per_page=100&page=2'])
+        with patch.object(r, 'api', return_value=[]):
+            self.assertIsNone(r.release_for_tag(self.repo, self.tag))
+        with patch.object(r, 'release_for_tag', return_value=self.draft), \
+                patch.object(r, 'api', return_value=self.draft) as api, \
+                patch.object(r, 'remote_tag', return_value=self.commit), \
+                patch.object(r.subprocess, 'run'):
+            r.publish(self.repo, self.tag, self.commit, self.files, 'notes')
+        self.assertEqual([call.args[0] for call in api.call_args_list],
+                         ['repos/owner/repo/releases/123'] * 2)
+
+    def test_new_draft_is_discovered_without_the_published_tag_endpoint(self):
+        with patch.object(r, 'remote_tag', return_value=self.commit), \
+                patch.object(r, 'api', side_effect=[[], [self.draft], self.draft, self.draft]) as api, \
+                patch.object(r.subprocess, 'run') as run:
+            r.publish(self.repo, self.tag, self.commit, self.files, 'notes')
+        self.assertEqual([call.args[0] for call in api.call_args_list], [
+            'repos/owner/repo/releases?per_page=100&page=1',
+            'repos/owner/repo/releases?per_page=100&page=1',
+            'repos/owner/repo/releases/123', 'repos/owner/repo/releases/123'])
+        self.assertEqual([call.args[0][2] for call in run.call_args_list], ['create', 'upload', 'edit'])
 
     def test_network_errors_are_not_treated_as_a_missing_release(self):
         for response in [(1, '{"status":"403"}'), (1, '')]:
