@@ -243,7 +243,14 @@ fn compile_pipeline(
                     depth + 1,
                 )?;
                 let key = sql.bind(encode_key(output), "text");
-                format!("SELECT {alias}.document || jsonb_build_object({key}, COALESCE((SELECT jsonb_agg(_jsonb) FROM ({rows}) AS joined), '[]'::jsonb)) AS _jsonb FROM (SELECT _jsonb AS document FROM ({source}) AS input) AS {alias}")
+                let added = ordered_object(&[(
+                    key,
+                    format!(
+                        "COALESCE((SELECT jsonb_agg(_jsonb) FROM ({rows}) AS joined),'[]'::jsonb)"
+                    ),
+                )]);
+                let result = ordered_merge(&format!("jsonb_build_array({alias}.document,{added})"));
+                format!("SELECT {result} AS _jsonb FROM (SELECT _jsonb AS document FROM ({source}) AS input) AS {alias}")
             }
             "$unwind" => {
                 let (path, preserve, index) = match value {
@@ -278,13 +285,14 @@ fn compile_pipeline(
                 }
                 let key = sql.bind(encode_key(path), "text");
                 let array = format!("CASE WHEN jsonb_typeof(s._jsonb->{key})='array' THEN s._jsonb->{key} WHEN s._jsonb->{key} IS NULL OR s._jsonb->{key}='null'::jsonb THEN '[]'::jsonb ELSE jsonb_build_array(s._jsonb->{key}) END");
-                let mut output = format!("CASE WHEN element.ordinal IS NOT NULL THEN s._jsonb || jsonb_build_object({key},element.value) WHEN s._jsonb->{key}='[]'::jsonb THEN s._jsonb-{key} ELSE s._jsonb END");
+                let mut output = format!("CASE WHEN element.ordinal IS NOT NULL THEN s._jsonb || jsonb_build_object({key},element.value) WHEN s._jsonb->{key}='[]'::jsonb THEN pg_temp.oxide_unset(s._jsonb,ARRAY[{key}]) ELSE s._jsonb END");
                 if let Some(index) = index {
                     if index.is_empty() || index.contains('.') || index.starts_with('$') {
                         bail!("includeArrayIndex currently requires a top-level field");
                     }
                     let index = sql.bind(encode_key(index), "text");
-                    output = format!("({output}) || jsonb_build_object({index},CASE WHEN jsonb_typeof(s._jsonb->{key})='array' AND element.ordinal IS NOT NULL THEN jsonb_build_object('$i',(element.ordinal-1)::text) ELSE 'null'::jsonb END)");
+                    let added = ordered_object(&[(index,format!("CASE WHEN jsonb_typeof(s._jsonb->{key})='array' AND element.ordinal IS NOT NULL THEN jsonb_build_object('$i',(element.ordinal-1)::text) ELSE 'null'::jsonb END"))]);
+                    output = ordered_merge(&format!("jsonb_build_array({output},{added})"));
                 }
                 let join = if preserve {
                     "LEFT JOIN LATERAL"
@@ -760,23 +768,12 @@ fn expression_with_vars(
         }
         Bson::Document(doc) => {
             let mut fields = Vec::new();
-            let mut order = Vec::new();
             for (key, value) in doc {
                 let key = sql.bind(encode_key(key), "text");
-                order.push(key.clone());
                 let value = expression_with_vars(value, sql, depth + 1, vars)?;
-                // A missing path is SQL NULL; an explicit BSON null is JSON null.
-                fields.push(format!("CASE WHEN ({value}) IS NULL THEN '{{}}'::jsonb ELSE jsonb_build_object({key},{value}) END"));
+                fields.push((key, value));
             }
-            if fields.is_empty() {
-                "'{}'::jsonb".into()
-            } else {
-                format!(
-                    "(({}) || jsonb_build_object('$k',jsonb_build_array({})))",
-                    fields.join(" || "),
-                    order.join(",")
-                )
-            }
+            computed_object(&fields)
         }
         _ => literal(value, sql),
     };
@@ -818,6 +815,23 @@ fn ordered_merge(inputs: &str) -> String {
         FROM merged
     )"#
     )
+}
+
+/// Omit SQL NULL (missing) fields from both the object and its order metadata.
+/// JSON null remains a present BSON field. Each computed expression is evaluated
+/// once, avoiding divergent presence/value/order decisions for nested objects.
+fn computed_object(fields: &[(String, String)]) -> String {
+    let keys = fields
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+    let values = fields
+        .iter()
+        .map(|(_, value)| value.clone())
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("(SELECT COALESCE(jsonb_object_agg(key,value),'{{}}'::jsonb) || jsonb_build_object('$k',COALESCE(jsonb_agg(key ORDER BY ordinal),'[]'::jsonb)) FROM unnest(ARRAY[{keys}]::text[],ARRAY[{values}]::jsonb[]) WITH ORDINALITY AS fields(key,value,ordinal) WHERE value IS NOT NULL)")
 }
 
 /// Build an ordered BSON object while keeping values queryable as JSONB.
@@ -872,7 +886,9 @@ fn projection(doc: &Document, sql: &mut Sql) -> Result<String> {
             if include(value) == Some(false) {
                 let parts = key.split('.').map(encode_key).collect::<Vec<_>>();
                 let path = sql.bind(serde_json::to_string(&parts)?, "jsonb");
-                result = format!("({result} #- ARRAY(SELECT jsonb_array_elements_text({path})))");
+                result = format!(
+                    "pg_temp.oxide_unset({result},ARRAY(SELECT jsonb_array_elements_text({path})))"
+                );
             }
         }
         return Ok(result);
@@ -919,7 +935,6 @@ fn projection_object(
         bail!("projection exceeds 64 levels");
     }
     let mut fields = Vec::new();
-    let mut order = Vec::new();
     let entries = doc
         .iter()
         .filter(|(k, _)| k.as_str() == "_id")
@@ -941,18 +956,9 @@ fn projection_object(
             value=format!("CASE WHEN jsonb_typeof({source})='array' THEN to_jsonb(({source})::numeric) WHEN jsonb_typeof({source}) IS DISTINCT FROM 'object' OR ({source}) ?| ARRAY['$i','$f','$d','$o','$b'] THEN NULL::jsonb ELSE {value} END");
         }
         let key = sql.bind(encode_key(key), "text");
-        order.push(key.clone());
-        fields.push(format!("CASE WHEN ({value}) IS NULL THEN '{{}}'::jsonb ELSE jsonb_build_object({key},{value}) END"));
+        fields.push((key, value));
     }
-    let result = if fields.is_empty() {
-        "'{}'::jsonb".into()
-    } else {
-        format!(
-            "(({}) || jsonb_build_object('$k',jsonb_build_array({})))",
-            fields.join(" || "),
-            order.join(",")
-        )
-    };
+    let result = computed_object(&fields);
     if result.len() > 256 * 1024 {
         bail!("projection exceeds SQL complexity limit");
     }

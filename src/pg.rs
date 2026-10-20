@@ -235,11 +235,15 @@ impl PgDb {
                     let value: serde_json::Value = serde_json::from_str(&definition)?;
                     let matches = match hint {
                         Bson::String(name) => value["name"].as_str() == Some(name),
-                        Bson::Document(key) => {
-                            key.iter()
-                                .all(|(k, v)| integer(v).ok() == value["key"][k].as_i64())
-                                && key.len() == value["key"].as_object().map_or(0, |o| o.len())
-                        }
+                        Bson::Document(key) => value["key"].as_object().is_some_and(|stored| {
+                            key.len() == stored.len()
+                                && key.iter().zip(stored).all(
+                                    |((field, direction), (stored_field, stored_direction))| {
+                                        field == stored_field
+                                            && integer(direction).ok() == stored_direction.as_i64()
+                                    },
+                                )
+                        }),
                         _ => false,
                     };
                     if matches {
@@ -288,18 +292,52 @@ impl PgDb {
         )
     }
 
-    /// Session-local error function lets SQL expressions preserve MongoDB error
-    /// codes without parsing PostgreSQL's localized error messages.
+    /// Install session-local aggregation helpers. Errors retain MongoDB codes;
+    /// exclusions update field-order metadata along with the visible document.
     pub fn prepare_aggregation(&mut self) -> Result<()> {
         let exists: bool = self
             .client
             .query_one(
-                "SELECT to_regprocedure('pg_temp.oxide_error(integer,text)') IS NOT NULL",
+                "SELECT to_regprocedure('pg_temp.oxide_error(integer,text)') IS NOT NULL AND to_regprocedure('pg_temp.oxide_unset(jsonb,text[])') IS NOT NULL",
                 &[],
             )?
             .get(0);
         if !exists {
-            self.client.batch_execute("CREATE FUNCTION pg_temp.oxide_error(error_code integer, error_message text) RETURNS jsonb LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE=error_message, DETAIL='oxide:' || error_code::text; END $$")?;
+            self.client.batch_execute(r#"
+                CREATE OR REPLACE FUNCTION pg_temp.oxide_error(error_code integer, error_message text)
+                RETURNS jsonb LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE=error_message,
+                        DETAIL='oxide:' || error_code::text;
+                END $$;
+                CREATE OR REPLACE FUNCTION pg_temp.oxide_unset(input jsonb, path text[])
+                RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+                DECLARE
+                    changed jsonb;
+                    keys_in_order jsonb;
+                BEGIN
+                    IF input IS NULL OR cardinality(path)=0 THEN RETURN input; END IF;
+                    IF jsonb_typeof(input)='array' THEN
+                        SELECT COALESCE(jsonb_agg(pg_temp.oxide_unset(element,path) ORDER BY ordinal),'[]'::jsonb)
+                            INTO changed
+                        FROM jsonb_array_elements(input) WITH ORDINALITY AS items(element,ordinal);
+                        RETURN changed;
+                    END IF;
+                    IF jsonb_typeof(input)<>'object' OR NOT input ? path[1] THEN RETURN input; END IF;
+                    IF cardinality(path)>1 THEN
+                        RETURN jsonb_set(input,ARRAY[path[1]],
+                            pg_temp.oxide_unset(input->path[1],path[2:cardinality(path)]),false);
+                    END IF;
+                    changed := input-path[1];
+                    SELECT COALESCE(jsonb_agg(key ORDER BY ordinal),'[]'::jsonb) INTO keys_in_order
+                    FROM jsonb_array_elements_text(COALESCE(input->'$k',
+                        (SELECT COALESCE(jsonb_agg(key),'[]'::jsonb)
+                         FROM jsonb_object_keys(input) AS keys(key) WHERE key<>'$k')))
+                        WITH ORDINALITY AS keys(key,ordinal)
+                    WHERE key<>'$k' AND changed ? key;
+                    RETURN changed || jsonb_build_object('$k',keys_in_order);
+                END $$;
+            "#)?;
         }
         Ok(())
     }

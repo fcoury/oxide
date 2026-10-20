@@ -124,6 +124,7 @@ async fn run(
         if !sp.exists(&mut pg)? {
             return Ok(Vec::new());
         }
+        pg.prepare_aggregation()?;
         pg.documents(&sql, None)
     })
     .await
