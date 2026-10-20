@@ -116,7 +116,7 @@ pub fn check_options(doc: &Document, allowed: &[&str]) -> Result<(), CommandExec
             let concern = doc.get_document(key)?;
             if concern
                 .iter()
-                .all(|(k, v)| k == "w" && matches!(v, bson::Bson::Int32(1) | bson::Bson::Int64(1)))
+                .all(|(k, v)| k == "w" && crate::pg::integer(v).is_ok_and(|n| n == 1))
             {
                 continue;
             }

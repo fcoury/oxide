@@ -28,6 +28,34 @@ fn clauses(doc: &Document, sql: &mut Sql, depth: usize) -> Result<String> {
     let mut parts = Vec::new();
     for (field, value) in doc {
         if field.starts_with('$') {
+            if field == "$where" {
+                // The supported field-reference form is evaluated natively. General
+                // server-side JavaScript is deliberately not executed by this engine.
+                let code = match value {
+                    Bson::String(s) | Bson::JavaScriptCode(s) => s,
+                    _ => bail!("$where requires JavaScript source"),
+                };
+                let code = code.trim();
+                let field = code
+                    .strip_prefix("this.")
+                    .filter(|path| {
+                        path.split('.').all(|part| {
+                            !part.is_empty()
+                                && part.chars().enumerate().all(|(i, c)| {
+                                    c == '_'
+                                        || c == '$'
+                                        || c.is_ascii_alphabetic()
+                                        || (i > 0 && c.is_ascii_digit())
+                                })
+                        })
+                    })
+                    .ok_or_else(|| {
+                        eyre::eyre!("only field-reference $where expressions are supported")
+                    })?;
+                let path = path(field, sql)?;
+                parts.push(exists(&path,"v NOT IN ('null'::jsonb,'false'::jsonb,'0'::jsonb,'{\"$i\":\"0\"}'::jsonb,'{\"$f\":0}'::jsonb,'{\"$f\":\"-0\"}'::jsonb,'\"\"'::jsonb,'{\"$f\":\"NaN\"}'::jsonb) AND (v->'$b'->>4) IS DISTINCT FROM '6'", false));
+                continue;
+            }
             let join = match field.as_str() {
                 "$and" => " AND ",
                 "$or" | "$nor" => " OR ",
@@ -94,13 +122,21 @@ fn condition(field: &str, value: &Bson, sql: &mut Sql, depth: usize) -> Result<S
             for (op, operand) in doc {
                 let part = match op.as_str() {
                     "$eq" | "$lt" | "$lte" | "$gt" | "$gte" => compare(field, operand, op, sql)?,
-                    "$ne" => format!("NOT ({})", compare(field, operand, "$eq", sql)?),
+                    "$ne" => {
+                        if matches!(operand, Bson::RegularExpression(_)) {
+                            bail!("$ne cannot take a regex");
+                        }
+                        format!("NOT ({})", compare(field, operand, "$eq", sql)?)
+                    }
+                    "$type" => type_condition(field, operand, sql)?,
                     "$exists" => {
                         let exists = match operand {
                             Bson::Boolean(b) => *b,
                             Bson::Int32(i) => *i != 0,
                             Bson::Int64(i) => *i != 0,
-                            _ => bail!("$exists requires a boolean"),
+                            Bson::Double(f) => *f != 0.0,
+                            Bson::Null | Bson::Undefined => false,
+                            _ => true,
                         };
                         let path = path(field, sql)?;
                         format!(
@@ -208,6 +244,9 @@ pub fn numeric(field: &str) -> String {
 }
 
 fn compare(field: &str, value: &Bson, op: &str, sql: &mut Sql) -> Result<String> {
+    if op != "$eq" && matches!(value, Bson::RegularExpression(_)) {
+        bail!("{op} cannot take a regex");
+    }
     let operator = match op {
         "$eq" => "=",
         "$lt" => "<",
@@ -237,12 +276,87 @@ fn compare(field: &str, value: &Bson, op: &str, sql: &mut Sql) -> Result<String>
             format!("jsonb_typeof(v) = jsonb_typeof({value}) AND v {operator} {value}")
         }
     };
-    let matched = exists(&path, &predicate, value.as_array().is_none());
+    let matched = exists(&path, &predicate, true);
     Ok(if value == &Bson::Null && op == "$eq" {
         format!("({matched} OR NOT jsonb_path_exists(_jsonb, {path}))")
     } else {
         matched
     })
+}
+
+fn type_condition(field: &str, operand: &Bson, sql: &mut Sql) -> Result<String> {
+    let operands = match operand {
+        Bson::Array(values) => values.as_slice(),
+        value => std::slice::from_ref(value),
+    };
+    if operands.is_empty() {
+        bail!("$type requires at least one type");
+    }
+    let mut predicates = Vec::new();
+    for operand in operands {
+        let name = match operand {
+            Bson::String(name) => name.as_str(),
+            value => match crate::pg::integer(value)? {
+                -1 => "minKey",
+                1 => "double",
+                2 => "string",
+                3 => "object",
+                4 => "array",
+                5 => "binData",
+                6 => "undefined",
+                7 => "objectId",
+                8 => "bool",
+                9 => "date",
+                10 => "null",
+                11 => "regex",
+                13 => "javascript",
+                14 => "symbol",
+                15 => "javascriptWithScope",
+                16 => "int",
+                17 => "timestamp",
+                18 => "long",
+                19 => "decimal",
+                127 => "maxKey",
+                _ => bail!("invalid BSON type"),
+            },
+        };
+        let predicate = match name {
+            "double" => "v ? '$f'".into(),
+            "string" => "(jsonb_typeof(v)='string' OR (v->'$b'->>4)='2')".into(),
+            "object" => {
+                "(jsonb_typeof(v)='object' AND NOT v ?| ARRAY['$i','$f','$o','$d','$b'])".into()
+            }
+            "array" => "jsonb_typeof(v)='array'".into(),
+            "objectId" => "v ? '$o'".into(),
+            "bool" => "jsonb_typeof(v)='boolean'".into(),
+            "date" => "v ? '$d'".into(),
+            "null" => "v='null'::jsonb".into(),
+            "int" => "jsonb_typeof(v)='number'".into(),
+            "long" => "v ? '$i'".into(),
+            "number" => {
+                "(jsonb_typeof(v)='number' OR v ?| ARRAY['$i','$f'] OR (v->'$b'->>4)='19')".into()
+            }
+            name => {
+                let code = match name {
+                    "binData" => 5,
+                    "undefined" => 6,
+                    "regex" => 11,
+                    "javascript" => 13,
+                    "symbol" => 14,
+                    "javascriptWithScope" => 15,
+                    "timestamp" => 17,
+                    "decimal" => 19,
+                    "minKey" => 255,
+                    "maxKey" => 127,
+                    _ => bail!("invalid BSON type {name}"),
+                };
+                format!("(v->'$b'->>4)='{code}'")
+            }
+        };
+        let path = path(field, sql)?;
+        predicates.push(exists(&path, &predicate, name != "array"));
+    }
+    Ok(format!("({})", predicates.join(" OR ")))
 }
 
 fn exists(path: &str, predicate: &str, unwrap_array: bool) -> String {

@@ -418,7 +418,7 @@ fn concurrent_increments_do_not_lose_writes() {
 fn large_results_return_a_bounded_error_and_limit_can_recover() {
     let ctx = common::setup();
     ctx.col()
-        .insert_many((0..10).map(|i| doc! {"_id":i,"payload":"x".repeat(900_000)}))
+        .insert_many((0..10).map(|i| doc! {"_id":i,"payload":"x".repeat(7_000_000)}))
         .run()
         .unwrap();
     assert!(ctx
@@ -519,4 +519,48 @@ fn oversized_document_sequences_are_rejected_during_decoding() {
         .unwrap_err()
         .to_string()
         .contains("10000"));
+}
+
+#[test]
+fn version_one_collections_are_refused_without_rewriting_data() {
+    let mut pg = oxide::pg::PgDb::try_with_uri(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    let schema = format!("old_{}", uuid::Uuid::new_v4().simple());
+    pg.create_schema_if_not_exists(&schema).unwrap();
+    pg.batch_execute(&format!("CREATE TABLE {schema}.items (_jsonb jsonb, _id jsonb); COMMENT ON TABLE {schema}.items IS 'oxide:jsonb:v1'; INSERT INTO {schema}.items VALUES ('{{\"_id\":1,\"value\":2}}','1')")).unwrap();
+    let error = pg
+        .find(
+            &oxide::pg::SqlParam::new(&schema, "items"),
+            &doc! {},
+            None,
+            0,
+            0,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("export with the old version"));
+    let row=pg.raw_query(&format!("SELECT _jsonb->>'value',obj_description('{schema}.items'::regclass,'pg_class') FROM {schema}.items"),&[]).unwrap();
+    assert_eq!(row[0].get::<_, String>(0), "2");
+    assert_eq!(row[0].get::<_, String>(1), "oxide:jsonb:v1");
+    pg.batch_execute(&format!("DROP SCHEMA {schema} CASCADE"))
+        .unwrap();
+}
+
+#[test]
+fn invalid_hints_and_general_javascript_are_rejected() {
+    let ctx = common::setup();
+    ctx.col().insert_one(doc! {"_id":1,"a":true}).run().unwrap();
+    assert!(ctx
+        .db()
+        .run_command(doc! {"find":&ctx.collection,"hint":{"absent":1}})
+        .run()
+        .is_err());
+    assert!(ctx
+        .db()
+        .run_command(doc! {"find":&ctx.collection,"hint":123})
+        .run()
+        .is_err());
+    assert!(ctx
+        .col()
+        .find(doc! {"$where":"this.a; while(true) {}"})
+        .run()
+        .is_err());
 }

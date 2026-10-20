@@ -120,8 +120,19 @@ impl CommandExecutionError {
     }
 }
 
+pub(crate) fn aggregation_error(code: i32, message: impl Into<String>) -> eyre::Report {
+    eyre::eyre!(CommandExecutionError {
+        message: message.into(),
+        code,
+        code_name: format!("Location{code}")
+    })
+}
+
 impl From<eyre::Report> for CommandExecutionError {
     fn from(error: eyre::Report) -> Self {
+        if let Some(error) = error.downcast_ref::<Self>() {
+            return error.clone();
+        }
         if let Some(error) = error.downcast_ref::<postgres::Error>() {
             if error.code() == Some(&postgres::error::SqlState::UNIQUE_VIOLATION) {
                 return Self {
@@ -139,6 +150,19 @@ impl From<eyre::Report> for CommandExecutionError {
                 };
             }
             if let Some(db) = error.as_db_error() {
+                if db.code() == &postgres::error::SqlState::RAISE_EXCEPTION {
+                    if let Some(code) = db
+                        .detail()
+                        .and_then(|s| s.strip_prefix("oxide:"))
+                        .and_then(|s| s.parse::<i32>().ok())
+                    {
+                        return Self {
+                            message: db.message().to_owned(),
+                            code,
+                            code_name: format!("Location{code}"),
+                        };
+                    }
+                }
                 return Self::new(db.message().to_owned());
             }
         }

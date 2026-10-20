@@ -14,6 +14,9 @@ use std::fmt;
 
 pub const MAX_QUERY_ROWS: usize = 10_000;
 pub const MAX_QUERY_BYTES: usize = 8 * 1024 * 1024;
+/// Read snapshots and wire batches have independent budgets. Mutations remain
+/// bounded by MAX_QUERY_BYTES while cursors can span several wire batches.
+pub const MAX_SNAPSHOT_BYTES: usize = 64 * 1024 * 1024;
 const SCHEMA_VERSION: &str = "oxide:database:v1";
 
 #[derive(Debug)]
@@ -212,6 +215,49 @@ impl PgDb {
         Ok(self.client.query(&query, &filter.refs())?)
     }
 
+    /// Validate a MongoDB hint against catalog metadata. PostgreSQL chooses the
+    /// physical plan; a valid hint does not change the result predicate.
+    pub fn validate_hint(&mut self, sp: &SqlParam, hint: &Bson) -> Result<()> {
+        if !matches!(hint, Bson::String(_) | Bson::Document(_)) {
+            bail!("hint must be an index name or key pattern");
+        }
+        if hint.as_document().is_some_and(|d| {
+            d.len() == 1
+                && d.get("$natural")
+                    .is_some_and(|v| integer(v).is_ok_and(|n| n == 1))
+        }) {
+            return Ok(());
+        }
+        if sp.exists(self)? {
+            for row in self.get_table_indexes(&sp.db, &sp.collection)? {
+                let definition: Option<String> = row.get("definition");
+                if let Some(definition) = definition {
+                    let value: serde_json::Value = serde_json::from_str(&definition)?;
+                    let matches = match hint {
+                        Bson::String(name) => value["name"].as_str() == Some(name),
+                        Bson::Document(key) => value["key"].as_object().is_some_and(|stored| {
+                            key.len() == stored.len()
+                                && key.iter().zip(stored).all(
+                                    |((field, direction), (stored_field, stored_direction))| {
+                                        field == stored_field
+                                            && integer(direction).ok() == stored_direction.as_i64()
+                                    },
+                                )
+                        }),
+                        _ => false,
+                    };
+                    if matches {
+                        if value.get("partialFilterExpression").is_some() {
+                            bail!("partial index hints are unsupported");
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        bail!("hint does not correspond to an existing index")
+    }
+
     pub fn find(
         &mut self,
         sp: &SqlParam,
@@ -246,6 +292,56 @@ impl PgDb {
         )
     }
 
+    /// Install session-local aggregation helpers. Errors retain MongoDB codes;
+    /// exclusions update field-order metadata along with the visible document.
+    pub fn prepare_aggregation(&mut self) -> Result<()> {
+        let exists: bool = self
+            .client
+            .query_one(
+                "SELECT to_regprocedure('pg_temp.oxide_error(integer,text)') IS NOT NULL AND to_regprocedure('pg_temp.oxide_unset(jsonb,text[])') IS NOT NULL",
+                &[],
+            )?
+            .get(0);
+        if !exists {
+            self.client.batch_execute(r#"
+                CREATE OR REPLACE FUNCTION pg_temp.oxide_error(error_code integer, error_message text)
+                RETURNS jsonb LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE=error_message,
+                        DETAIL='oxide:' || error_code::text;
+                END $$;
+                CREATE OR REPLACE FUNCTION pg_temp.oxide_unset(input jsonb, path text[])
+                RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+                DECLARE
+                    changed jsonb;
+                    keys_in_order jsonb;
+                BEGIN
+                    IF input IS NULL OR cardinality(path)=0 THEN RETURN input; END IF;
+                    IF jsonb_typeof(input)='array' THEN
+                        SELECT COALESCE(jsonb_agg(pg_temp.oxide_unset(element,path) ORDER BY ordinal),'[]'::jsonb)
+                            INTO changed
+                        FROM jsonb_array_elements(input) WITH ORDINALITY AS items(element,ordinal);
+                        RETURN changed;
+                    END IF;
+                    IF jsonb_typeof(input)<>'object' OR NOT input ? path[1] THEN RETURN input; END IF;
+                    IF cardinality(path)>1 THEN
+                        RETURN jsonb_set(input,ARRAY[path[1]],
+                            pg_temp.oxide_unset(input->path[1],path[2:cardinality(path)]),false);
+                    END IF;
+                    changed := input-path[1];
+                    SELECT COALESCE(jsonb_agg(key ORDER BY ordinal),'[]'::jsonb) INTO keys_in_order
+                    FROM jsonb_array_elements_text(COALESCE(input->'$k',
+                        (SELECT COALESCE(jsonb_agg(key),'[]'::jsonb)
+                         FROM jsonb_object_keys(input) AS keys(key) WHERE key<>'$k')))
+                        WITH ORDINALITY AS keys(key,ordinal)
+                    WHERE key<>'$k' AND changed ? key;
+                    RETURN changed || jsonb_build_object('$k',keys_in_order);
+                END $$;
+            "#)?;
+        }
+        Ok(())
+    }
+
     pub fn documents(&mut self, sql: &Sql, limit: Option<usize>) -> Result<Vec<Document>> {
         use postgres::fallible_iterator::FallibleIterator;
         let refs = sql.refs();
@@ -266,7 +362,7 @@ impl PgDb {
                 .ok_or_else(|| eyre!("query returned a non-document"))?
                 .clone();
             bytes += bson::to_vec(&doc)?.len();
-            if bytes > MAX_QUERY_BYTES {
+            if bytes > MAX_SNAPSHOT_BYTES {
                 bail!("query exceeds the supported result byte limit");
             }
             docs.push(doc);
@@ -392,7 +488,7 @@ impl PgDb {
             let after = mutation::apply(&before, &update)?;
             validate_document(&after)?;
             result.matched += 1;
-            if after != before {
+            if bson::to_vec(&after)? != bson::to_vec(&before)? {
                 let json = Bson::Document(after.clone()).into_psql_json();
                 let id = identity(after.get("_id").expect("validated identity"))?;
                 transaction.execute(
@@ -431,9 +527,10 @@ impl PgDb {
     pub fn insert_doc(&mut self, sp: SqlParam, doc: &Document) -> Result<Document> {
         self.require_collection(&sp)?;
         let mut doc = doc.clone();
-        if !doc.contains_key("_id") {
-            doc.insert("_id", bson::oid::ObjectId::new());
-        }
+        let id = doc
+            .remove("_id")
+            .unwrap_or_else(|| Bson::ObjectId(bson::oid::ObjectId::new()));
+        doc = std::iter::once(("_id".to_owned(), id)).chain(doc).collect();
         validate_document(&doc)?;
         let id = identity(doc.get("_id").expect("validated identity"))?;
         self.exec(
@@ -844,6 +941,14 @@ pub fn integer(value: &Bson) -> Result<i64> {
     match value {
         Bson::Int32(i) => Ok(*i as i64),
         Bson::Int64(i) => Ok(*i),
+        Bson::Double(n)
+            if n.is_finite()
+                && n.fract() == 0.0
+                && *n >= i64::MIN as f64
+                && *n < -(i64::MIN as f64) =>
+        {
+            Ok(*n as i64)
+        }
         _ => bail!("expected an integer"),
     }
 }
@@ -926,4 +1031,18 @@ fn validate_document(doc: &Document) -> Result<()> {
         bail!("document exceeds BSON size limit");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod numeric_option_tests {
+    use super::*;
+
+    #[test]
+    fn integral_double_options_preserve_range_and_reject_fractional_values() {
+        assert_eq!(integer(&Bson::Double(1.0)).unwrap(), 1);
+        assert_eq!(integer(&Bson::Double(i64::MIN as f64)).unwrap(), i64::MIN);
+        for n in [1.5, f64::NAN, f64::INFINITY, -(i64::MIN as f64)] {
+            assert!(integer(&Bson::Double(n)).is_err(), "{n}");
+        }
+    }
 }

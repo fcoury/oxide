@@ -22,6 +22,7 @@ axum = {version = "0.8", optional = true}
 tokio = {version = "1", features = ["rt", "time", "net", "sync", "macros"], optional = true}
 bson = {version = "2.4.0", features = ["chrono-0_4"]}
 byteorder = "1.4.3"
+crc32c = "0.6.8"
 clap = {version = "4", features = ["derive"]}
 dotenvy = "0.15"
 env_logger = "0.11"

@@ -52,14 +52,41 @@ impl PostgresJsonDeserializer for Value {
             }
             Value::Object(o) => {
                 let mut doc = bson::Document::new();
-                for (key, value) in o {
+                // Computed SQL objects may omit order metadata. Stored v2 documents
+                // carry it at every nesting level; additions/removals in SQL retain
+                // surviving keys and append new keys only once.
+                let mut keys = Vec::new();
+                let mut seen = std::collections::HashSet::new();
+                if let Some(order) = o.get("$k") {
+                    for key in order
+                        .as_array()
+                        .ok_or_else(|| eyre!("invalid document order tag"))?
+                    {
+                        let key = key
+                            .as_str()
+                            .ok_or_else(|| eyre!("invalid document order key"))?;
+                        if key == "$k" || !seen.insert(key) {
+                            bail!("invalid document order tag");
+                        }
+                        keys.push(key);
+                    }
+                }
+                for key in o.keys() {
+                    if key != "$k" && seen.insert(key.as_str()) {
+                        keys.push(key);
+                    }
+                }
+                for key in keys {
+                    let Some(value) = o.get(key) else {
+                        continue;
+                    };
                     if key.starts_with('$') && !key.starts_with("$$") {
                         bail!("unknown storage tag {key}");
                     }
                     doc.insert(
                         key.strip_prefix("$$")
                             .map(|k| format!("${k}"))
-                            .unwrap_or_else(|| key.clone()),
+                            .unwrap_or_else(|| key.to_owned()),
                         value.to_bson()?,
                     );
                 }
@@ -113,6 +140,31 @@ mod tests {
         }
         assert!(
             matches!(Bson::Double(f64::NAN).into_psql_json().to_bson().unwrap(), Bson::Double(f) if f.is_nan())
+        );
+    }
+
+    #[test]
+    fn jsonb_key_canonicalization_does_not_lose_document_order() {
+        fn sorted(value: Value) -> Value {
+            match value {
+                Value::Object(o) => Value::Object(
+                    o.into_iter()
+                        .map(|(k, v)| (k, sorted(v)))
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                        .into_iter()
+                        .collect(),
+                ),
+                Value::Array(a) => Value::Array(a.into_iter().map(sorted).collect()),
+                value => value,
+            }
+        }
+        let original =
+            doc! {"z":1,"_id":2,"a":{"y":1,"x":2,"$k":"user value"},"items":[{"b":1,"a":2}]};
+        let stored = sorted(Bson::Document(original.clone()).into_psql_json());
+        let decoded = stored.to_bson().unwrap();
+        assert_eq!(
+            bson::to_vec(decoded.as_document().unwrap()).unwrap(),
+            bson::to_vec(&original).unwrap()
         );
     }
 

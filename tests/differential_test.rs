@@ -398,3 +398,261 @@ fn concat_arrays_operand_boundaries_match_mongodb() {
     }
     db.drop().run().unwrap();
 }
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn ordered_documents_queries_and_updates_match_mongodb() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let reference = db.collection::<Document>("items");
+    let oxide = ctx.col();
+    let documents = vec![
+        doc! {"z":1,"_id":1,"nested":{"z":1,"a":2},"values":[1,2],"items":[{"n":0}],"f":true},
+        doc! {"_id":2,"nested":{"a":2,"z":1},"values":[[2]],"f":false},
+        doc! {"_id":3,"values":["a"],"f":""},
+        doc! {"_id":4,"values":Bson::Null,"f":0},
+    ];
+    for col in [&oxide, &reference] {
+        col.insert_many(documents.clone()).run().unwrap();
+    }
+    let bytes = |rows: Vec<Document>| {
+        rows.iter()
+            .map(|d| bson::to_vec(d).unwrap())
+            .collect::<Vec<_>>()
+    };
+    for query in [
+        doc! {},
+        doc! {"values":[2]},
+        doc! {"values":{"$type":2.0}},
+        doc! {"values":{"$type":["array","null"]}},
+        doc! {"values":{"$type":"number"}},
+        doc! {"nested":{"$eq":{"z":1,"a":2}}},
+        doc! {"nested":{"$eq":{"a":2,"z":1}}},
+        doc! {"values":{"$exists":0.0}},
+        doc! {"values":{"$exists":1.0}},
+        doc! {"$where":"this.f"},
+    ] {
+        assert_eq!(
+            bytes(all(&oxide, query.clone())),
+            bytes(all(&reference, query.clone())),
+            "query {query:?}"
+        );
+    }
+    for projection in [
+        doc! {"values":1.0,"nested.z":1.0},
+        doc! {"z":0.0},
+        doc! {"nested.z":1.0,"nested.a":1.0,"_id":0.0},
+    ] {
+        let rows = |col: &Collection<Document>| {
+            common::get_rows(
+                col.find(doc! {})
+                    .sort(doc! {"_id":1})
+                    .projection(projection.clone())
+                    .run()
+                    .unwrap(),
+            )
+        };
+        assert_eq!(
+            bytes(rows(&oxide)),
+            bytes(rows(&reference)),
+            "projection {projection:?}"
+        );
+    }
+    for update in [
+        doc! {"$push":{"items.0.log":{"$each":[1,1,2]}}},
+        doc! {"$set":{"items.0.n":3,"items.2.n":9}},
+        doc! {"$unset":{"items.1":true}},
+        doc! {"$addToSet":{"values":{"$each":[1.0,1_i64,{"a":1,"b":2},{"b":2,"a":1}]}}},
+    ] {
+        for col in [&oxide, &reference] {
+            col.update_one(doc! {"_id":1}, update.clone())
+                .run()
+                .unwrap();
+        }
+        assert_eq!(
+            bytes(all(&oxide, doc! {})),
+            bytes(all(&reference, doc! {})),
+            "update {update:?}"
+        );
+    }
+    // Replacements that change only field order must still be persisted.
+    for col in [&oxide, &reference] {
+        col.replace_one(doc! {"_id":2}, doc! {"_id":2,"z":1,"a":2})
+            .run()
+            .unwrap();
+        assert_eq!(
+            col.replace_one(doc! {"_id":2}, doc! {"_id":2,"a":2,"z":1})
+                .run()
+                .unwrap()
+                .modified_count,
+            1
+        );
+    }
+    assert_eq!(bytes(all(&oxide, doc! {})), bytes(all(&reference, doc! {})));
+    db.drop().run().unwrap();
+}
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn aggregation_order_metadata_matches_visible_documents() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let columns = [ctx.col(), db.collection::<Document>("items")];
+    for col in &columns {
+        col.insert_many([
+            doc! {"_id":1,"a":{"x":1,"y":1}},
+            doc! {"_id":2,"a":{"y":1}},
+            doc! {"_id":3,"empty":[]},
+            doc! {"_id":4},
+            doc! {"_id":5,"values":[7,8]},
+            doc! {"_id":6,"items":[{"x":1,"y":1},[{"x":2,"y":2}],2,Bson::Null]},
+            doc! {"_id":7,"a":{"$k":1,"tail":2}},
+        ])
+        .run()
+        .unwrap();
+    }
+    let cases = vec![
+        vec![
+            doc! {"$match":{"_id":{"$in":[1,2]}}},
+            doc! {"$project":{"a.x":0}},
+            doc! {"$match":{"a":{"$eq":{"y":1}}}},
+            doc! {"$sort":{"_id":1}},
+        ],
+        vec![
+            doc! {"$match":{"_id":{"$in":[1,2]}}},
+            doc! {"$unset":"a.x"},
+            doc! {"$group":{"_id":"$a","n":{"$sum":1}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":{"$in":[1,2]}}},
+            doc! {"$unset":"a.x"},
+            doc! {"$project":{"_id":0}},
+            doc! {"$group":{"_id":"$$ROOT","n":{"$sum":1}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$unwind":{"path":"$empty","preserveNullAndEmptyArrays":true}},
+            doc! {"$group":{"_id":"$$ROOT"}},
+            doc! {"$match":{"_id":{"$eq":{"_id":3}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$unwind":{"path":"$empty","preserveNullAndEmptyArrays":true,"includeArrayIndex":"position"}},
+            doc! {"$group":{"_id":"$$ROOT"}},
+            doc! {"$match":{"_id":{"$eq":{"_id":3,"position":Bson::Null}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":5}},
+            doc! {"$unwind":{"path":"$values","includeArrayIndex":"position"}},
+            doc! {"$group":{"_id":"$$ROOT"}},
+            doc! {"$match":{"_id":{"$eq":{"_id":5,"values":7,"position":0_i64}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$lookup":{"from":"absent_lookup","pipeline":[],"as":"joined"}},
+            doc! {"$group":{"_id":"$$ROOT"}},
+            doc! {"$match":{"_id":{"$eq":{"_id":3,"empty":[],"joined":[]}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$project":{"_id":0,"missing":"$absent","keep":{"$literal":1},"explicit":{"$literal":Bson::Null}}},
+            doc! {"$group":{"_id":"$$ROOT"}},
+            doc! {"$match":{"_id":{"$eq":{"keep":1,"explicit":Bson::Null}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$project":{"_id":0,"result":{"missing":"$absent","keep":{"$literal":1}}}},
+            doc! {"$match":{"result":{"$eq":{"keep":1}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":3}},
+            doc! {"$replaceRoot":{"newRoot":{"result":{}}}},
+            doc! {"$match":{"result":{"$eq":{}}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":6}},
+            doc! {"$unset":"items.x"},
+            doc! {"$match":{"items":{"$eq":[{"y":1},[{"y":2}],2,Bson::Null]}}},
+        ],
+        vec![
+            doc! {"$match":{"_id":7}},
+            doc! {"$unset":"a.tail"},
+            doc! {"$match":{"a":{"$eq":{"$k":1}}}},
+        ],
+    ];
+    for (index, pipeline) in cases.into_iter().enumerate() {
+        let query = |col: &Collection<Document>| {
+            common::get_rows(col.aggregate(pipeline.clone()).run().unwrap())
+        };
+        let reference = query(&columns[1]);
+        assert!(
+            !reference.is_empty(),
+            "case {index} must exercise a matching reference result"
+        );
+        if index == 1 || index == 2 {
+            assert_eq!(reference.len(), 1);
+            assert_eq!(reference[0].get_i32("n").unwrap(), 2);
+        }
+        let bytes = |rows: Vec<Document>| {
+            rows.iter()
+                .map(|d| bson::to_vec(d).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            bytes(query(&columns[0])),
+            bytes(reference),
+            "case {index}: {pipeline:?}"
+        );
+    }
+    db.drop().run().unwrap();
+}
+
+#[test]
+#[ignore = "requires MONGODB_REFERENCE_URL; executed in CI"]
+fn compound_index_hint_field_order_matches_mongodb() {
+    let ctx = common::setup();
+    let client = Client::with_uri_str(std::env::var("MONGODB_REFERENCE_URL").unwrap()).unwrap();
+    let db = client.database(&format!("oxide_diff_{}", uuid::Uuid::new_v4().simple()));
+    let columns = [ctx.col(), db.collection::<Document>("items")];
+    for col in &columns {
+        col.insert_one(doc! {"_id":1,"a":1,"b":2}).run().unwrap();
+        col.create_index(
+            mongodb::IndexModel::builder()
+                .keys(doc! {"a":1,"b":-1})
+                .options(
+                    mongodb::options::IndexOptions::builder()
+                        .name("compound".to_owned())
+                        .build(),
+                )
+                .build(),
+        )
+        .run()
+        .unwrap();
+    }
+    for hint in [
+        mongodb::options::Hint::Keys(doc! {"a":1.0,"b":-1.0}),
+        mongodb::options::Hint::Name("compound".into()),
+    ] {
+        for col in &columns {
+            let options = hint.clone();
+            assert_eq!(
+                common::get_rows(col.find(doc! {}).hint(options).run().unwrap()).len(),
+                1
+            );
+        }
+    }
+    for col in &columns {
+        let error = col
+            .find(doc! {})
+            .hint(mongodb::options::Hint::Keys(doc! {"b":-1,"a":1}))
+            .run()
+            .unwrap_err();
+        match *error.kind {
+            mongodb::error::ErrorKind::Command(error) => assert_eq!(error.code, 2),
+            error => panic!("unexpected error: {error:?}"),
+        }
+    }
+    db.drop().run().unwrap();
+}

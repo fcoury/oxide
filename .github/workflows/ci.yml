@@ -37,7 +37,7 @@ jobs:
           docker exec ${{ job.services.postgres.id }} psql -U postgres -c "ALTER SYSTEM SET wal_level = logical"
           docker exec ${{ job.services.postgres.id }} psql -U postgres -c "ALTER SYSTEM SET max_replication_slots = 100"
           docker restart ${{ job.services.postgres.id }}
-          for attempt in {1..30}; do
+          for _ in {1..30}; do
             docker exec ${{ job.services.postgres.id }} pg_isready -U postgres && break
             sleep 1
           done
