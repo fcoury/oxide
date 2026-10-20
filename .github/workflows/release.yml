@@ -29,6 +29,16 @@ on:
 permissions:
   contents: read
 jobs:
+  credential:
+    if: github.event_name == 'workflow_dispatch' && !inputs.publish
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Validate the release bot credential without making changes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN"
+          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions.push')" = true
   prepare:
     runs-on: ubuntu-22.04
     outputs:
@@ -43,13 +53,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: rustup show
-      - name: Validate the release bot credential without making changes
-        if: github.event_name == 'workflow_dispatch' && !inputs.publish
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          test -n "$GH_TOKEN"
-          test "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions.push')" = true
       - name: Resolve release mode
         id: mode
         env:
