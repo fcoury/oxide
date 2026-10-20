@@ -72,14 +72,6 @@ python3 -m unittest discover -s tests/upstream -p 'test_*.py' -v
 
 `.github/workflows/upstream-compatibility.yml` runs the required baseline on PRs and `main`, discovery nightly, and either mode on manual dispatch. It retains JSON/JUnit/log artifacts and a job summary. It is also reusable by the release workflow.
 
-The release workflow now starts on a version-tag push or manual dispatch, rather than after publication:
+Releases are driven by a Release Please version/changelog PR. Merging it calls the gated release pipeline on the exact merge commit. The pipeline runs all CI checks, tests the packaged Linux executable against this baseline, builds and smoke-tests native macOS/Windows archives, verifies all three packages, then creates the tag and publishes. It reuses the exact tested Linux archive.
 
-1. Validate that the version tag matches `Cargo.toml` and resolve the candidate commit.
-2. Run the Rust regression suites and the complete required upstream baseline against the packaged Linux executable from that commit.
-3. Retain that exact tested Linux archive and build native macOS and Windows packages from the same commit.
-4. Verify package checksums and that the tag still resolves to the tested commit.
-5. Publish only after every prerequisite succeeds. An already published release is never replaced.
-
-On manual dispatch, `publish` defaults to false: this tests the dispatch commit and builds all three platform packages without creating a tag or publishing a release. Supply a prospective matching version tag, such as `v0.1.7` for version 0.1.7. With `publish=true`, the tag must already exist and identify the tested commit. A pushed `v*` tag requests validation followed by publication.
-
-These checks govern this repository's release workflow. They do not prevent a maintainer from manually publishing through GitHub outside that workflow. Run the workflow's dry-run path when validating changes to release automation; do not create a real release merely to test it.
+Manual tag pushes and `publish=false` workflow dispatch remain available. A dry run executes the checks and artifact verification while skipping tag creation/publication. See [release automation](releases.md) for credentials, version selection, migration notes, and recovery steps.
