@@ -390,4 +390,13 @@ mod tests {
             assert!(compile(&doc).is_err());
         }
     }
+    #[test]
+    fn nor_negates_disjunction() {
+        let sql = compile(&doc! {
+            "$nor": [doc! {"name": "Peter"}, doc! {"x": 3}]
+        })
+        .unwrap();
+        assert!(sql.text.contains("NOT ("));
+        assert!(sql.text.contains(" OR "));
+    }
 }
