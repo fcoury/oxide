@@ -96,6 +96,68 @@ fn test_find_with_or() {
 }
 
 #[test]
+fn test_find_with_nor() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(vec![
+            doc! { "x": 1, "name": "Peter" },
+            doc! { "x": 2, "name": "James" },
+            doc! { "x": 3, "name": "Mary" },
+        ])
+        .run()
+        .unwrap();
+
+    let cursor = ctx
+        .col()
+        .find(doc! { "$nor": vec![ doc!{ "name": "Peter" }, doc! { "x": 3 }] })
+        .run()
+        .unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    assert_eq!(1, rows.len());
+    assert_eq!(
+        "James",
+        rows.into_iter()
+            .next()
+            .unwrap()
+            .unwrap()
+            .get_str("name")
+            .unwrap()
+    );
+}
+
+#[test]
+fn test_find_with_and() {
+    let ctx = common::setup();
+
+    ctx.col()
+        .insert_many(vec![
+            doc! { "x": 1, "name": "Peter" },
+            doc! { "x": 2, "name": "James" },
+            doc! { "x": 3, "name": "Mary" },
+        ])
+        .run()
+        .unwrap();
+
+    let cursor = ctx
+        .col()
+        .find(doc! { "$and": vec![ doc!{ "name": "James" }, doc! { "x": 2 }] })
+        .run()
+        .unwrap();
+    let rows: Vec<Result<Document, mongodb::error::Error>> = cursor.collect();
+    assert_eq!(1, rows.len());
+    assert_eq!(
+        "James",
+        rows.into_iter()
+            .next()
+            .unwrap()
+            .unwrap()
+            .get_str("name")
+            .unwrap()
+    );
+}
+
+#[test]
 fn test_find_with_float() {
     let ctx = common::setup();
 
