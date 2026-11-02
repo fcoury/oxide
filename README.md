@@ -120,6 +120,35 @@ cargo run --locked --features web -- web
 
 Open `http://127.0.0.1:8087` and enter the token. The workbench requires a token of at least 32 alphanumeric characters and refuses non-loopback binds. Its API requires a bearer token. The page keeps the token only in memory. Start the wire server separately if needed; the old `--web` and `--web-addr` flags were removed.
 
+## MCP server
+
+The optional `mcp` feature speaks [Model Context Protocol](https://modelcontextprotocol.io) on stdio so an agent can inspect a PostgreSQL-backed database. It does not add crates: requests are newline-delimited JSON-RPC, and each tool builds a MongoDB command document that goes through the same dispatcher as the wire server. The core build stays free of this frontend, as it does for `shell` and `web`.
+
+```sh
+cargo build --locked --features mcp
+export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/oxide'
+cargo run --locked --features mcp -- mcp
+```
+
+Logs go to stderr. stdout is reserved for protocol messages. Startup prepares the same change journal as the wire server, so PostgreSQL needs `wal_level=logical` (see [change streams](docs/compatibility.md#change-streams)). The server is read-only unless `--allow-writes` is present. With that flag it also lists `insert`, `update`, and `delete`. Clients that honor tool annotations can still ask for approval before those calls; the flag is the server-side gate, and a write tool called without it returns an error instead of changing data.
+
+`find` defaults to 20 documents (`limit` 0 uses the server snapshot cap of 10,000). `list_databases`, `list_collections`, `aggregate`, and `count` are always available. Queries use Oxide's supported MongoDB subset.
+
+Claude Desktop or Cursor can launch the binary directly:
+
+```json
+{
+  "mcpServers": {
+    "oxide": {
+      "command": "/absolute/path/to/oxide",
+      "args": ["mcp", "--postgres-url", "postgresql://postgres:postgres@127.0.0.1:5432/oxide"]
+    }
+  }
+}
+```
+
+Add `"--allow-writes"` to `args` only for a database you are willing to let the agent change. `scripts/mcp-stdio.py` is a small client for trying one tool from the shell.
+
 ## Tests
 
 Point these variables at a **disposable PostgreSQL instance**. The tests create databases and collections and exercise schema deletion. They never need your existing development database.

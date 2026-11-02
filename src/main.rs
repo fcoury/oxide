@@ -15,6 +15,16 @@ enum Commands {
         #[arg(short = 'u', long)]
         postgres_url: Option<String>,
     },
+    #[cfg(feature = "mcp")]
+    /// Serve an MCP endpoint on stdio (read-only unless --allow-writes)
+    Mcp {
+        /// PostgreSQL connection URL (env: DATABASE_URL)
+        #[arg(short = 'u', long)]
+        postgres_url: Option<String>,
+        /// Also expose insert, update, and delete tools
+        #[arg(long)]
+        allow_writes: bool,
+    },
     #[cfg(feature = "shell")]
     /// Start the embedded Oxide JavaScript shell
     Shell {
@@ -77,6 +87,11 @@ fn main() -> Result<()> {
             port,
             postgres_url: url,
         }) => oxide::ui::start((listen_addr, port).into(), &postgres_url(url)?),
+        #[cfg(feature = "mcp")]
+        Some(Commands::Mcp {
+            postgres_url: url,
+            allow_writes,
+        }) => oxide::mcp::start(&postgres_url(url)?, allow_writes),
         #[cfg(feature = "shell")]
         Some(Commands::Shell {
             server_addr,
