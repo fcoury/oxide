@@ -8,6 +8,7 @@ version = "0.2.0"
 default = []
 shell = ["dep:rquickjs", "dep:rustyline", "dep:mongodb", "dep:ctrlc", "dep:dirs", "dep:base64", "dep:tokio", "dep:tree-sitter", "dep:tree-sitter-javascript"]
 web = ["dep:axum", "dep:tokio"]
+mcp = []
 
 [dependencies]
 tree-sitter = {version = "0.25", optional = true}

@@ -6,7 +6,7 @@ use crate::commands::{
 };
 use crate::cursor::Cursors;
 use crate::pg::PgDb;
-use crate::wire::{OpCode, OpMsg};
+use crate::wire::{MsgHeader, OpCode, OpMsg, OP_MSG};
 use bson::{doc, Bson, Document};
 use postgres::NoTls;
 use r2d2_postgres::PostgresConnectionManager;
@@ -222,6 +222,32 @@ pub fn handle_with_cursors(
         }
         Err(e) => Err(e),
     }
+}
+
+/// Run one command document through the same dispatcher the wire server uses.
+pub fn execute_command(
+    pool: &r2d2::Pool<PostgresConnectionManager<NoTls>>,
+    cursors: &Mutex<Cursors>,
+    command: Document,
+) -> Result<Document, CommandExecutionError> {
+    let op_code = OpCode::OpMsg(OpMsg::new_with_body_kind(
+        MsgHeader {
+            message_length: 0,
+            request_id: 0,
+            response_to: 0,
+            op_code: OP_MSG,
+        },
+        0,
+        None,
+        &command,
+    ));
+    let request = Request::new(
+        pool,
+        SocketAddr::from(([127, 0, 0, 1], 0)),
+        &op_code,
+        cursors,
+    );
+    run(&request, std::slice::from_ref(&command))
 }
 
 fn run(request: &Request, docs: &[Document]) -> Result<Document, CommandExecutionError> {

@@ -1,6 +1,8 @@
 pub mod commands;
 pub mod deserializer;
 pub mod handler;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod parser;
 pub mod pg;
 pub mod serializer;
